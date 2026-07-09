@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Single persistent daemon supervisor (§5.8 / H-STABLE). Own pidfile, setsid, survives the install
+# shell. CHECK-BEFORE-SPAWN: pgrep first; if a daemon is already alive it spawns NOTHING (steady-state
+# invariant: exactly one of each). Owns queue-server, todo-server, queue-client, ttyd, board-exporter,
+# boss-supervisor.
+set -u
+source "${MYPEOPLE_CONFIG_PATH:-$HOME/.config/mypeople/queue.env}" 2>/dev/null || true
+ID="${INSTALL_DIR:-$HOME/mypeople}"
+export PATH="$HOME/.local/bin:$ID/bin:$PATH"
+export LANG="${LANG:-C.UTF-8}" LC_ALL="${LC_ALL:-C.UTF-8}"
+BIN="$ID/bin"
+LOG="$ID/logs"
+mkdir -p "$LOG"
+PIDFILE="$ID/run/supervise.pid"
+
+# single-supervisor guard
+if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+  if [ "$(cat "$PIDFILE")" != "$$" ]; then
+    echo "supervisor already running ($(cat "$PIDFILE"))"; exit 0
+  fi
+fi
+echo $$ > "$PIDFILE"
+
+ensure(){
+  # Match the daemon by script ABSPATH in argv. Never key liveness on interpreter/comm: Homebrew
+  # framework Python reports `Python`, not `python3`, which otherwise causes duplicate respawns.
+  local pat="$1"; shift
+  if pgrep -f "$pat" >/dev/null 2>&1; then return; fi
+  echo "$(date -u +%FT%TZ) starting: $*" >> "$LOG/supervise.log"
+  # Detach into its own session. Linux has setsid; macOS/BSD don't — fall back to nohup,
+  # which (with the supervisor itself already session-led via start_new_session) is enough
+  # to keep daemons alive independent of the controlling terminal.
+  if command -v setsid >/dev/null 2>&1; then
+    setsid bash -c "$*" </dev/null >>"$LOG/daemon.log" 2>&1 &
+  else
+    nohup bash -c "$*" </dev/null >>"$LOG/daemon.log" 2>&1 &
+  fi
+}
+
+TTYD_PORT="${TTYD_PORT:-7681}"
+HUD_PORT="${HUD_PORT:-9900}"
+TODO_PORT="${TODO_PORT:-9933}"
+
+while true; do
+  ensure "$BIN/queue-server.py"            "exec python3 '$BIN/queue-server.py'"
+  ensure "$BIN/todo-server.py"             "exec python3 '$BIN/todo-server.py'"
+  ensure "$BIN/queue-client.py"            "exec python3 '$BIN/queue-client.py'"
+  ensure "$BIN/board-exporter.py"          "exec python3 '$BIN/board-exporter.py'"
+  ensure "ttyd -W -a -p $TTYD_PORT"        "exec ttyd -W -a -p $TTYD_PORT '$BIN/ttyd-attach.sh'"
+  ensure "$BIN/boss-supervisor.sh"         "exec bash '$BIN/boss-supervisor.sh'"
+  sleep 10
+done

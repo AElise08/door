@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>MyPeople - Wall</title>
+<style>
+:root{--volt:#D5EF8A;--dark-bg:#111110;--text-dark:#F0F0E8;--muted-dark:rgba(240,240,232,0.45);
+--surface:rgba(255,255,255,0.05);--warning:#febc2e;--danger:#ff3b30;
+--serif:'Instrument Serif',Georgia,serif;--sans:'DM Sans',system-ui,sans-serif;--mono:'DM Mono',monospace;}
+body{margin:0;background:var(--dark-bg);color:var(--text-dark);font-family:var(--sans);}
+.wrap{max-width:1200px;margin:0 auto;padding:28px 20px;}
+h1{font-family:var(--serif);font-size:34px;font-weight:400;}
+.chips{font-family:var(--mono);font-size:11px;margin:10px 0;display:flex;gap:8px;}
+.chip{border:1px solid rgba(255,255,255,0.09);border-radius:100px;padding:4px 12px;cursor:pointer;text-transform:uppercase;color:var(--muted-dark);}
+.chip.active{color:#01000A;background:var(--volt);}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-top:16px;}
+.tile{background:var(--surface);border:1px solid rgba(255,255,255,0.09);border-radius:14px;padding:14px;}
+.tile[data-state="idle"]{opacity:.4;filter:grayscale(1);}
+.tile .aid{font-family:var(--mono);font-size:12px;}
+.st{font-family:var(--mono);font-size:10px;text-transform:uppercase;}
+.st.working{color:var(--warning);} .st.blocked{color:var(--danger);} .st.ready{color:var(--volt);}
+.wm{font-family:var(--mono);font-size:10px;color:var(--muted-dark);}
+a{color:var(--volt);text-decoration:none;}
+</style></head>
+<body><div class="wrap">
+<h1>MyPeople - Wall <a href="/" style="font-size:14px">TODO ↗</a> <a href="/dashboard" style="font-size:14px">HUD ↗</a></h1>
+<div class="chips" id="chips"><span class="chip active" data-f="all">all</span><span class="chip" data-f="working">working</span><span class="chip" data-f="idle">idle</span></div>
+<div class="grid" id="grid"></div>
+</div>
+<script>
+"use strict";
+let filter="all";
+async function refresh(){
+  try{const r=await fetch("/todo/wall",{credentials:"same-origin"});if(!r.ok)return;const d=await r.json();
+  const g=document.getElementById("grid");g.innerHTML="";
+  (d.tiles||[]).filter(t=>filter==="all"||t.state===filter).forEach(t=>{
+    const el=document.createElement("div");el.className="tile";el.dataset.state=t.state;
+    el.innerHTML='<div class="aid">'+t.agent_id+'</div><div class="st '+t.state+'">'+t.state+
+      (t.state==="idle"?' <span class="wm">idle</span>':'')+'</div>';
+    g.appendChild(el);});
+  }catch(e){}}
+document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{filter=c.dataset.f;
+  document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("active",x===c));refresh();});
+document.addEventListener("DOMContentLoaded",()=>{refresh();setInterval(refresh,3000);});
+</script></body></html>
