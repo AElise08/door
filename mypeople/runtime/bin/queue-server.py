@@ -221,7 +221,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 with open(DASHBOARD_HTML, "rb") as f:
                     html = f.read().decode("utf-8")
-                html = html.replace("__TTYD_PORT__", str(CFG["TTYD_PORT"]))
+                html = html.replace("__TTYD_PORT__", str(CFG["TTYD_BROWSER_PORT"]))
                 html = html.replace("__HOST_ID__", HOST_ID)
             except Exception:
                 html = "<h1>MyPeople - HUD</h1>"

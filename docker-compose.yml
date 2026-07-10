@@ -1,12 +1,12 @@
 services:
   mypeople:
-    image: ghcr.io/delattre1/mypeople:0.2.0
+    image: ghcr.io/delattre1/mypeople:0.2.1
     pull_policy: missing
     init: true
     ports:
-      - "9933:9933"
-      - "9900:9900"
-      - "7681:7681"
+      - "${MYPEOPLE_TODO_PORT:-9933}:9933"
+      - "${MYPEOPLE_HUD_PORT:-9900}:9900"
+      - "${MYPEOPLE_TTYD_PORT:-7681}:7681"
     environment:
       MYPEOPLE_HOME: /var/lib/mypeople
       MYPEOPLE_CONFIG_PATH: /var/lib/mypeople/config/queue.env
@@ -14,6 +14,7 @@ services:
       HUD_PORT: "9900"
       TODO_PORT: "9933"
       TTYD_PORT: "7681"
+      TTYD_BROWSER_PORT: "${MYPEOPLE_TTYD_PORT:-7681}"
     volumes:
       - mypeople-state:/var/lib/mypeople
       # This is this container node's own Claude home/login. Never copy it to another node.

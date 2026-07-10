@@ -34,7 +34,8 @@ def load_env():
                 cfg[k.strip()] = v
     # Live env overrides the file, including fleet/client-only keys not present in old configs.
     known = set(cfg) | {
-        "INSTALL_DIR", "HOST_ID", "HUD_PORT", "TODO_PORT", "TTYD_PORT", "BIND_ADDR",
+        "INSTALL_DIR", "HOST_ID", "HUD_PORT", "TODO_PORT", "TTYD_PORT",
+        "TTYD_BROWSER_PORT", "BIND_ADDR",
         "QUEUE_URL", "QUEUE_SECRET", "TTYD_PUBLIC_URL", "DEFAULT_ENG_MODEL",
         "QUEUE_DEAD_AFTER", "HEARTBEAT_INTERVAL", "UPSTREAM_QUEUE_URL",
         "UPSTREAM_QUEUE_SECRET", "NODE_PURPOSE", "NODE_TYPE", "NODE_RECORDING_URL",
@@ -48,6 +49,7 @@ def load_env():
     cfg.setdefault("HUD_PORT", "9900")
     cfg.setdefault("TODO_PORT", "9933")
     cfg.setdefault("TTYD_PORT", "7681")
+    cfg.setdefault("TTYD_BROWSER_PORT", cfg["TTYD_PORT"])
     cfg.setdefault("BIND_ADDR", "0.0.0.0")
     cfg.setdefault("QUEUE_URL", "http://127.0.0.1:%s" % cfg["HUD_PORT"])
     cfg.setdefault("DEFAULT_ENG_MODEL", "claude-opus-4-8")

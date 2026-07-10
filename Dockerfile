@@ -47,6 +47,7 @@ ENV MYPEOPLE_HOME=/var/lib/mypeople \
     HUD_PORT=9900 \
     TODO_PORT=9933 \
     TTYD_PORT=7681 \
+    TTYD_BROWSER_PORT=7681 \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
 

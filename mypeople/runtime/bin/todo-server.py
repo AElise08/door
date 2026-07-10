@@ -223,7 +223,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 html = f.read()
-            html = html.replace("__TTYD_PORT__", str(CFG["TTYD_PORT"]))
+            html = html.replace("__TTYD_PORT__", str(CFG["TTYD_BROWSER_PORT"]))
             html = html.replace("__HOST_ID__", HOST_ID)
         except Exception:
             html = "<h1>mypeople</h1>"
@@ -306,7 +306,7 @@ class Handler(BaseHTTPRequestHandler):
                     base = a.get("attach_base", "")
                     target = a.get("tmux_target", target)
             return self._send(200, {"ok": True, "target": target, "base": base,
-                                    "port": int(CFG["TTYD_PORT"])})
+                                    "port": int(CFG["TTYD_BROWSER_PORT"])})
         return self._send(404, {"error": "not_found"})
 
     def _serve_file(self, fp):

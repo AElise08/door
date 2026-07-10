@@ -4,7 +4,7 @@ wheel:
 	uv build --wheel --out-dir dist
 
 image:
-	docker build -t mypeople:0.2.0 .
+	docker build -t mypeople:0.2.1 .
 
 verify:
 	mypeople verify

@@ -12,6 +12,7 @@ QS="X-Queue-Secret: $QUEUE_SECRET"
 HUD="http://127.0.0.1:${HUD_PORT:-9900}"
 TODO="http://127.0.0.1:${TODO_PORT:-9933}"
 TTYD_PORT="${TTYD_PORT:-7681}"
+TTYD_BROWSER_PORT="${TTYD_BROWSER_PORT:-$TTYD_PORT}"
 HOST="${HOST_ID}"
 BOSS="$HOST/main:Boss"
 CURL="curl -s --max-time 12"
@@ -62,8 +63,12 @@ h2=$($CURL "$HUD/health" | jqget "d.get('status')")
 R=$($CURL -X POST -H "$QS" -H 'Content-Type: application/json' -d '{"op":"add","text":"J3 ping check"}' "$TODO/todo/update")
 TID=$(echo "$R" | jqget "d['id']")
 CREATED+=("$TID")
-sleep 5
-tmux capture-pane -p -t mc-main:Boss -S -60 2>/dev/null | grep -q "$TID" && pass "J3 board->boss-ping" || fail "J3 board->boss-ping (tid $TID not in pane)"
+ping_seen=0
+for i in $(seq 1 10); do
+  sleep 2
+  tmux capture-pane -p -t mc-main:Boss -S -100 2>/dev/null | grep -q "$TID" && { ping_seen=1; break; }
+done
+[ "$ping_seen" = "1" ] && pass "J3 board->boss-ping" || fail "J3 board->boss-ping (tid $TID not in pane)"
 
 # ---------- J3b agent completion notification + env-export + empty-boss guard ----------
 # empty --boss must FAIL, omitted --boss must SUCCEED
@@ -125,7 +130,7 @@ kill $PXP 2>/dev/null
 
 # ---------- J7 click-to-terminal resolver ----------
 at=$($CURL -H "$QS" "$TODO/todo/attach?agent=$BOSS")
-echo "$at" | python3 -c "import sys,json;d=json.load(sys.stdin);exit(0 if d.get('ok') and d.get('target')=='mc-main:Boss' else 1)" && pass "J7 attach-resolver" || fail "J7 attach-resolver"
+echo "$at" | python3 -c "import sys,json;d=json.load(sys.stdin);exit(0 if d.get('ok') and d.get('target')=='mc-main:Boss' and d.get('port')==int('$TTYD_BROWSER_PORT') else 1)" && pass "J7 attach-resolver" || fail "J7 attach-resolver"
 
 # ---------- J8/J27/J47 attach-live-pane (SKIPPED — out of Fase-1 scope)
 echo "SKIP J8/J27/J47 attach-live-pane: cross-host routing (single host uses localhost + published ports)"

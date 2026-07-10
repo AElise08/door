@@ -116,6 +116,8 @@ def write_queue_env(install):
         "HUD_PORT": os.environ.get("HUD_PORT", "9900"),
         "TODO_PORT": os.environ.get("TODO_PORT", "9933"),
         "TTYD_PORT": os.environ.get("TTYD_PORT", "7681"),
+        "TTYD_BROWSER_PORT": os.environ.get(
+            "TTYD_BROWSER_PORT", os.environ.get("TTYD_PORT", "7681")),
         "BIND_ADDR": os.environ.get("BIND_ADDR", "0.0.0.0"),
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",

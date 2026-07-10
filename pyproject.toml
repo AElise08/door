@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mypeople"
-version = "0.2.0"
+version = "0.2.1"
 description = "Self-hostable runtime that orchestrates Claude Code agents as a team (board + HUD + terminal + Boss)"
 readme = "README.md"
 requires-python = ">=3.9"

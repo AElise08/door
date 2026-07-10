@@ -3,6 +3,7 @@ import fs from "node:fs";
 
 const todoPort = process.env.TODO_PORT || "9933";
 const hudPort = process.env.HUD_PORT || "9900";
+const ttydBrowserPort = process.env.TTYD_BROWSER_PORT || "7681";
 const origins = [`http://127.0.0.1:${todoPort}`, `http://127.0.0.1:${hudPort}`];
 const videoDir = new URL("./videos/", import.meta.url).pathname;
 fs.mkdirSync(videoDir, { recursive: true });
@@ -36,6 +37,10 @@ for (const [engine, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
       await page.locator("body:not(.modal-open)").waitFor();
       await page.locator('a[href="/dashboard"]').first().click();
       await page.locator("h1", { hasText: "MyPeople - HUD" }).waitFor();
+      const attachHref = await page.locator("a.attach").first().getAttribute("href");
+      if (!attachHref || new URL(attachHref).port !== ttydBrowserPort) {
+        throw new Error(`attach port ${attachHref || "missing"}; expected ${ttydBrowserPort}`);
+      }
       await page.locator('a[href="/"]').first().click();
       await page.locator("h1", { hasText: "Priorities" }).waitFor();
       if (errors.length) throw new Error(errors.join(" | "));

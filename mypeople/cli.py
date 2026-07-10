@@ -74,7 +74,8 @@ def urls(cfg):
     return {
         "board": "http://localhost:%s" % cfg.get("TODO_PORT", "9933"),
         "HUD":   "http://localhost:%s/dashboard" % cfg.get("HUD_PORT", "9900"),
-        "term":  "http://localhost:%s" % cfg.get("TTYD_PORT", "7681"),
+        "term":  "http://localhost:%s" % cfg.get(
+            "TTYD_BROWSER_PORT", cfg.get("TTYD_PORT", "7681")),
     }
 
 
