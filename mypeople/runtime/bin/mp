@@ -267,7 +267,7 @@ def do_spawn(argv, resume_session=None):
         print("ERROR: window %s not named correctly after spawn" % tab, file=sys.stderr)
         return 4
 
-    if is_master:
+    if is_master and not resume_session:
         # send the onboarding prompt (doctrine internalized) after the TUI comes up
         time.sleep(6)
         doc = ""
@@ -402,6 +402,33 @@ def do_revive(argv):
     return do_spawn(args, resume_session=sid)
 
 
+def do_ensure_boss(argv):
+    """Keep the singleton Boss alive without ever replacing a resumable session.
+
+    A genuinely new node has no roster entry and may spawn its first Boss. Once an entry exists,
+    recovery is strict: mark a missing window retired and route through do_revive(), which restores
+    the persisted Claude session and original structured spawn flags or surfaces an error.
+    """
+    aid = full_aid(argv[0] if argv else "%s/main:Boss" % HOST_ID)
+    _, sess, tab = C.parse_agent_id(aid)
+    if window_exists(sess, tab):
+        print("Boss already alive: %s" % aid)
+        return 0
+    roster = load_roster()
+    rr = roster.get(aid)
+    if rr is None:
+        return do_spawn([aid, "--master"])
+    if not rr.get("is_master"):
+        print("ERROR: %s exists but is not recorded as the Boss" % aid, file=sys.stderr)
+        return 1
+    if not rr.get("retired"):
+        rr["retired"] = True
+        rr["retire_reason"] = "boss-window-missing"
+        rr["retired_ts"] = time.time()
+        save_roster(roster)
+    return do_revive([aid])
+
+
 def do_status(argv):
     code, agents = C.http_json("GET", QUEUE_URL + "/agents", None, HDR, timeout=6)
     code2, clients = C.http_json("GET", QUEUE_URL + "/clients", None, HDR, timeout=6)
@@ -417,12 +444,13 @@ def do_status(argv):
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: mp {status|spawn|send|peek|kill|answer|revive} ...", file=sys.stderr)
+        print("usage: mp {status|spawn|send|peek|kill|answer|revive|ensure-boss} ...", file=sys.stderr)
         return 2
     verb = sys.argv[1]
     rest = sys.argv[2:]
     return {"status": do_status, "spawn": do_spawn, "send": do_send, "peek": do_peek,
-            "kill": do_kill, "answer": do_answer, "revive": do_revive}.get(
+            "kill": do_kill, "answer": do_answer, "revive": do_revive,
+            "ensure-boss": do_ensure_boss}.get(
         verb, lambda a: (print("unknown verb %s" % verb, file=sys.stderr) or 2))(rest)
 
 

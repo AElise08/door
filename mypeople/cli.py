@@ -117,9 +117,10 @@ def cmd_up(args):
     if not wait_health(cfg):
         print("[mypeople] WARNING: HUD health not ready after 40s; check `mypeople logs`",
               file=sys.stderr)
-    # spawn the Boss deterministically (idempotent; boss-supervisor also keeps it alive)
+    # Ensure the Boss deterministically. Existing nodes must resume their persisted session;
+    # only a node without a Boss roster entry may create the initial session.
     mp = os.path.join(bindir, "mp")
-    subprocess.run(["python3", mp, "spawn", "%s/main:Boss" % host, "--master"],
+    subprocess.run(["python3", mp, "ensure-boss", "%s/main:Boss" % host],
                    env=env, cwd=install)
     print_urls(cfg)
     if foreground:

@@ -104,6 +104,7 @@ done
 mp kill "$TW" >/dev/null 2>&1
 
 # ---------- J4 supervisor resurrection ----------
+boss_sid_before=$(python3 -c "import json;print(json.load(open('$ID/run/roster.json')).get('$BOSS',{}).get('session_id',''))")
 tmux kill-window -t mc-main:Boss 2>/dev/null
 res=0
 for i in $(seq 1 12); do
@@ -111,7 +112,10 @@ for i in $(seq 1 12); do
   st=$($CURL -H "$QS" "$HUD/agents" | python3 -c "import sys,json;a=[x for x in json.load(sys.stdin) if x['agent_id']=='$BOSS'];print(a[0]['state'] if a else 'none')" 2>/dev/null)
   tmux list-windows -t mc-main -F '#{window_name}' 2>/dev/null | grep -qx Boss && [ "$st" = "alive" ] && { res=1; break; }
 done
-[ "$res" = "1" ] && pass "J4 supervisor-resurrection" || fail "J4 supervisor-resurrection"
+boss_sid_after=$(python3 -c "import json;print(json.load(open('$ID/run/roster.json')).get('$BOSS',{}).get('session_id',''))")
+[ "$res" = "1" ] && [ -n "$boss_sid_before" ] && [ "$boss_sid_before" = "$boss_sid_after" ] \
+  && pass "J4 supervisor-resurrection-same-session" \
+  || fail "J4 supervisor-resurrection res=$res sid_same=$([ "$boss_sid_before" = "$boss_sid_after" ] && echo 1 || echo 0)"
 
 # ---------- J5 todo add round-trips ----------
 bd=$($CURL -H "$QS" "$TODO/todo/board")

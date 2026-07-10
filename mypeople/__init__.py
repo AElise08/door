@@ -5,4 +5,4 @@ as an installable Python package. First-run configures + starts the daemons; it 
 generates code (the seed-hydration step is retired). The recipient brings their own
 Claude credential — this package carries none.
 """
-__version__ = "0.2.1"
+__version__ = "0.2.2"
