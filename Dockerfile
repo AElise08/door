@@ -8,12 +8,21 @@ RUN pip wheel --no-deps --wheel-dir /dist .
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        tmux curl git bash procps ca-certificates asciinema \
+        tmux curl git bash procps ca-certificates asciinema nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --uid 10001 --shell /bin/bash mypeople \
     && mkdir -p /var/lib/mypeople \
     && chown -R mypeople:mypeople /var/lib/mypeople /home/mypeople
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    MYPEOPLE_BROWSER_VERIFY_DIR=/opt/mypeople-verify
+COPY mypeople/runtime/verify/package.json mypeople/runtime/verify/package-lock.json \
+     mypeople/runtime/verify/browser.mjs /opt/mypeople-verify/
+RUN cd /opt/mypeople-verify \
+    && npm ci --no-audit --no-fund --silent \
+    && npx playwright install --with-deps chromium webkit \
+    && chown -R mypeople:mypeople /opt/mypeople-verify /ms-playwright
 
 ARG TARGETARCH
 ARG TTYD_VERSION=1.7.7

@@ -33,11 +33,36 @@ cleanup(){
 trap cleanup EXIT
 
 echo "===== mypeople Verify ($(date -u +%FT%TZ)) node=$HOST ====="
+BACKEND="${DEFAULT_BACKEND:-claude}"
 
 # ---------- J1 install one-shot ----------
 h=$($CURL "$HUD/health" | jqget "d.get('status')")
 [ "$h" = "ok" ] && [ -f "$BIN/queue-server.py" ] && [ -f "$BIN/mp" ] && [ -f "$BIN/todo-server.py" ] \
   && pass "J1 install-one-shot" || fail "J1 install-one-shot"
+
+# ---------- J1b shared lifecycle contract; retired hooks must be absent ----------
+hookok=$(python3 - <<'PY'
+import json, os
+expected = {"SessionStart", "UserPromptSubmit", "Stop"}
+paths = [os.path.expanduser("~/.claude/settings.json"), os.path.expanduser("~/.codex/hooks.json")]
+ok = True
+for path in paths:
+    try:
+        hooks = json.load(open(path)).get("hooks", {})
+    except Exception:
+        ok = False
+        continue
+    mine = set()
+    for event, groups in hooks.items():
+        for group in groups if isinstance(groups, list) else []:
+            commands = [h.get("command", "") for h in group.get("hooks", [])]
+            if any("/plugins/tmux-boss-hooks/emit-event.sh" in c for c in commands):
+                mine.add(event)
+    ok = ok and mine == expected
+print(int(ok))
+PY
+)
+[ "$hookok" = "1" ] && pass "J1b lifecycle-hooks-three-only" || fail "J1b lifecycle-hooks-three-only"
 
 # ---------- J2 Boss in HUD + doctrine summary ----------
 AG=$($CURL -H "$QS" "$HUD/agents")
@@ -81,12 +106,12 @@ TW="$HOST/main:tw-notify"
 mp spawn "$TW" --boss "$BOSS" >/dev/null 2>&1
 sleep 8
 mp send "$TW" "printf 'ENVCHK AGENT_ID=[%s] BOSS_ID=[%s] QUEUE_URL=[%s]\n' \"\$AGENT_ID\" \"\$BOSS_ID\" \"\$QUEUE_URL\"" >/dev/null 2>&1
-# that prompt makes claude do something; but env check: read /proc environ of pane pid
+# that prompt makes the selected backend do something; env check reads the pane child
 sleep 3
 ppid=$(tmux list-panes -t mc-main:tw-notify -F '#{pane_pid}' 2>/dev/null | head -1)
 envok=0
 if [ -n "$ppid" ]; then
-  # find claude child under the pane shell
+  # find the agent child under the pane shell
   for pid in $ppid $(pgrep -P "$ppid" 2>/dev/null); do
     aid=$(tr '\0' '\n' < /proc/$pid/environ 2>/dev/null | grep '^AGENT_ID=' | cut -d= -f2-)
     [ "$aid" = "$TW" ] && envok=1
@@ -102,6 +127,27 @@ for i in $(seq 1 20); do
 done
 [ "$notif" = "1" ] && pass "J3b completion-notification" || fail "J3b completion-notification (no [AGENT NOTIFICATION])"
 mp kill "$TW" >/dev/null 2>&1
+
+# ---------- J3c engineer sender receives the target's next Stop ----------
+RP="$HOST/main:reply-parent"
+RQ="$HOST/main:reply-peer"
+mp spawn "$RP" --boss "$BOSS" >/dev/null 2>&1
+mp spawn "$RQ" --boss "$BOSS" >/dev/null 2>&1
+sleep 5
+AGENT_ID="$RP" mp send "$RQ" "Reply with exactly J3C-PEER-DONE and do nothing else." >/dev/null 2>&1
+reply_seen=0
+for i in $(seq 1 20); do
+  sleep 4
+  peer_done=$(python3 -c "import json;d=json.load(open('$ID/status/mc-main/reply-peer.json'));print(d.get('status')=='idle' and 'J3C-PEER-DONE' in d.get('summary',''))" 2>/dev/null)
+  parent_notice=$(tmux capture-pane -p -t mc-main:reply-parent -S -120 2>/dev/null | grep -c "AGENT NOTIFICATION.*reply-peer" || true)
+  [ "$peer_done" = "True" ] && [ "${parent_notice:-0}" -gt 0 ] && { reply_seen=1; break; }
+done
+[ "$reply_seen" = "1" ] && pass "J3c engineer->engineer Stop reply" \
+  || fail "J3c engineer->engineer Stop reply"
+mp kill "$RQ" >/dev/null 2>&1
+mp kill "$RP" >/dev/null 2>&1
+python3 -c "import json;p='$ID/run/roster.json';d=json.load(open(p));[d.pop(k,None) for k in ('$RP','$RQ')];json.dump(d,open(p,'w'))" 2>/dev/null
+rm -f "$ID/status/mc-main/reply-parent.json" "$ID/status/mc-main/reply-peer.json"
 
 # ---------- J4 supervisor resurrection ----------
 boss_sid_before=$(python3 -c "import json;print(json.load(open('$ID/run/roster.json')).get('$BOSS',{}).get('session_id',''))")
@@ -248,7 +294,13 @@ sid_before=""
 for i in $(seq 1 20); do
   sleep 2
   sid_before=$(python3 -c "import json;print(json.load(open('$ID/run/roster.json')).get('$RT',{}).get('session_id',''))" 2>/dev/null)
-  [ -n "$sid_before" ] && find ~/.claude/projects -name "$sid_before.jsonl" -print -quit 2>/dev/null | grep -q . && break
+  if [ -n "$sid_before" ]; then
+    if [ "$BACKEND" = "codex" ]; then
+      find ~/.codex/sessions -name "*$sid_before.jsonl" -print -quit 2>/dev/null | grep -q . && break
+    else
+      find ~/.claude/projects -name "$sid_before.jsonl" -print -quit 2>/dev/null | grep -q . && break
+    fi
+  fi
 done
 mp kill "$RT" >/dev/null 2>&1; sleep 2
 rretired=$($CURL -H "$QS" "$HUD/roster" | python3 -c "import sys,json;a=[x for x in json.load(sys.stdin) if x['agent_id']=='$RT'];print(a[0]['retired'] if a else 'none')")
@@ -375,22 +427,26 @@ cnone=$(curl -s --max-time 8 -o /dev/null -w '%{http_code}' "$TODO/todo/board")
   && pass "J30 no-secret+cookie-auth" || fail "J30 leak=$leak sc1=$sc1 sc2=$sc2 cauth=$cauth cnone=$cnone"
 
 # ---------- J35 folder-trust vanilla ----------
-cp ~/.claude.json /tmp/claude.json.bak
-python3 -c "import json,os;p=os.path.expanduser('~/.claude.json');d=json.load(open(p));d['projects']={};json.dump(d,open(p,'w'))"
-# re-run install trust step (mp spawn pretrust) in a fresh cwd
-FR=/tmp/freshcwd-$RANDOM; mkdir -p $FR
-mp spawn "$HOST/main:trust-x" --boss "$BOSS" --cwd "$FR" >/dev/null 2>&1
-sleep 8
-trusted=$(python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude.json')));print(d['projects'].get('$FR',{}).get('hasTrustDialogAccepted'))")
-tpane=$(tmux capture-pane -p -t mc-main:trust-x -S -20 2>/dev/null)
-echo "$tpane" | grep -qi "trust this folder\|do you trust" && trustprompt=1
-echo "$tpane" | grep -qi "bypass permissions" && reached=1
-tstate=$($CURL -H "$QS" "$HUD/agents" | python3 -c "import sys,json;a=[x for x in json.load(sys.stdin) if x['agent_id']=='$HOST/main:trust-x'];print(a[0]['state'] if a else 'none')")
-[ "$trusted" = "True" ] && [ -z "${trustprompt:-}" ] && [ "$tstate" = "alive" ] && pass "J35 folder-trust-vanilla" || fail "J35 folder-trust trusted=$trusted prompt=${trustprompt:-0} state=$tstate"
-mp kill "$HOST/main:trust-x" >/dev/null 2>&1
-python3 -c "import json;p='$ID/run/roster.json';d=json.load(open(p));d.pop('$HOST/main:trust-x',None);json.dump(d,open(p,'w'))" 2>/dev/null
-# restore trust map
-cp /tmp/claude.json.bak ~/.claude.json
+if [ "$BACKEND" = "claude" ]; then
+  cp ~/.claude.json /tmp/claude.json.bak
+  python3 -c "import json,os;p=os.path.expanduser('~/.claude.json');d=json.load(open(p));d['projects']={};json.dump(d,open(p,'w'))"
+  # re-run install trust step (mp spawn pretrust) in a fresh cwd
+  FR=/tmp/freshcwd-$RANDOM; mkdir -p $FR
+  mp spawn "$HOST/main:trust-x" --boss "$BOSS" --cwd "$FR" >/dev/null 2>&1
+  sleep 8
+  trusted=$(python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude.json')));print(d['projects'].get('$FR',{}).get('hasTrustDialogAccepted'))")
+  tpane=$(tmux capture-pane -p -t mc-main:trust-x -S -20 2>/dev/null)
+  echo "$tpane" | grep -qi "trust this folder\|do you trust" && trustprompt=1
+  tstate=$($CURL -H "$QS" "$HUD/agents" | python3 -c "import sys,json;a=[x for x in json.load(sys.stdin) if x['agent_id']=='$HOST/main:trust-x'];print(a[0]['state'] if a else 'none')")
+  [ "$trusted" = "True" ] && [ -z "${trustprompt:-}" ] && [ "$tstate" = "alive" ] && pass "J35 folder-trust-vanilla" || fail "J35 folder-trust trusted=$trusted prompt=${trustprompt:-0} state=$tstate"
+  mp kill "$HOST/main:trust-x" >/dev/null 2>&1
+  python3 -c "import json;p='$ID/run/roster.json';d=json.load(open(p));d.pop('$HOST/main:trust-x',None);json.dump(d,open(p,'w'))" 2>/dev/null
+  cp /tmp/claude.json.bak ~/.claude.json
+else
+  codexflags=$(python3 -c "import json;d=json.load(open('$ID/run/roster.json'));print(d.get('$BOSS',{}).get('spawn_cmd',''))")
+  echo "$codexflags" | grep -q -- '--backend codex' \
+    && pass "J35 codex-backend-recorded" || fail "J35 codex-backend-recorded ($codexflags)"
+fi
 
 # ---------- J36 nested spawn no disconnect ----------
 before_wins=$(tmux list-windows -t mc-main -F '#{window_name}' | sort | tr '\n' ',')
@@ -448,21 +504,29 @@ echo "===== deterministic gates done: $PASSES passed, ${#FAILS[@]} failed ====="
 [ ${#FAILS[@]} -gt 0 ] && printf 'FAILED: %s\n' "${FAILS[@]}"
 
 # ---------- browser gates J31/J33/J34/J38/J45/J46/J49 ----------
-if [ "${SKIP_BROWSER:-0}" != "1" ]; then
-  echo "===== browser suite (webkit+chromium) ====="
-  if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-    if command -v apt-get >/dev/null 2>&1; then
-      apt-get update >/dev/null && apt-get install -y nodejs npm >/dev/null
-    fi
+echo "===== browser suite (webkit+chromium) ====="
+BROWSER_VERIFY_DIR="${MYPEOPLE_BROWSER_VERIFY_DIR:-$ID/verify}"
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update >/dev/null && apt-get install -y nodejs npm >/dev/null
   fi
-  if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-    fail "J31/J49 browser-suite (node/npm unavailable)"
-  else
-    (cd "$ID/verify" && npm install --no-audit --no-fund --silent)
-    (cd "$ID/verify" && npx playwright install chromium webkit >/dev/null)
-    node "$ID/verify/browser.mjs" 2>&1 | tee "$ID/verify/browser.out"
+fi
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  fail "J31/J49 browser-suite (node/npm unavailable)"
+else
+  browser_ready=1
+  if [ ! -d "$BROWSER_VERIFY_DIR/node_modules/playwright" ]; then
+    (cd "$BROWSER_VERIFY_DIR" && npm ci --no-audit --no-fund --silent) || browser_ready=0
+  fi
+  if [ "$browser_ready" = "1" ]; then
+    (cd "$BROWSER_VERIFY_DIR" && npx playwright install chromium webkit >/dev/null) || browser_ready=0
+  fi
+  if [ "$browser_ready" = "1" ]; then
+    node "$BROWSER_VERIFY_DIR/browser.mjs" 2>&1 | tee "$ID/verify/browser.out"
     brc=${PIPESTATUS[0]}
     [ "$brc" = "0" ] && pass "J31/J49 browser-suite" || fail "J31/J49 browser-suite (rc=$brc)"
+  else
+    fail "J31/J49 browser-suite (Playwright install failed)"
   fi
 fi
 
