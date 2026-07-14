@@ -1,6 +1,7 @@
 """mypeople CLI — thin wrapper over the existing daemons/supervisor.
 
-  mypeople up [--server|--client|--both] [--detach]   bring the stack up (default: both, foreground)
+  mypeople up [--server|--client|--both] [--backend claude|codex] [--detach]
+                                                        bring the stack up (default: both, foreground)
   mypeople            (no verb)                        alias for `up` (what `uvx mypeople` runs)
   mypeople down                                        stop daemons (board/roster kept on disk)
   mypeople status                                      health + agents + roster
@@ -40,7 +41,7 @@ def child_env(cfg):
     e["MYPEOPLE_HOME"] = install
     e["PATH"] = "%s/.local/bin:%s/bin:%s" % (
         os.path.expanduser("~"), install, e.get("PATH", "/usr/bin:/bin"))
-    # Authentication is already established in this node's own Claude credential store.
+    # Authentication stays in the selected CLI's node-local credential store.
     return e
 
 
@@ -97,8 +98,15 @@ def cmd_up(args):
         role = "client"
     detach = "--detach" in args
     foreground = not detach
+    backend = None
+    if "--backend" in args:
+        idx = args.index("--backend")
+        if idx + 1 >= len(args):
+            print("[mypeople] --backend needs claude or codex", file=sys.stderr)
+            return 2
+        backend = args[idx + 1]
 
-    install, host = firstrun.ensure()
+    install, host, backend = firstrun.ensure(backend)
     cfg = load_cfg()
     env = child_env(cfg)
     bindir = os.path.join(install, "bin")
@@ -120,7 +128,8 @@ def cmd_up(args):
     # Ensure the Boss deterministically. Existing nodes must resume their persisted session;
     # only a node without a Boss roster entry may create the initial session.
     mp = os.path.join(bindir, "mp")
-    subprocess.run(["python3", mp, "ensure-boss", "%s/main:Boss" % host],
+    subprocess.run(["python3", mp, "ensure-boss", "%s/main:Boss" % host,
+                    "--backend", backend],
                    env=env, cwd=install)
     print_urls(cfg)
     if foreground:

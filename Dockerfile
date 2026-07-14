@@ -28,12 +28,19 @@ RUN set -eux; \
     echo "${sha256}  /usr/local/bin/ttyd" | sha256sum -c -; \
     chmod 0755 /usr/local/bin/ttyd
 
-# Claude is installed in the image, but its credential is never baked into an image layer.
+# Agent CLIs are installed in the image, but credentials are never baked into an image layer.
 ARG CLAUDE_VERSION=2.1.205
+ARG CODEX_VERSION=0.144.1
 USER mypeople
-RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_VERSION}"
+RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_VERSION}" \
+    && curl -fsSL https://chatgpt.com/codex/install.sh | \
+       CODEX_RELEASE="${CODEX_VERSION}" CODEX_NON_INTERACTIVE=1 sh
 USER root
-RUN cp /home/mypeople/.local/bin/claude /usr/local/bin/claude
+RUN cp -L /home/mypeople/.local/bin/claude /usr/local/bin/claude \
+    && cp -L /home/mypeople/.local/bin/codex /usr/local/bin/codex \
+    && if [ -e /home/mypeople/.local/bin/codex-code-mode-host ]; then \
+         cp -L /home/mypeople/.local/bin/codex-code-mode-host /usr/local/bin/codex-code-mode-host; \
+       fi
 
 COPY --from=package-builder /dist/mypeople-*.whl /tmp/
 RUN pip install --no-cache-dir /tmp/mypeople-*.whl \
@@ -48,6 +55,7 @@ ENV MYPEOPLE_HOME=/var/lib/mypeople \
     TODO_PORT=9933 \
     TTYD_PORT=7681 \
     TTYD_BROWSER_PORT=7681 \
+    DEFAULT_BACKEND=claude \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
 

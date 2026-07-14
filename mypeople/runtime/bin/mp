@@ -12,7 +12,10 @@ HOST_ID = CFG["HOST_ID"]
 QUEUE_URL = CFG["QUEUE_URL"]
 SECRET = CFG.get("QUEUE_SECRET", "")
 TTYD_PORT = CFG["TTYD_PORT"]
-DEFAULT_ENG_MODEL = CFG["DEFAULT_ENG_MODEL"]
+DEFAULT_BACKEND = CFG.get("DEFAULT_BACKEND", "claude")
+DEFAULT_CLAUDE_MODEL = CFG.get("DEFAULT_CLAUDE_MODEL", CFG["DEFAULT_ENG_MODEL"])
+DEFAULT_CODEX_MODEL = CFG.get("DEFAULT_CODEX_MODEL", "")
+VALID_BACKENDS = ("claude", "codex")
 ROSTER_PATH = os.path.join(INSTALL_DIR, "run", "roster.json")
 STATUS_DIR = os.path.join(INSTALL_DIR, "status")
 HOOK = os.path.join(INSTALL_DIR, "plugins", "tmux-boss-hooks", "emit-event.sh")
@@ -74,13 +77,13 @@ def pretrust(cwd):
     C.write_json(p, d)
 
 
-def write_status(aid, status, summary=None, locked=False):
+def write_status(aid, status, backend, summary=None, locked=False):
     _, sess, tab = C.parse_agent_id(aid)
     d = os.path.join(STATUS_DIR, "mc-%s" % sess)
     p = os.path.join(d, "%s.json" % tab)
     cur = C.read_json(p, {}) or {}
     cur.update({"status": status, "timestamp": time.time(),
-                "backend": cur.get("backend", "claude"), "state": "alive"})
+                "backend": backend, "state": "alive"})
     if summary is not None:
         cur["summary"] = summary
     if locked:
@@ -105,26 +108,41 @@ def tmux_env():
     return e
 
 
-def start_recorder(tab, sess):
+def start_recorder(tab, sess, previous=None):
     """Auto-start a read-only asciinema recorder on the new pane (§spawn-recording). Best-effort."""
     rec_sess = "rec-%s" % tab
     e = tmux_env()
+    current = C.current_recorder(sess, tab, HOST_ID)
+    previous_pid = previous.get("pid") if isinstance(previous, dict) else None
+    if previous_pid and (not current or previous_pid != current.get("pid")):
+        # A recorder from an older tmux socket generation is not reachable by session name.
+        C.stop_recorder(sess, tab, previous, HOST_ID, include_current=False)
+    if current:
+        return current
     if subprocess.run(["tmux", "has-session", "-t", rec_sess], env=e, capture_output=True).returncode == 0:
-        return
-    cast = os.path.expanduser("~/recordings/%s-%s.cast" % (HOST_ID, tab))
+        return None
+    cast = C.recorder_identity(sess, tab, HOST_ID)["cast"]
     os.makedirs(os.path.dirname(cast), exist_ok=True)
     if not shutil.which("asciinema"):
         return
     inner = "TMUX= tmux attach -rt mc-%s:%s" % (sess, tab)
     cmd = "asciinema rec --quiet --append -c %s %s" % (shlex.quote(inner), shlex.quote(cast))
     try:
-        subprocess.run(["tmux", "new-session", "-d", "-s", rec_sess, cmd], env=e,
-                       capture_output=True, timeout=10)
+        r = subprocess.run(["tmux", "new-session", "-d", "-s", rec_sess, cmd], env=e,
+                           capture_output=True, timeout=10)
+        if r.returncode != 0:
+            return None
+        for _ in range(20):
+            current = C.current_recorder(sess, tab, HOST_ID)
+            if current:
+                return current
+            time.sleep(0.05)
     except Exception:
-        pass
+        return None
+    return None
 
 
-def build_launch(aid, cwd, boss_id, is_master, model, resume_session=None):
+def build_launch(aid, cwd, boss_id, is_master, model, backend, resume_session=None):
     exports = {
         "PATH": "%s/.local/bin:%s/bin:%s" % (os.path.expanduser("~"), INSTALL_DIR, os.environ.get("PATH", "/usr/bin")),
         "AGENT_ID": aid,
@@ -132,6 +150,7 @@ def build_launch(aid, cwd, boss_id, is_master, model, resume_session=None):
         "QUEUE_SECRET": SECRET,
         "HOST_ID": HOST_ID,
         "INSTALL_DIR": INSTALL_DIR,
+        "MYPEOPLE_BACKEND": backend,
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
     }
@@ -141,23 +160,31 @@ def build_launch(aid, cwd, boss_id, is_master, model, resume_session=None):
     else:
         exports["BOSS_ID"] = boss_id
     envstr = envq(**exports)
-    claude = "claude --dangerously-skip-permissions"
-    if not is_master and model:
-        claude += " --model %s" % model
-    elif is_master and model:
-        claude += " --model %s" % model
-    if resume_session:
-        claude += " --resume %s" % shlex.quote(resume_session)
-    return "%s %s %s" % (prefix, envstr, claude)
+    if backend == "claude":
+        agent = "claude --dangerously-skip-permissions"
+        if model:
+            agent += " --model %s" % shlex.quote(model)
+        if resume_session:
+            agent += " --resume %s" % shlex.quote(resume_session)
+    elif backend == "codex":
+        agent = "codex --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust"
+        if model:
+            agent += " --model %s" % shlex.quote(model)
+        if resume_session:
+            agent += " resume %s" % shlex.quote(resume_session)
+    else:
+        raise ValueError("unsupported backend: %s" % backend)
+    return "%s %s %s" % (prefix, envstr, agent)
 
 
 def do_spawn(argv, resume_session=None):
     if not argv:
-        print("usage: mp spawn <agent_id> [--backend claude] [--cwd PATH] [--boss <id>] [--master] [--model <id>]",
+        print("usage: mp spawn <agent_id> [--backend claude|codex] [--cwd PATH] [--boss <id>] "
+              "[--master] [--model <id>]",
               file=sys.stderr)
         return 2
     aid = full_aid(argv[0])
-    backend = "claude"
+    backend = DEFAULT_BACKEND
     cwd = None
     boss = None
     boss_given = False
@@ -183,9 +210,13 @@ def do_spawn(argv, resume_session=None):
         print("ERROR: --boss given with an empty/whitespace value (unset $AGENT_ID bug); refusing to "
               "create an agent whose boss resolves to '<host>/'.", file=sys.stderr)
         return 3
+    backend = (backend or "").strip().lower()
+    if backend not in VALID_BACKENDS:
+        print("ERROR: unsupported backend %r; choose claude or codex" % backend, file=sys.stderr)
+        return 2
     boss_id = full_aid(boss) if (boss_given and boss.strip()) else ""
     if not is_master and model is None:
-        model = DEFAULT_ENG_MODEL   # explicit model pinning for engineers (§5)
+        model = DEFAULT_CLAUDE_MODEL if backend == "claude" else (DEFAULT_CODEX_MODEL or None)
     if not is_local(aid):
         ok, result = remote_task("spawn", aid, {
             "backend": backend, "cwd": cwd or "", "boss": boss_id,
@@ -193,15 +224,20 @@ def do_spawn(argv, resume_session=None):
         })
         print(result)
         return 0 if ok else 1
+    if not shutil.which(backend):
+        print("ERROR: %s CLI is not installed on this node" % backend, file=sys.stderr)
+        return 2
     _, sess, tab = C.parse_agent_id(aid)
     if cwd is None:
         cwd = os.path.join(INSTALL_DIR, "run", "boss" if is_master else "eng")
     os.makedirs(cwd, exist_ok=True)
-    pretrust(cwd)
+    if backend == "claude":
+        pretrust(cwd)
 
-    launch = build_launch(aid, cwd, boss_id, is_master, model, resume_session=resume_session)
+    launch = build_launch(aid, cwd, boss_id, is_master, model, backend,
+                          resume_session=resume_session)
     # audit spawn_cmd string (model pinned so /agents shows exact per-engineer model)
-    parts = ["mp", "spawn", aid]
+    parts = ["mp", "spawn", aid, "--backend", backend]
     if boss_id:
         parts += ["--boss", boss_id]
     if cwd:
@@ -246,9 +282,9 @@ def do_spawn(argv, resume_session=None):
 
     # initial status; master gets a keyword-bearing, locked doctrine summary (J2c)
     if is_master:
-        write_status(aid, "starting", summary=DOCTRINE_SUMMARY, locked=True)
+        write_status(aid, "starting", backend, summary=DOCTRINE_SUMMARY, locked=True)
     else:
-        write_status(aid, "starting")
+        write_status(aid, "starting", backend)
 
     # register with the queue-server
     C.http_json("POST", QUEUE_URL + "/agents/register",
@@ -258,7 +294,12 @@ def do_spawn(argv, resume_session=None):
                  "summary": (DOCTRINE_SUMMARY if is_master else ""),
                  "spawn_cmd": spawn_cmd, "model": (model or "")}, HDR, timeout=6)
 
-    start_recorder(tab, sess)
+    recorder = start_recorder(tab, sess, prior.get("recorder"))
+    if recorder:
+        roster = load_roster()
+        if aid in roster and not roster[aid].get("retired"):
+            roster[aid]["recorder"] = recorder
+            save_roster(roster)
 
     # SELF-CHECK window naming
     r = subprocess.run(["tmux", "list-windows", "-t", "mc-%s" % sess, "-F", "#{window_name}"],
@@ -285,11 +326,20 @@ def do_send(argv):
         print("usage: mp send <agent_id> <msg>", file=sys.stderr); return 2
     aid = full_aid(argv[0])
     msg = " ".join(argv[1:])
+    reply_to = os.environ.get("AGENT_ID", "").strip()
+    if reply_to:
+        reply_to = full_aid(reply_to)
     if not is_local(aid):
-        ok, result = remote_task("send", aid, {"message": msg}, timeout=30)
+        payload = {"message": msg}
+        if reply_to and reply_to != aid:
+            payload["reply_to"] = reply_to
+        ok, result = remote_task("send", aid, payload, timeout=30)
         print(result)
         return 0 if ok else 1
+    route_token = C.enqueue_notification_route(aid, reply_to)
     ok = C.tmux_send_message(C.tmux_target(aid), msg)
+    if not ok and route_token:
+        C.cancel_notification_route(aid, route_token)
     print("sent" if ok else "no_pane")
     return 0 if ok else 1
 
@@ -333,14 +383,16 @@ def do_kill(argv):
     _, sess, tab = C.parse_agent_id(aid)
     e = tmux_env()
     roster = load_roster()
+    rr = roster.get(aid, {})
+    recorder_stop = C.stop_recorder(sess, tab, rr.get("recorder"), HOST_ID)
     if aid in roster:
         roster[aid]["retired"] = True
         roster[aid]["retire_reason"] = reason or "killed"
         roster[aid]["retired_ts"] = time.time()
+        roster[aid]["recorder_stop"] = recorder_stop
         save_roster(roster)
     C.http_json("POST", QUEUE_URL + "/agents/unregister", {"agent_id": aid}, HDR, timeout=6)
     subprocess.run(["tmux", "kill-window", "-t", "mc-%s:%s" % (sess, tab)], env=e, capture_output=True)
-    subprocess.run(["tmux", "kill-session", "-t", "rec-%s" % tab], env=e, capture_output=True)
     print("killed %s" % aid)
     return 0
 
@@ -363,6 +415,18 @@ def do_answer(argv):
     return 0
 
 
+def session_files(backend, session_id):
+    """Return persisted transcript files proving that a backend session can be resumed."""
+    import glob
+    if backend == "claude":
+        pattern = os.path.expanduser("~/.claude/projects/**/%s.jsonl" % session_id)
+    elif backend == "codex":
+        pattern = os.path.expanduser("~/.codex/sessions/**/*%s.jsonl" % session_id)
+    else:
+        return []
+    return glob.glob(pattern, recursive=True)
+
+
 def do_revive(argv):
     if not argv:
         print("usage: mp revive <agent_id>", file=sys.stderr); return 2
@@ -382,15 +446,14 @@ def do_revive(argv):
         _, sess, tab = C.parse_agent_id(aid)
         status = C.read_json(os.path.join(STATUS_DIR, "mc-%s" % sess, "%s.json" % tab), {}) or {}
         sid = status.get("session_id", "")
-    transcripts = []
-    if sid:
-        import glob
-        transcripts = glob.glob(os.path.expanduser("~/.claude/projects/**/%s.jsonl" % sid), recursive=True)
+    backend = rr.get("backend", "claude")
+    transcripts = session_files(backend, sid) if sid else []
     if not sid or not transcripts:
-        print("ERROR: %s is not resumable: persisted Claude session transcript is missing" % aid,
+        print("ERROR: %s is not resumable: persisted %s session transcript is missing" %
+              (aid, backend),
               file=sys.stderr)
         return 1
-    args = [aid]
+    args = [aid, "--backend", backend]
     if rr.get("boss_id"):
         args += ["--boss", rr["boss_id"]]
     if rr.get("cwd"):
@@ -407,9 +470,19 @@ def do_ensure_boss(argv):
 
     A genuinely new node has no roster entry and may spawn its first Boss. Once an entry exists,
     recovery is strict: mark a missing window retired and route through do_revive(), which restores
-    the persisted Claude session and original structured spawn flags or surfaces an error.
+    the persisted backend session and original structured spawn flags or surfaces an error.
     """
-    aid = full_aid(argv[0] if argv else "%s/main:Boss" % HOST_ID)
+    aid_arg = next((x for x in argv if not x.startswith("--") and x not in VALID_BACKENDS),
+                   "%s/main:Boss" % HOST_ID)
+    backend = DEFAULT_BACKEND
+    if "--backend" in argv:
+        idx = argv.index("--backend")
+        backend = argv[idx + 1] if idx + 1 < len(argv) else ""
+    backend = (backend or "").strip().lower()
+    if backend not in VALID_BACKENDS:
+        print("ERROR: unsupported backend %r; choose claude or codex" % backend, file=sys.stderr)
+        return 2
+    aid = full_aid(aid_arg)
     _, sess, tab = C.parse_agent_id(aid)
     if window_exists(sess, tab):
         print("Boss already alive: %s" % aid)
@@ -417,7 +490,7 @@ def do_ensure_boss(argv):
     roster = load_roster()
     rr = roster.get(aid)
     if rr is None:
-        return do_spawn([aid, "--master"])
+        return do_spawn([aid, "--master", "--backend", backend])
     if not rr.get("is_master"):
         print("ERROR: %s exists but is not recorded as the Boss" % aid, file=sys.stderr)
         return 1

@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""mypeople hook handler. Reads the hook JSON on stdin, writes the agent's status file
-(atomic, PID-unique temp), and on Stop routes an [AGENT NOTIFICATION] to the boss via
-POST /task/submit {type:"send", ...}. Never prints to stdout (UserPromptSubmit stdout is
-injected into the agent's context)."""
+"""Shared Claude/Codex lifecycle handler for SessionStart, UserPromptSubmit, and Stop."""
 import os, sys, json, time, glob
 
 INSTALL_DIR = os.environ.get("INSTALL_DIR", os.path.expanduser("~/mypeople"))
@@ -16,6 +13,7 @@ AGENT_ID = os.environ.get("AGENT_ID", "")
 BOSS_ID = os.environ.get("BOSS_ID", "")
 QUEUE_URL = os.environ.get("QUEUE_URL", "")
 SECRET = os.environ.get("QUEUE_SECRET", "")
+BACKEND = os.environ.get("MYPEOPLE_BACKEND", "claude")
 STATUS_DIR = os.path.join(INSTALL_DIR, "status")
 KEYWORDS = ["plan", "approve", "queue", "mp", "autonomous", "verify", "fire-and-forget"]
 
@@ -61,7 +59,7 @@ def set_status(aid, status, summary=None):
     cur = read_status(aid)
     cur["status"] = status
     cur["timestamp"] = time.time()
-    cur.setdefault("backend", "claude")
+    cur["backend"] = BACKEND
     cur["state"] = "alive"
     if "session_id" in DATA:
         cur["session_id"] = DATA.get("session_id")
@@ -87,14 +85,20 @@ def find_transcript():
     if tp and os.path.exists(tp):
         return tp
     sid = DATA.get("session_id")
-    if sid:
+    if sid and BACKEND == "claude":
         for f in glob.glob(os.path.expanduser("~/.claude/projects/**/%s.jsonl" % sid), recursive=True):
+            return f
+    if sid and BACKEND == "codex":
+        for f in glob.glob(os.path.expanduser("~/.codex/sessions/**/*%s.jsonl" % sid), recursive=True):
             return f
     return None
 
 
 def last_assistant_summary():
     """Read the transcript, return the last assistant text (retry ~4x/0.5s for the flush race)."""
+    last = DATA.get("last_assistant_message")
+    if isinstance(last, str) and last.strip():
+        return last.strip().replace("\n", " ")[:280]
     for _ in range(4):
         tp = find_transcript()
         if tp:
@@ -121,12 +125,15 @@ def last_assistant_summary():
     return ""
 
 
-def notify_boss(summary):
-    if not (BOSS_ID and QUEUE_URL and SECRET and C):
+def notify_completion(summary):
+    if not (QUEUE_URL and SECRET and C):
+        return
+    target = C.claim_notification_route(AGENT_ID) or BOSS_ID
+    if not target:
         return
     msg = "[AGENT NOTIFICATION] %s finished: %s" % (AGENT_ID, summary or "(no summary)")
     C.http_json("POST", QUEUE_URL + "/task/submit",
-                {"type": "send", "target_agent": BOSS_ID, "payload": {"message": msg}},
+                {"type": "send", "target_agent": target, "payload": {"message": msg}},
                 {"X-Queue-Secret": SECRET}, timeout=6)
 
 
@@ -143,14 +150,10 @@ def main():
         set_status(AGENT_ID, "starting")
     elif event == "UserPromptSubmit":
         set_status(AGENT_ID, "working")   # status-file only; NOTHING to stdout
-    elif event == "PreToolUse":
-        set_status(AGENT_ID, "blocked")
     elif event == "Stop":
         summary = last_assistant_summary()
         set_status(AGENT_ID, "idle", summary=summary)
-        notify_boss(summary)
-    elif event == "SessionEnd":
-        set_status(AGENT_ID, "idle")
+        notify_completion(summary)
 
 
 DATA = {}

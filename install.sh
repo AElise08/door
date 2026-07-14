@@ -65,16 +65,32 @@ PY
 
 install_host_deps
 
-if ! command -v claude >/dev/null 2>&1; then
+if ! command -v claude >/dev/null 2>&1 || ! claude --version >/dev/null 2>&1; then
   echo "[mypeople] installing Claude Code"
   curl -fsSL https://claude.ai/install.sh | bash
   export PATH="$HOME/.local/bin:$PATH"
 fi
 
-claude auth status >/dev/null 2>&1 || {
-  echo "[mypeople] authenticate this machine, then rerun: claude auth login" >&2
-  exit 2
-}
+if ! command -v codex >/dev/null 2>&1 || ! codex --version >/dev/null 2>&1; then
+  echo "[mypeople] installing Codex CLI"
+  curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+
+BACKEND="${MYPEOPLE_BACKEND:-claude}"
+case "$BACKEND" in
+  claude)
+    claude auth status >/dev/null 2>&1 || claude auth login
+    ;;
+  codex)
+    codex login status >/dev/null 2>&1 || codex login
+    ;;
+  *)
+    echo "[mypeople] MYPEOPLE_BACKEND must be claude or codex" >&2
+    exit 2
+    ;;
+esac
+export MYPEOPLE_BACKEND="$BACKEND"
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "[mypeople] installing uv"
@@ -87,6 +103,7 @@ uv build --wheel --out-dir dist
 WHEEL="$(ls -t dist/mypeople-*.whl | head -1)"
 uv tool install --force "$WHEEL"
 export PATH="$HOME/.local/bin:$PATH"
-mypeople up --detach
+UP_ARGS=(up --detach --backend "$MYPEOPLE_BACKEND")
+mypeople "${UP_ARGS[@]}"
 mypeople status
 echo "[mypeople] open http://localhost:${TODO_PORT:-9933}"

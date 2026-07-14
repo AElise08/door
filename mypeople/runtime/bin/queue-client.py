@@ -62,11 +62,23 @@ def live_agents():
         if not (sess and tab):
             continue
         if not window_alive(sess, tab):
+            try:
+                rr["recorder_stop"] = C.stop_recorder(
+                    sess, tab, rr.get("recorder"), HOST_ID)
+            except Exception as exc:
+                rr["recorder_stop"] = {"error": str(exc), "requested_ts": time.time()}
             rr["retired"] = True
             rr.setdefault("retire_reason", "died-no-window")
             rr.setdefault("retired_ts", time.time())
             changed = True
             continue
+        current_recorder = C.current_recorder(sess, tab, HOST_ID)
+        if current_recorder and rr.get("recorder", {}).get("pid") != current_recorder["pid"]:
+            prior_recorder = rr.get("recorder")
+            if prior_recorder:
+                C.stop_recorder(sess, tab, prior_recorder, HOST_ID, include_current=False)
+            rr["recorder"] = current_recorder
+            changed = True
         out.append({
             "agent_id": aid, "host": HOST_ID, "session": sess, "tab": tab,
             "backend": rr.get("backend", "claude"), "state": "alive",
@@ -101,7 +113,10 @@ def dispatch(task):
         if typ == "send":
             msg = payload.get("message", "")
             tgt = C.tmux_target(ta)
+            route_token = C.enqueue_notification_route(ta, payload.get("reply_to", ""))
             ok = C.tmux_send_message(tgt, msg)
+            if not ok and route_token:
+                C.cancel_notification_route(ta, route_token)
             result = "sent" if ok else "no_pane"
         elif typ == "peek":
             out = C.tmux_capture(C.tmux_target(ta))
@@ -116,11 +131,8 @@ def dispatch(task):
                 args += ["--cwd", payload["cwd"]]
             if payload.get("is_master"):
                 args += ["--master"]
-            else:
-                # execute_spawn MUST consume payload.model, default DEFAULT_ENG_MODEL (§4)
-                model = payload.get("model") or CFG["DEFAULT_ENG_MODEL"]
-                if model:
-                    args += ["--model", model]
+            if payload.get("model"):
+                args += ["--model", payload["model"]]
             r = subprocess.run(args, capture_output=True, text=True, timeout=120)
             ok, result = (r.returncode == 0), (r.stdout + r.stderr)[-2000:]
         elif typ == "revive":

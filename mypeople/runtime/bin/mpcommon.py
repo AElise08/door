@@ -2,6 +2,8 @@
 """mypeople shared helpers: config, auth/session, json io, tmux delivery, http proxy.
 Python 3 stdlib only."""
 import os, sys, json, hmac, hashlib, base64, time, socket, subprocess, threading, urllib.request, urllib.parse
+import shlex, signal
+import fcntl
 
 def config_path():
     explicit = os.environ.get("MYPEOPLE_CONFIG_PATH")
@@ -37,6 +39,7 @@ def load_env():
         "INSTALL_DIR", "HOST_ID", "HUD_PORT", "TODO_PORT", "TTYD_PORT",
         "TTYD_BROWSER_PORT", "BIND_ADDR",
         "QUEUE_URL", "QUEUE_SECRET", "TTYD_PUBLIC_URL", "DEFAULT_ENG_MODEL",
+        "DEFAULT_BACKEND", "DEFAULT_CLAUDE_MODEL", "DEFAULT_CODEX_MODEL",
         "QUEUE_DEAD_AFTER", "HEARTBEAT_INTERVAL", "UPSTREAM_QUEUE_URL",
         "UPSTREAM_QUEUE_SECRET", "NODE_PURPOSE", "NODE_TYPE", "NODE_RECORDING_URL",
     }
@@ -53,6 +56,9 @@ def load_env():
     cfg.setdefault("BIND_ADDR", "0.0.0.0")
     cfg.setdefault("QUEUE_URL", "http://127.0.0.1:%s" % cfg["HUD_PORT"])
     cfg.setdefault("DEFAULT_ENG_MODEL", "claude-opus-4-8")
+    cfg.setdefault("DEFAULT_BACKEND", "claude")
+    cfg.setdefault("DEFAULT_CLAUDE_MODEL", cfg["DEFAULT_ENG_MODEL"])
+    cfg.setdefault("DEFAULT_CODEX_MODEL", "")
     cfg.setdefault("QUEUE_DEAD_AFTER", "45")
     cfg.setdefault("HEARTBEAT_INTERVAL", "10")
     return cfg
@@ -129,9 +135,218 @@ def parse_agent_id(aid):
         sess = rest
     return host, sess, tab
 
+
+def _notification_route_paths(target_agent):
+    digest = hashlib.sha256(target_agent.encode("utf-8")).hexdigest()
+    root = os.path.join(CFG["INSTALL_DIR"], "run", "notification-routes")
+    return os.path.join(root, digest + ".json"), os.path.join(root, digest + ".lock")
+
+
+def _locked_notification_routes(target_agent, mutate):
+    """Atomically update the per-agent FIFO used to route the next Stop notification."""
+    path, lock_path = _notification_route_paths(target_agent)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(lock_path, "a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        routes = read_json(path, []) or []
+        if not isinstance(routes, list):
+            routes = []
+        result, routes = mutate(routes)
+        if routes:
+            write_json(path, routes)
+        else:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+        return result
+
+
+def enqueue_notification_route(target_agent, reply_to):
+    """Queue reply_to as the recipient of target_agent's next Stop. Returns a route token."""
+    if not target_agent or not reply_to or target_agent == reply_to:
+        return ""
+    token = base64.urlsafe_b64encode(os.urandom(12)).decode().rstrip("=")
+
+    def append(routes):
+        routes.append({"token": token, "reply_to": reply_to, "ts": time.time()})
+        return token, routes
+
+    return _locked_notification_routes(target_agent, append)
+
+
+def cancel_notification_route(target_agent, token):
+    """Remove a route when its corresponding message could not be delivered."""
+    if not target_agent or not token:
+        return False
+
+    def cancel(routes):
+        kept = [route for route in routes if route.get("token") != token]
+        return len(kept) != len(routes), kept
+
+    return _locked_notification_routes(target_agent, cancel)
+
+
+def claim_notification_route(target_agent):
+    """Consume and return the oldest per-message reply target for this agent."""
+    if not target_agent:
+        return ""
+
+    def claim(routes):
+        while routes:
+            route = routes.pop(0)
+            reply_to = route.get("reply_to", "") if isinstance(route, dict) else ""
+            if reply_to:
+                return reply_to, routes
+        return "", routes
+
+    return _locked_notification_routes(target_agent, claim)
+
+
 def tmux_target(aid):
     _, sess, tab = parse_agent_id(aid)
     return "mc-%s:%s" % (sess, tab)
+
+
+# ---------- terminal recorder lifecycle ----------
+def recorder_identity(sess, tab, host=None):
+    """Return the immutable identity used to validate a recorder before signalling it."""
+    host = host or CFG["HOST_ID"]
+    return {
+        "session": "rec-%s" % tab,
+        "target": "mc-%s:%s" % (sess, tab),
+        "cast": os.path.expanduser("~/recordings/%s-%s.cast" % (host, tab)),
+    }
+
+
+def _ps(pid, field):
+    try:
+        r = subprocess.run(["ps", "-p", str(int(pid)), "-o", field + "="],
+                           capture_output=True, text=True, timeout=2)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return ""
+
+
+def _process_alive(pid):
+    return bool(_ps(pid, "pid"))
+
+
+def _recorder_pid_matches(pid, target, cast):
+    """Reject PID reuse and unrelated asciinema jobs using the complete command identity."""
+    if os.path.basename(_ps(pid, "comm")) != "asciinema":
+        return False
+    try:
+        tokens = shlex.split(_ps(pid, "command"))
+    except ValueError:
+        return False
+    if tokens:
+        tokens[0] = os.path.basename(tokens[0])
+    return tokens == ["asciinema", "rec", "--quiet", "--append", "-c", "TMUX=",
+                      "tmux", "attach", "-rt", target, cast]
+
+
+def _recorder_child_pids(pid):
+    try:
+        r = subprocess.run(["pgrep", "-P", str(int(pid))], capture_output=True, text=True,
+                           timeout=2)
+        return [int(x) for x in r.stdout.split() if x.isdigit()]
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return []
+
+
+def _recorder_child_matches(pid, parent_pid, target):
+    if _ps(pid, "ppid").strip() != str(int(parent_pid)):
+        return False
+    try:
+        tokens = shlex.split(_ps(pid, "command"))
+    except ValueError:
+        return False
+    if tokens:
+        tokens[0] = os.path.basename(tokens[0])
+    return tokens == ["tmux", "attach", "-rt", target]
+
+
+def current_recorder(sess, tab, host=None):
+    """Describe the validated recorder reachable through the current tmux server."""
+    ident = recorder_identity(sess, tab, host)
+    try:
+        r = subprocess.run(
+            ["tmux", "list-panes", "-t", "=" + ident["session"],
+             "-F", "#{pane_pid}|#{pid}|#{pane_dead}"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if r.returncode != 0:
+            return None
+        row = next((line for line in r.stdout.splitlines() if line), "")
+        pane_pid, server_pid, dead = row.split("|", 2)
+        pid = int(pane_pid)
+        if dead != "0" or not _recorder_pid_matches(pid, ident["target"], ident["cast"]):
+            return None
+        return dict(ident, pid=pid, server_pid=int(server_pid), started_ts=time.time())
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def _wait_for_exit(pids, timeout=2.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not any(_process_alive(pid) for pid in pids):
+            return True
+        time.sleep(0.05)
+    return not any(_process_alive(pid) for pid in pids)
+
+
+def stop_recorder(sess, tab, metadata=None, host=None, include_current=True):
+    """Gracefully stop only command-validated recorders for one agent.
+
+    The durable PID is a fallback for a recorder stranded on an old tmux server/socket.  Every
+    signal is guarded by target+cast command validation, so PID reuse or an unrelated live recorder
+    cannot be touched.
+    """
+    ident = recorder_identity(sess, tab, host)
+    candidates = []
+    if include_current:
+        current = current_recorder(sess, tab, host)
+        if current:
+            candidates.append(current["pid"])
+    if isinstance(metadata, dict):
+        try:
+            pid = int(metadata.get("pid", 0))
+        except (TypeError, ValueError):
+            pid = 0
+        if (pid and metadata.get("target") == ident["target"] and
+                metadata.get("cast") == ident["cast"]):
+            candidates.append(pid)
+    candidates = list(dict.fromkeys(candidates))
+    validated = [pid for pid in candidates
+                 if _recorder_pid_matches(pid, ident["target"], ident["cast"])]
+    child_terms = []
+    for pid in validated:
+        for child in _recorder_child_pids(pid):
+            if _recorder_child_matches(child, pid, ident["target"]):
+                try:
+                    os.kill(child, signal.SIGTERM)
+                    child_terms.append(child)
+                except ProcessLookupError:
+                    pass
+    _wait_for_exit(validated)
+    parent_terms = []
+    for pid in validated:
+        if (_process_alive(pid) and
+                _recorder_pid_matches(pid, ident["target"], ident["cast"])):
+            try:
+                os.kill(pid, signal.SIGTERM)
+                parent_terms.append(pid)
+            except ProcessLookupError:
+                pass
+    _wait_for_exit(parent_terms)
+    survivors = [pid for pid in validated
+                 if _process_alive(pid) and
+                 _recorder_pid_matches(pid, ident["target"], ident["cast"])]
+    return {"requested_ts": time.time(), "validated": validated,
+            "child_terms": child_terms, "parent_terms": parent_terms,
+            "survivors": survivors}
 
 def export_repo_path(cfg=None):
     """PER-INSTANCE git backup repo (§3 boardgit). Path carries an instance discriminator

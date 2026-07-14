@@ -15,9 +15,11 @@ services:
       TODO_PORT: "9933"
       TTYD_PORT: "7681"
       TTYD_BROWSER_PORT: "${MYPEOPLE_TTYD_PORT:-7681}"
+      DEFAULT_BACKEND: "${MYPEOPLE_BACKEND:-claude}"
+      DEFAULT_CODEX_MODEL: "${MYPEOPLE_CODEX_MODEL:-}"
     volumes:
       - mypeople-state:/var/lib/mypeople
-      # This is this container node's own Claude home/login. Never copy it to another node.
+      # This is this container node's own agent home/login. Never copy it to another node.
       - mypeople-claude-home:/home/mypeople
     restart: unless-stopped
 

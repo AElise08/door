@@ -1,11 +1,14 @@
 """First-run entrypoint — REPLACES seed hydration with configuration only (never code-gen).
 
 ensure() is idempotent: safe on every `up` / container restart. It materializes a writable
-INSTALL_DIR from the packaged runtime, resolves the recipient's Claude auth, writes the single
-config file (~/.config/mypeople/queue.env, fresh QUEUE_SECRET per install), wires Claude-Code
-trust + the Boss lifecycle hook, and installs the functional tmux.conf. Starting daemons +
-spawning the Boss is the CLI's job (see cli.up)."""
-import os, sys, json, shutil, secrets, socket, subprocess
+INSTALL_DIR from the packaged runtime, resolves the selected backend's auth, writes the single
+config file (~/.config/mypeople/queue.env, fresh QUEUE_SECRET per install), wires Claude/Codex
+lifecycle hooks, and installs the functional tmux.conf. Starting daemons + spawning the Boss is
+the CLI's job (see cli.up)."""
+import os, sys, json, shutil, secrets, socket, subprocess, shlex
+
+VALID_BACKENDS = ("claude", "codex")
+LIFECYCLE_EVENTS = ("SessionStart", "UserPromptSubmit", "Stop")
 
 def _config_path():
     explicit = os.environ.get("MYPEOPLE_CONFIG_PATH")
@@ -76,12 +79,7 @@ def materialize(install):
 
 
 # ---------------------------------------------------------------- step 2: auth
-def resolve_auth():
-    """Require this node's own completed Claude device login.
-
-    Authentication is an operator step. MyPeople never copies, mounts, mints, or reuses a Claude
-    credential/token from another node.
-    """
+def _claude_authenticated():
     if shutil.which("claude"):
         try:
             r = subprocess.run(["claude", "auth", "status"], capture_output=True,
@@ -93,20 +91,90 @@ def resolve_auth():
                 normalized = "".join(ch for ch in (r.stdout + r.stderr).lower() if ch.isalnum())
                 logged_in = "loggedintrue" in normalized or "loginmethod" in normalized
             if r.returncode == 0 and logged_in:
-                return True, "claude-login", "this node's claude auth status: logged in"
+                return True
         except Exception:
             pass
-    return (False, "none",
-            "This node is not authenticated. Run `claude auth login` inside THIS node, then "
-            "re-run MyPeople. Never copy or mount a credential/token from another node.")
+    return False
+
+
+def _codex_authenticated():
+    if shutil.which("codex"):
+        try:
+            r = subprocess.run(["codex", "login", "status"], capture_output=True,
+                               text=True, timeout=15)
+            return r.returncode == 0
+        except Exception:
+            pass
+    return False
+
+
+def resolve_auth(preferred=None):
+    """Require this node's own completed login for the selected agent backend."""
+    preferred = (preferred or "").strip().lower()
+    if preferred and preferred not in VALID_BACKENDS:
+        return False, preferred, "Unknown backend %r; choose claude or codex." % preferred
+    checks = {"claude": _claude_authenticated, "codex": _codex_authenticated}
+    order = [preferred] if preferred else list(VALID_BACKENDS)
+    for backend in order:
+        if checks[backend]():
+            return True, backend, "this node's %s login is active" % backend
+    requested = preferred or "claude or codex"
+    return (False, preferred or "none",
+            "This node is not authenticated for %s. Run `claude auth login` or `codex login` "
+            "inside THIS node, then re-run MyPeople. Never copy or mount credentials from another "
+            "node." % requested)
 
 
 # ---------------------------------------------------------------- step 3: queue.env
-def write_queue_env(install):
+def _write_env_file(path, lines):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write("\n".join(lines).rstrip() + "\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def write_queue_env(install, backend):
     """Write the single config file if absent. Idempotent — reuse keeps the same
     QUEUE_SECRET/HOST_ID across restarts so board/sessions persist."""
     os.makedirs(CONFIG_DIR, exist_ok=True)
     if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH) as f:
+            lines = f.read().splitlines()
+        existing = {}
+        for line in lines:
+            body = line.strip()
+            body = body[7:] if body.startswith("export ") else body
+            if "=" not in body:
+                continue
+            key, value = body.split("=", 1)
+            value = value.strip()
+            if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
+                value = value[1:-1]
+            existing[key.strip()] = value
+        replacements = {
+            "DEFAULT_BACKEND": backend,
+            "DEFAULT_CLAUDE_MODEL": os.environ.get(
+                "DEFAULT_CLAUDE_MODEL", existing.get(
+                    "DEFAULT_CLAUDE_MODEL", existing.get("DEFAULT_ENG_MODEL", "claude-opus-4-8"))),
+            "DEFAULT_CODEX_MODEL": os.environ.get(
+                "DEFAULT_CODEX_MODEL", existing.get("DEFAULT_CODEX_MODEL", "")),
+        }
+        seen = set()
+        out = []
+        for line in lines:
+            stripped = line.strip()
+            body = stripped[7:] if stripped.startswith("export ") else stripped
+            key = body.split("=", 1)[0] if "=" in body else ""
+            if key in replacements:
+                out.append('export %s="%s"' % (key, replacements[key]))
+                seen.add(key)
+            else:
+                out.append(line)
+        for key, value in replacements.items():
+            if key not in seen:
+                out.append('export %s="%s"' % (key, value))
+        _write_env_file(CONFIG_PATH, out)
         return False
     host = os.environ.get("HOST_ID") or socket.gethostname().split(".")[0]
     kv = {
@@ -121,22 +189,51 @@ def write_queue_env(install):
         "BIND_ADDR": os.environ.get("BIND_ADDR", "0.0.0.0"),
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
+        "DEFAULT_BACKEND": backend,
         "DEFAULT_ENG_MODEL": os.environ.get("DEFAULT_ENG_MODEL", "claude-opus-4-8"),
+        "DEFAULT_CLAUDE_MODEL": os.environ.get(
+            "DEFAULT_CLAUDE_MODEL", os.environ.get("DEFAULT_ENG_MODEL", "claude-opus-4-8")),
+        "DEFAULT_CODEX_MODEL": os.environ.get("DEFAULT_CODEX_MODEL", ""),
         "QUEUE_DEAD_AFTER": "45",
         "HEARTBEAT_INTERVAL": "10",
     }
     kv["QUEUE_URL"] = os.environ.get("QUEUE_URL", "http://127.0.0.1:%s" % kv["HUD_PORT"])
     lines = ["# mypeople runtime config — generated on first run (secrets here; never commit)"]
     lines += ['export %s="%s"' % (k, v) for k, v in kv.items()]
-    tmp = CONFIG_PATH + ".tmp"
-    with open(tmp, "w") as f:
-        f.write("\n".join(lines) + "\n")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, CONFIG_PATH)
+    _write_env_file(CONFIG_PATH, lines)
     return True
 
 
-# ---------------------------------------------------------------- step 4: claude trust + hook
+# ---------------------------------------------------------------- step 4: backend hooks
+def _mypeople_hook_group(group):
+    for handler in group.get("hooks", []) if isinstance(group, dict) else []:
+        command = handler.get("command", "") if isinstance(handler, dict) else ""
+        if "/plugins/tmux-boss-hooks/emit-event.sh" in command:
+            return True
+    return False
+
+
+def _replace_mypeople_hooks(hooks, hook):
+    """Remove every prior MyPeople hook, including retired events, then install current ones."""
+    if not isinstance(hooks, dict):
+        hooks = {}
+    for event in list(hooks):
+        groups = hooks.get(event, [])
+        if not isinstance(groups, list):
+            continue
+        kept = [group for group in groups if not _mypeople_hook_group(group)]
+        if kept:
+            hooks[event] = kept
+        else:
+            hooks.pop(event, None)
+    for event in LIFECYCLE_EVENTS:
+        command = "%s %s" % (shlex.quote(hook), event)
+        hooks.setdefault(event, []).append({"hooks": [
+            {"type": "command", "command": command}
+        ]})
+    return hooks
+
+
 def write_claude_config(install):
     """Claude-Code onboarding + folder-trust + the Boss lifecycle hook, pointed at THIS
     install's plugin path. Replaces seed Step 3."""
@@ -160,48 +257,42 @@ def write_claude_config(install):
         proj[path] = rec
     _atomic_json(cj, d)
 
-    # ~/.claude/settings.json — the 5 lifecycle hooks + dangerous-mode precondition
+    # ~/.claude/settings.json — shared lifecycle hooks + dangerous-mode precondition
     cs_dir = os.path.expanduser("~/.claude")
     os.makedirs(cs_dir, exist_ok=True)
     hook = os.path.join(install, "plugins", "tmux-boss-hooks", "emit-event.sh")
-    def h(evt, matcher=""):
-        return {"matcher": matcher, "hooks": [
-            {"type": "command", "command": "%s %s" % (hook, evt)}]}
     settings_path = os.path.join(cs_dir, "settings.json")
     settings = {}
     if os.path.exists(settings_path):
         try:
-            settings = json.load(open(settings_path)) or {}
+            with open(settings_path) as f:
+                settings = json.load(f) or {}
         except Exception:
             settings = {}
     if not isinstance(settings, dict):
         settings = {}
-    hooks = settings.setdefault("hooks", {})
-    required = {
-        "SessionStart": h("SessionStart"),
-        "UserPromptSubmit": h("UserPromptSubmit"),
-        "Stop": h("Stop"),
-        "PreToolUse": h("PreToolUse", "AskUserQuestion"),
-        "SessionEnd": h("SessionEnd"),
-    }
-    # Remove stale MyPeople hook paths from older installs before adding this install's hook.
-    for event in required:
-        kept = []
-        for group in hooks.setdefault(event, []):
-            commands = [x.get("command", "") for x in group.get("hooks", [])]
-            if any("/plugins/tmux-boss-hooks/emit-event.sh" in cmd and hook not in cmd
-                   for cmd in commands):
-                continue
-            kept.append(group)
-        hooks[event] = kept
-    for event, entry in required.items():
-        current = hooks.setdefault(event, [])
-        command = entry["hooks"][0]["command"]
-        if not any(command == hook.get("command")
-                   for group in current for hook in group.get("hooks", [])):
-            current.append(entry)
+    settings["hooks"] = _replace_mypeople_hooks(settings.get("hooks", {}), hook)
     settings["skipDangerousModePermissionPrompt"] = True
     _atomic_json(settings_path, settings)
+
+
+def write_codex_config(install):
+    """Install the same lifecycle contract for Codex without touching unrelated hooks."""
+    codex_dir = os.path.expanduser("~/.codex")
+    os.makedirs(codex_dir, exist_ok=True)
+    hooks_path = os.path.join(codex_dir, "hooks.json")
+    config = {}
+    if os.path.exists(hooks_path):
+        try:
+            with open(hooks_path) as f:
+                config = json.load(f) or {}
+        except Exception:
+            config = {}
+    if not isinstance(config, dict):
+        config = {}
+    hook = os.path.join(install, "plugins", "tmux-boss-hooks", "emit-event.sh")
+    config["hooks"] = _replace_mypeople_hooks(config.get("hooks", {}), hook)
+    _atomic_json(hooks_path, config)
 
 
 def _atomic_json(path, obj):
@@ -245,22 +336,26 @@ def install_tmux_conf(install):
 
 
 # ---------------------------------------------------------------- orchestration
-def ensure():
-    """Idempotent first-run configuration. Returns the resolved (install, host)."""
+def ensure(preferred_backend=None):
+    """Idempotent first-run configuration. Returns (install, host, selected backend)."""
     install = install_dir()
     materialize(install)
-    ok, mode, msg = resolve_auth()
+    configured = _read_env_val("DEFAULT_BACKEND")
+    requested = (preferred_backend or os.environ.get("MYPEOPLE_BACKEND") or
+                 os.environ.get("DEFAULT_BACKEND") or configured)
+    ok, backend, msg = resolve_auth(requested)
     if not ok:
         _echo("\n[mypeople] " + msg + "\n")
         sys.exit(2)
     _echo("[mypeople] auth: %s" % msg)
-    fresh = write_queue_env(install)
+    fresh = write_queue_env(install, backend)
     write_claude_config(install)
+    write_codex_config(install)
     install_tmux_conf(install)
     host = os.environ.get("HOST_ID") or _read_env_val("HOST_ID") or socket.gethostname().split(".")[0]
     _echo("[mypeople] install dir: %s  (config: %s%s)" %
           (install, CONFIG_PATH, ", fresh" if fresh else ", reused"))
-    return install, host
+    return install, host, backend
 
 
 def _read_env_val(key):
