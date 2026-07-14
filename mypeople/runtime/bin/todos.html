@@ -52,6 +52,13 @@ h1{font-family:var(--serif);font-size:34px;font-weight:400;margin:0;color:var(--
 .vb-sep{width:1px;height:18px;background:rgba(255,255,255,0.09);margin:0 4px;}
 .vbtn{font-family:var(--mono);font-size:11px;border-radius:9px;background:rgba(255,255,255,0.05);border:1px solid var(--dark-border);color:var(--muted-dark);text-transform:uppercase;padding:5px 10px;cursor:pointer;}
 .vbtn.active{color:var(--midnight);background:var(--volt);border-color:var(--volt);}
+.bossbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:14px;}
+.boss-state{font-family:var(--mono);font-size:11px;border-radius:100px;text-transform:uppercase;font-weight:500;padding:4px 11px;}
+.boss-state.up{color:rgb(82,216,115);background:rgba(52,199,89,0.16);}
+.boss-state.down{color:rgb(255,59,48);background:rgba(255,59,48,0.16);}
+.boss-kill{color:var(--danger);border-color:rgba(255,59,48,0.4);}
+.boss-kill:hover:not(:disabled){background:rgba(255,59,48,0.16);}
+.boss-msg{margin-top:0;text-transform:none;}
 ul#list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px;}
 .pin-head{font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--volt);letter-spacing:.08em;margin:6px 2px 0;}
 li.task{background:var(--surface);border:1px solid var(--dark-border);border-radius:18px;padding:16px 18px;cursor:pointer;}
@@ -168,6 +175,18 @@ body.modal-open #modalbg{display:flex;}
   <div class="addbar">
     <input id="addInput" placeholder="Add a priority and hit Enter…" autocomplete="off">
     <button class="btn-volt" id="addBtn">Add</button>
+  </div>
+  <div class="bossbar" id="bossbar">
+    <span class="vb-label">boss</span>
+    <span class="boss-state" id="bossState">…</span>
+    <button class="vbtn boss-kill" id="bossKill">Kill Boss</button>
+    <span class="vb-sep"></span>
+    <button class="vbtn" id="bossRevive" title="Bring the SAME Boss back, resuming its session and memory">Revive</button>
+    <span class="vb-sep"></span>
+    <span class="vb-label">spawn new</span>
+    <button class="vbtn" id="bossSpawnClaude">Claude</button>
+    <button class="vbtn" id="bossSpawnCodex">Codex</button>
+    <span class="boss-msg subt" id="bossMsg"></span>
   </div>
   <div class="viewbar" id="viewbar">
     <span class="vb-label">show</span>
@@ -623,9 +642,52 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&openTaskId) closeC
 $("#modalbg").addEventListener("click", e=>{ if(e.target.id==="modalbg") closeCard(); });
 
 // ---- data ----
+const BOSS_ENGINES=[["bossSpawnClaude","claude"],["bossSpawnCodex","codex"]];
+let bossBusy=false;
+function renderBoss(boss){
+  const st=document.getElementById("bossState"); if(!st) return;
+  const up=!!boss;
+  st.textContent = up ? (boss.backend||"boss")+" up" : "down";
+  st.className = "boss-state "+(up?"up":"down");
+  // Kill only while up; Revive and Spawn only while down. Mutually exclusive by construction,
+  // so the UI can never ask for a second Boss.
+  document.getElementById("bossKill").disabled = bossBusy || !up;
+  document.getElementById("bossRevive").disabled = bossBusy || up;
+  BOSS_ENGINES.forEach(([id])=>{ document.getElementById(id).disabled = bossBusy || up; });
+}
+function bossMsg(t,bad){
+  const m=document.getElementById("bossMsg"); if(!m) return;
+  m.textContent=t||""; m.style.color = bad ? "var(--danger)" : "var(--muted-dark)";
+}
+const BOSS_CONFIRM={
+  kill:   "Kill the Boss? It will STAY DOWN — no auto-respawn — until you bring one back from here.",
+  revive: "Revive the Boss? Same Boss, resuming its session and memory.",
+  spawn:  b=>"Spawn a NEW "+b+" Boss? This starts fresh — it does not keep the old Boss's memory.",
+};
+const BOSS_PENDING={kill:"killing…", revive:"reviving…", spawn:b=>"spawning "+b+"…"};
+const BOSS_DONE={
+  kill:   "kill queued — Boss will stay down",
+  revive: "revive queued — same Boss coming back",
+  spawn:  b=>"spawn queued — new "+b+" Boss coming up",
+};
+const bossText=(m,a,b)=> typeof m[a]==="function" ? m[a](b) : m[a];
+async function bossOp(action, backend){
+  if(bossBusy) return;
+  if(!confirm(bossText(BOSS_CONFIRM,action,backend))) return;
+  bossBusy=true; renderBoss(null); bossMsg(bossText(BOSS_PENDING,action,backend));
+  try{
+    const r=await api("/todo/boss",{method:"POST",body:JSON.stringify({action:action,backend:backend})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok) bossMsg((d.detail||d.error||("http "+r.status)),true);
+    else bossMsg(bossText(BOSS_DONE,action,backend));
+  }catch(e){ bossMsg(String(e),true); }
+  bossBusy=false;
+  loadAgents();
+}
 async function loadAgents(){
   try{ const r=await api("/agents"); if(r.ok){ const a=await r.json();
     AGENTS={}; a.forEach(x=>{ if(x.attach_url) AGENTS[x.agent_id]=x.attach_url; });
+    renderBoss(a.find(x=>x.is_master && x.state==="alive")||null);
     if(Object.keys(BOARD.tasks||{}).length) render();   // refresh assignee links once attach URLs known
   } }catch(e){}
 }
@@ -666,6 +728,9 @@ document.addEventListener("visibilitychange",()=>{ if(!document.hidden) healthWa
 window.addEventListener("focus", healthWatch);
 
 document.addEventListener("DOMContentLoaded", ()=>{
+  document.getElementById("bossKill").addEventListener("click",()=>bossOp("kill"));
+  document.getElementById("bossRevive").addEventListener("click",()=>bossOp("revive"));
+  BOSS_ENGINES.forEach(([id,bk])=>document.getElementById(id).addEventListener("click",()=>bossOp("spawn",bk)));
   // board first, never held up when /agents is slow (loadAgents is fire-and-forget)
   fetchBoard(true);
   loadAgents();
