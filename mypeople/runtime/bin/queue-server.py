@@ -261,6 +261,12 @@ class Handler(BaseHTTPRequestHandler):
                             "revive_cmd": "mp revive %s" % aid,
                             "cwd": rr.get("cwd", ""), "model": rr.get("model", ""),
                             "summary": rr.get("summary", ""),
+                            # which personality this agent was actually born with. Empty for a
+                            # legacy agent spawned before the role mount existed -- consumers
+                            # render that as "-" so an unmounted agent is visibly unmounted.
+                            "role": rr.get("role", ""),
+                            "role_ref": rr.get("role_ref", ""),
+                            "role_digest": rr.get("role_digest", ""),
                             "state": ("alive" if aid in AGENTS else "dead"),
                         })
                     return self._send(200, out)

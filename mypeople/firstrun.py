@@ -49,7 +49,10 @@ def materialize(install):
     rt = runtime_dir()
     os.makedirs(install, exist_ok=True)
     # code trees: refresh from the package so upgrades take effect (state dirs excluded below).
-    for sub in ("bin", "plugins", "plans", "verify", "config"):
+    # "roles" carries the versioned role store (personalities + Skills + profiles). mp resolves
+    # every --role spawn against INSTALL_DIR/roles and fails closed if it is absent, so omitting
+    # it here would ship a runtime whose Boss cannot be born.
+    for sub in ("bin", "plugins", "plans", "verify", "config", "roles"):
         src = os.path.join(rt, sub)
         if os.path.isdir(src):
             shutil.copytree(src, os.path.join(install, sub), dirs_exist_ok=True)

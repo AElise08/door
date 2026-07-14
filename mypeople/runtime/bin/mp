@@ -5,6 +5,7 @@ import os, sys, json, time, shlex, subprocess, shutil
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mpcommon as C
+import mprole
 
 CFG = C.CFG
 INSTALL_DIR = CFG["INSTALL_DIR"]
@@ -26,9 +27,21 @@ ROSTER_PATH = os.path.join(INSTALL_DIR, "run", "roster.json")
 STATUS_DIR = os.path.join(INSTALL_DIR, "status")
 HOOK = os.path.join(INSTALL_DIR, "plugins", "tmux-boss-hooks", "emit-event.sh")
 BOSS_DOC = os.path.join(INSTALL_DIR, "boss-CLAUDE.md")
+ROLE_DIR = os.path.join(INSTALL_DIR, "roles")            # canonical read-only role store
+ROLE_BUNDLE_DIR = os.path.join(INSTALL_DIR, "run", "role-bundles")  # derived per-agent views
 HDR = {"X-Queue-Secret": SECRET}
 DOCTRINE_SUMMARY = ("Boss onboarded: plan-gate before engineering, drive the team autonomously "
                     "off the board via the mp queue (fire-and-forget), verify every result.")
+
+
+def resolve_role(role, backend, locked_role_ref=None):
+    """Resolve + fail-closed-validate a role tag against the canonical store (reads mp.ROLE_DIR)."""
+    return mprole.resolve_role(role, backend, ROLE_DIR, BOSS_DOC, locked_role_ref=locked_role_ref)
+
+
+def materialize_role(item, aid, backend):
+    """Materialize the derived per-agent bundle view (reads mp.ROLE_BUNDLE_DIR)."""
+    return mprole.materialize_role(item, aid, backend, ROLE_BUNDLE_DIR)
 
 
 def full_aid(aid):
@@ -148,7 +161,8 @@ def start_recorder(tab, sess, previous=None):
     return None
 
 
-def build_launch(aid, cwd, boss_id, is_master, model, backend, resume_session=None):
+def build_launch(aid, cwd, boss_id, is_master, model, backend, resume_session=None,
+                 role_bundle=None):
     exports = {
         "PATH": "%s/.local/bin:%s/bin:%s" % (os.path.expanduser("~"), INSTALL_DIR, os.environ.get("PATH", "/usr/bin")),
         "AGENT_ID": aid,
@@ -160,6 +174,16 @@ def build_launch(aid, cwd, boss_id, is_master, model, backend, resume_session=No
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
     }
+    # non-secret role identity env (MYPEOPLE_ROLE*, plus CODEX_HOME / GROK_HOME for the adapters
+    # that mount through a home dir instead of flags). Absent role_bundle, the launch is byte-for-
+    # byte the legacy one -- a bundle-less agent keeps working exactly as before.
+    role_flags = []
+    if role_bundle:
+        exports.update(mprole.role_env(role_bundle))
+        # dispatch explicitly: an else-branch here silently hands one adapter's flags to another
+        # backend, which rejects them -- the agent would die at launch with the role "mounted".
+        role_flags = {"claude": mprole.claude_flags, "codex": mprole.codex_flags,
+                      "grok": mprole.grok_flags}[backend](role_bundle)
     prefix = "env"
     if is_master:
         prefix += " -u BOSS_ID"  # top-level agent must not inherit a leaked boss
@@ -168,12 +192,16 @@ def build_launch(aid, cwd, boss_id, is_master, model, backend, resume_session=No
     envstr = envq(**exports)
     if backend == "claude":
         agent = "claude --dangerously-skip-permissions"
+        if role_flags:
+            agent += " " + " ".join(shlex.quote(f) for f in role_flags)
         if model:
             agent += " --model %s" % shlex.quote(model)
         if resume_session:
             agent += " --resume %s" % shlex.quote(resume_session)
     elif backend == "codex":
         agent = "codex --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust"
+        if role_flags:
+            agent += " " + " ".join(shlex.quote(f) for f in role_flags)
         if model:
             agent += " --model %s" % shlex.quote(model)
         if resume_session:
@@ -183,10 +211,10 @@ def build_launch(aid, cwd, boss_id, is_master, model, backend, resume_session=No
     return "%s %s %s" % (prefix, envstr, agent)
 
 
-def do_spawn(argv, resume_session=None):
+def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_digest=None):
     if not argv:
         print("usage: mp spawn <agent_id> [--backend claude|codex] [--cwd PATH] [--boss <id>] "
-              "[--master] [--model <id>]",
+              "[--master] [--model <id>] [--role boss|engineer]",
               file=sys.stderr)
         return 2
     aid = full_aid(argv[0])
@@ -196,6 +224,8 @@ def do_spawn(argv, resume_session=None):
     boss_given = False
     is_master = False
     model = None
+    role = None
+    recorded_role_ref = None  # revive pins the exact recorded name@semver
     i = 1
     while i < len(argv):
         a = argv[i]
@@ -210,7 +240,27 @@ def do_spawn(argv, resume_session=None):
             is_master = True
         elif a == "--model":
             i += 1; model = argv[i]
+        elif a == "--role":
+            i += 1; role = argv[i] if i < len(argv) else ""
+        elif a == "--role-ref":
+            i += 1; recorded_role_ref = argv[i] if i < len(argv) else ""
         i += 1
+    # revive/lock pins the exact recorded ref via kwarg OR --role-ref flag
+    if locked_role_ref is None:
+        locked_role_ref = recorded_role_ref
+    # --- role/master coupling (§role spec) enforced BEFORE any tmux/roster ---
+    role = (role or "").strip().lower() or None
+    if role == "boss" and not is_master:
+        print("ERROR: --role boss requires --master", file=sys.stderr); return 2
+    if role == "engineer" and is_master:
+        print("ERROR: --role engineer and --master cannot be combined", file=sys.stderr); return 2
+    # NO BUNDLE-LESS BOSS, BY ANY PATH. --master IS what makes an agent a Boss, so the gate keys on
+    # is_master -- NOT on the window being named "Boss". Keying on the name would let
+    # `mp spawn <anything> --master` mint a second, bundle-less Boss with the doctrine missing.
+    if is_master and role != "boss":
+        print("ERROR: %s is a Boss (--master) and must be spawned with --role boss; refusing a "
+              "bundle-less Boss." % aid, file=sys.stderr)
+        return 2
     # empty --boss is a HARD ERROR (§5 spawn env-export contract)
     if boss_given and (boss is None or boss.strip() == ""):
         print("ERROR: --boss given with an empty/whitespace value (unset $AGENT_ID bug); refusing to "
@@ -240,8 +290,37 @@ def do_spawn(argv, resume_session=None):
     if backend == "claude":
         pretrust(cwd)
 
+    # --- FAIL-CLOSED ROLE PREFLIGHT + MOUNT (before any tmux pane / roster row) ---
+    # Resolving and materializing here means a bad role leaves NO side effects: no window, no
+    # roster entry, no half-born agent for the supervisor to find.
+    role_bundle = None
+    role_meta = {}
+    if role:
+        try:
+            item = resolve_role(role, backend, locked_role_ref=locked_role_ref)
+        except mprole.RoleError as ex:
+            print("ERROR: role preflight failed (no tmux/roster created): %s" % ex, file=sys.stderr)
+            return 2
+        if expected_role_digest and item["digest"] != expected_role_digest:
+            print("ERROR: locked role drift for %s: expected digest %s, store now resolves %s. "
+                  "Refusing to revive under a different doctrine."
+                  % (aid, expected_role_digest[:12], item["digest"][:12]), file=sys.stderr)
+            return 5
+        role_bundle = materialize_role(item, aid, backend)
+        role_meta = {
+            "role": role_bundle["role"], "role_ref": role_bundle["role_ref"],
+            "role_digest": role_bundle["digest"],
+            "personality_digest": role_bundle["personality_digest"],
+            "skill_digests": {s["name"]: s["sha256"] for s in role_bundle["skills"]},
+            "adapter_version": role_bundle["adapter_version"],
+            "role_bundle": role_bundle["bundle_path"],
+        }
+        print("role %s mounted: %s  digest=%s  bundle=%s"
+              % (role, role_bundle["role_ref"], role_bundle["digest"][:12],
+                 role_bundle["bundle_path"]))
+
     launch = build_launch(aid, cwd, boss_id, is_master, model, backend,
-                          resume_session=resume_session)
+                          resume_session=resume_session, role_bundle=role_bundle)
     # audit spawn_cmd string (model pinned so /agents shows exact per-engineer model)
     parts = ["mp", "spawn", aid, "--backend", backend]
     if boss_id:
@@ -252,6 +331,8 @@ def do_spawn(argv, resume_session=None):
         parts += ["--master"]
     if (not is_master and model) or (is_master and model):
         parts += ["--model", model]
+    if role:
+        parts += ["--role", role]
     spawn_cmd = " ".join(shlex.quote(x) for x in parts)
 
     e = tmux_env()
@@ -283,7 +364,16 @@ def do_spawn(argv, resume_session=None):
                    "backend": backend, "boss_id": boss_id, "cwd": cwd, "spawn_cmd": spawn_cmd,
                    "model": (model or ""), "is_master": is_master, "retired": False,
                    "session_id": resume_session or prior.get("session_id", ""),
-                   "summary": prior.get("summary", "")}
+                   "summary": prior.get("summary", ""),
+                   # durable role/revive contract (§role spec). These are also what makes the
+                   # mounted personality VISIBLE: mp status and the board read them from here
+                   # rather than re-deriving anything.
+                   "role": role_meta.get("role", ""), "role_ref": role_meta.get("role_ref", ""),
+                   "role_digest": role_meta.get("role_digest", ""),
+                   "personality_digest": role_meta.get("personality_digest", ""),
+                   "skill_digests": role_meta.get("skill_digests", {}),
+                   "adapter_version": role_meta.get("adapter_version", ""),
+                   "role_bundle": role_meta.get("role_bundle", "")}
     save_roster(roster)
 
     # initial status; master gets a keyword-bearing, locked doctrine summary (J2c)
@@ -466,9 +556,15 @@ def do_revive(argv):
         args += ["--cwd", rr["cwd"]]
     if rr.get("is_master"):
         args += ["--master"]
+    role = _record_role(rr)
+    if role:
+        args += ["--role", role]
     if rr.get("model"):
         args += ["--model", rr["model"]]
-    return do_spawn(args, resume_session=sid)
+    # Pin the exact recorded ref+digest so a restored agent cannot silently come back under a
+    # different doctrine than the one it died with.
+    return do_spawn(args, resume_session=sid, locked_role_ref=rr.get("role_ref") or None,
+                    expected_role_digest=rr.get("role_digest") or None)
 
 
 def do_ensure_boss(argv):
@@ -508,7 +604,9 @@ def do_ensure_boss(argv):
             print("%s was deliberately retired (%s); not respawning" % (aid, reason))
             return 0
     if rr is None:
-        return do_spawn([aid, "--master", "--backend", backend])
+        # A new node's FIRST Boss is born mounted -- this is the path the supervisor takes, so it
+        # is the one that must never yield a bundle-less Boss.
+        return do_spawn([aid, "--master", "--role", "boss", "--backend", backend])
     if not rr.get("is_master"):
         print("ERROR: %s exists but is not recorded as the Boss" % aid, file=sys.stderr)
         return 1
@@ -520,6 +618,17 @@ def do_ensure_boss(argv):
     return do_revive([aid])
 
 
+def _record_role(rr):
+    """The role a restored agent must be reborn with.
+
+    A legacy record has no role. A legacy Boss is UPGRADED to the mounted boss role rather than
+    restored bundle-less (a bundle-less Boss is the bug this closes, and refusing to revive the
+    Boss at all would be worse). A legacy engineer stays legacy -- it renders as "-" in mp status,
+    so an unmounted agent stays visible rather than being silently rewritten.
+    """
+    return rr.get("role") or ("boss" if rr.get("is_master") else "")
+
+
 def spawn_args_from_record(aid, rr):
     """Rebuild the structured spawn arguments from a durable roster record."""
     args = [aid, "--backend", rr.get("backend", "claude")]
@@ -529,6 +638,9 @@ def spawn_args_from_record(aid, rr):
         args += ["--cwd", rr["cwd"]]
     if rr.get("is_master"):
         args += ["--master"]
+    role = _record_role(rr)
+    if role:
+        args += ["--role", role]
     if rr.get("model"):
         args += ["--model", rr["model"]]
     return args
@@ -585,13 +697,26 @@ def do_reconcile(argv):
     return 0
 
 
+def role_tag(aid, a, roster):
+    """The personality an agent was actually born with -- read from the durable roster.
+
+    A legacy, bundle-less agent renders as "-" rather than blank: an unmounted agent must be
+    VISIBLY unmounted, never silently indistinguishable from a mounted one.
+    """
+    rr = roster.get(aid) or {}
+    return rr.get("role_ref") or a.get("role_ref") or "-"
+
+
 def do_status(argv):
     code, agents = C.http_json("GET", QUEUE_URL + "/agents", None, HDR, timeout=6)
     code2, clients = C.http_json("GET", QUEUE_URL + "/clients", None, HDR, timeout=6)
+    roster = load_roster()
     print("== agents ==")
+    print("%-45s %-8s %-22s %s" % ("agent", "state", "role", "status"))
     for a in (agents or []):
-        print("%-45s [%s] %s boss=%s" % (a["agent_id"], a.get("state", "?"),
-                                         a.get("status", ""), a.get("boss_id", "")))
+        print("%-45s [%-6s] %-22s %s boss=%s" % (
+            a["agent_id"], a.get("state", "?"), role_tag(a.get("agent_id", ""), a, roster),
+            a.get("status", ""), a.get("boss_id", "")))
     print("== clients ==")
     for c in (clients or []):
         print("%-25s %s state=%s" % (c["hostname"], c.get("attach_base", ""), c.get("state", "")))
