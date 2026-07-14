@@ -9,11 +9,24 @@ import os, sys, json, time, subprocess, hashlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mpcommon as C
+import boardstore as BS
 
 CFG = C.CFG
 INSTALL_DIR = CFG["INSTALL_DIR"]
 BOARD_PATH = os.environ.get("BOARD_PATH", os.path.join(INSTALL_DIR, "todos", "board.v2.json"))
 REPO = C.export_repo_path(CFG)
+BOARD_BACKEND = BS.select_backend(BOARD_PATH, CFG.get("BOARD_BACKEND"))
+
+
+def read_live_board():
+    """Read the live board whatever the storage engine. The SQLite backend reconstructs the identical
+    board dict via BoardStore; the git snapshot stays canonical JSON (human-diffable + rollback source)."""
+    if BOARD_BACKEND == "sqlite":
+        db = BS.db_path_for(BOARD_PATH)
+        if not os.path.exists(db):
+            return None
+        return BS.load_board(db)
+    return C.read_json(BOARD_PATH, None)
 
 
 def git(*args, check=False):
@@ -51,7 +64,7 @@ def canonical(obj):
 
 def export_once():
     ensure_repo()
-    live = C.read_json(BOARD_PATH, None)
+    live = read_live_board()
     if live is None:
         return "no_board"
     new_n = task_count(live)
@@ -87,13 +100,18 @@ def main():
         print(export_once())
         return
     ensure_repo()
+    watch = BS.db_path_for(BOARD_PATH) if BOARD_BACKEND == "sqlite" else BOARD_PATH
+    # in WAL mode writes hit board.sqlite3-wal first, so stat both or changes go unnoticed until checkpoint
+    paths = [watch, watch + "-wal"] if BOARD_BACKEND == "sqlite" else [watch]
     last_sig = None
     while True:
         try:
-            sig = None
-            if os.path.exists(BOARD_PATH):
-                st = os.stat(BOARD_PATH)
-                sig = (st.st_mtime, st.st_size)
+            parts = []
+            for pth in paths:
+                if os.path.exists(pth):
+                    st = os.stat(pth)
+                    parts.append((st.st_mtime, st.st_size))
+            sig = tuple(parts) if parts else None
             if sig != last_sig:
                 export_once()
                 last_sig = sig

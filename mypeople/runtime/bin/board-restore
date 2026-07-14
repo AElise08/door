@@ -9,11 +9,13 @@ import os, sys, json, time, subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mpcommon as C
+import boardstore as BS
 
 CFG = C.CFG
 INSTALL_DIR = CFG["INSTALL_DIR"]
 BOARD_PATH = os.environ.get("BOARD_PATH", os.path.join(INSTALL_DIR, "todos", "board.v2.json"))
 REPO = C.export_repo_path(CFG)
+BOARD_BACKEND = BS.select_backend(BOARD_PATH, CFG.get("BOARD_BACKEND"))
 
 
 def main():
@@ -31,6 +33,17 @@ def main():
     if not isinstance(obj, dict) or "tasks" not in obj:
         print("ERROR: snapshot has no tasks — refusing to restore", file=sys.stderr)
         return 2
+    if BOARD_BACKEND == "sqlite":
+        db = BS.db_path_for(BOARD_PATH)
+        # snapshot the current live SQLite board to JSON first (reversible)
+        if os.path.exists(db):
+            pre = "%s.bak.prerestore.%d.json" % (BOARD_PATH, int(time.time()))
+            C.atomic_write(pre, json.dumps(BS.load_board(db), ensure_ascii=False).encode())
+            print("saved current live board -> %s" % pre)
+        # bypass the shrink guard: a restore is a deliberate operator action
+        BS.save_board(db, obj, shrink_guard=False)
+        print("restored %s:board.v2.json (%d tasks) -> %s [sqlite]" % (ref, len(obj.get("tasks", {})), db))
+        return 0
     # snapshot current live board first (reversible)
     if os.path.exists(BOARD_PATH):
         pre = "%s.bak.prerestore.%d" % (BOARD_PATH, int(time.time()))

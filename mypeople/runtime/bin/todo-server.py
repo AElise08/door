@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mpcommon as C
+import boardstore as BS
 
 CFG = C.CFG
 INSTALL_DIR = CFG["INSTALL_DIR"]
@@ -27,16 +28,26 @@ WALL_HTML = os.path.join(HTML_DIR, "wall.html")
 STATUS_DIR = os.path.join(INSTALL_DIR, "status")
 
 VALID_STATES = {"needs_brainstorm", "working", "review", "done", "blocked", "cancelled", "recurring"}
+BOSS_BACKENDS = ("claude", "codex")
 LOCK = threading.RLock()
 START = time.time()
 
 
 # ---------------- board store ----------------
+BOARD_BACKEND = BS.select_backend(BOARD_PATH, C.CFG.get("BOARD_BACKEND"))
+
+
+def _sqlite_path():
+    return BS.db_path_for(BOARD_PATH)
+
+
 def default_board():
     return {"version": 2, "order": [], "pinSeq": 0, "tasks": {}}
 
 
 def load_board():
+    if BOARD_BACKEND == "sqlite":
+        return BS.load_board(_sqlite_path())
     b = C.read_json(BOARD_PATH, None)
     if not b or not isinstance(b, dict):
         return default_board()
@@ -47,7 +58,14 @@ def load_board():
 
 
 def save_board(board):
-    """Atomic save + rolling timestamped backup + catastrophic-shrink guard (§3)."""
+    """Atomic save + rolling timestamped backup + catastrophic-shrink guard (§3).
+
+    SQLite backend: atomic single-transaction row-per-card write (only changed cards), same
+    catastrophic-shrink refusal; durable backups come from the decoupled board-exporter.
+    """
+    if BOARD_BACKEND == "sqlite":
+        os.makedirs(TODOS_DIR, exist_ok=True)
+        return BS.save_board(_sqlite_path(), board)
     os.makedirs(TODOS_DIR, exist_ok=True)
     ondisk = C.read_json(BOARD_PATH, None)
     new_n = len(board.get("tasks", {}))
@@ -340,7 +358,72 @@ class Handler(BaseHTTPRequestHandler):
             return self._proof_json(body)
         if p == "/todo/status":
             return self._status_op(body, ident)
+        if p == "/todo/boss":
+            return self._boss_op(body, ident)
         return self._send(404, {"error": "not_found"})
+
+    # ---- Boss lifecycle control (card 0cc0bde980) ----
+    def _boss_alive(self):
+        """Is the singleton Boss up? Heartbeat-driven, so it can lag reality by one interval; it
+        is a UX guard, not the invariant. `mp spawn`'s own window_exists check is the real backstop
+        and queue-client dispatches serially, so a stale yes/no here cannot produce two Bosses."""
+        code, agents = C.http_json("GET", CFG["QUEUE_URL"] + "/agents", None,
+                                   {"X-Queue-Secret": SECRET}, timeout=6)
+        for a in (agents or []):
+            if a.get("is_master") and a.get("state") == "alive":
+                return True, a.get("agent_id", "")
+        return False, ""
+
+    def _boss_op(self, body, ident):
+        """Kill / spawn / revive the Boss from the board UI.
+
+        Adds NO new execution mechanism: every action rides the queue-server task path that
+        queue-client's dispatch() already implements against `mp` (type=kill with --reason,
+        type=spawn with --master --backend, type=revive). This endpoint only chooses the
+        arguments and enforces the exactly-one-Boss guard.
+
+        spawn vs revive: spawn starts a NEW Boss on a chosen engine; revive restores the SAME
+        Boss, resuming its persisted session (its memory). Both require the Boss to be down.
+        """
+        action = (body.get("action") or "").strip().lower()
+        alive, live_id = self._boss_alive()
+
+        if action == "kill":
+            if not alive:
+                return self._send(409, {"ok": False, "error": "boss_not_alive"})
+            # A non-accidental reason is what makes the kill stick: mp records it as durable intent
+            # in roster.json and ensure-boss refuses to respawn against it.
+            payload = {"reason": "ceo-kill:%d" % int(time.time())}
+            target = live_id or BOSS_AGENT
+        elif action == "spawn":
+            backend = (body.get("backend") or "").strip().lower()
+            if backend not in BOSS_BACKENDS:
+                return self._send(400, {"ok": False, "error": "bad_backend",
+                                        "detail": "choose %s" % ", ".join(BOSS_BACKENDS)})
+            if alive:
+                return self._send(409, {"ok": False, "error": "boss_already_alive",
+                                        "agent_id": live_id,
+                                        "detail": "kill the running Boss before spawning another"})
+            payload = {"backend": backend, "is_master": True}
+            target = BOSS_AGENT
+        elif action == "revive":
+            if alive:
+                return self._send(409, {"ok": False, "error": "boss_already_alive",
+                                        "agent_id": live_id,
+                                        "detail": "the Boss is already up; nothing to revive"})
+            payload = {}
+            target = BOSS_AGENT
+        else:
+            return self._send(400, {"ok": False, "error": "bad_action",
+                                    "detail": "choose kill, spawn or revive"})
+
+        code, r = C.http_json("POST", CFG["QUEUE_URL"] + "/task/submit",
+                              {"type": action, "target_agent": target, "payload": payload},
+                              {"X-Queue-Secret": SECRET}, timeout=10)
+        if code != 200 or not isinstance(r, dict) or not r.get("task_id"):
+            return self._send(502, {"ok": False, "error": "submit_failed", "detail": str(r)[:200]})
+        return self._send(200, {"ok": True, "action": action, "agent_id": target,
+                                "task_id": r["task_id"], "by": ident})
 
     # ---- board view (server-authoritative ordering: pinned first by pinRank, then order) ----
     def _board_view(self):
