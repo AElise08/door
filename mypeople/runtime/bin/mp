@@ -16,6 +16,12 @@ DEFAULT_BACKEND = CFG.get("DEFAULT_BACKEND", "claude")
 DEFAULT_CLAUDE_MODEL = CFG.get("DEFAULT_CLAUDE_MODEL", CFG["DEFAULT_ENG_MODEL"])
 DEFAULT_CODEX_MODEL = CFG.get("DEFAULT_CODEX_MODEL", "")
 VALID_BACKENDS = ("claude", "codex")
+# A retirement is ACCIDENTAL only when the system itself observed the window/server vanish. Any
+# other reason is a deliberate stop and is never auto-restarted -- not by reconcile, and (since
+# card 0cc0bde980) not by ensure-boss either. roster.json is the single durable store of that
+# intent: no second flag file exists that could disagree with it.
+ACCIDENTAL_REASONS = frozenset({"died-no-window", "tmux-server-crash", "window-missing",
+                                "boss-window-missing", "zombie-no-session"})
 ROSTER_PATH = os.path.join(INSTALL_DIR, "run", "roster.json")
 STATUS_DIR = os.path.join(INSTALL_DIR, "status")
 HOOK = os.path.join(INSTALL_DIR, "plugins", "tmux-boss-hooks", "emit-event.sh")
@@ -471,6 +477,11 @@ def do_ensure_boss(argv):
     A genuinely new node has no roster entry and may spawn its first Boss. Once an entry exists,
     recovery is strict: mark a missing window retired and route through do_revive(), which restores
     the persisted backend session and original structured spawn flags or surfaces an error.
+
+    A DELIBERATELY killed Boss stays dead (card 0cc0bde980). `mp kill` records durable intent in
+    roster.json; this honours it with exactly the gate do_reconcile applies to every other agent.
+    Only a death the system itself observed (ACCIDENTAL_REASONS) is auto-recovered; a deliberate
+    stop is restored only by an on-purpose `mp spawn`, which clears the intent itself.
     """
     aid_arg = next((x for x in argv if not x.startswith("--") and x not in VALID_BACKENDS),
                    "%s/main:Boss" % HOST_ID)
@@ -489,6 +500,13 @@ def do_ensure_boss(argv):
         return 0
     roster = load_roster()
     rr = roster.get(aid)
+    # Intent gate FIRST: a kill tombstone carries the intent but not is_master, and must stay dead
+    # quietly rather than fall through to the not-a-Boss error the supervisor would log every 15s.
+    if rr is not None and rr.get("retired"):
+        reason = rr.get("retire_reason", "")
+        if reason not in ACCIDENTAL_REASONS:
+            print("%s was deliberately retired (%s); not respawning" % (aid, reason))
+            return 0
     if rr is None:
         return do_spawn([aid, "--master", "--backend", backend])
     if not rr.get("is_master"):
@@ -500,6 +518,71 @@ def do_ensure_boss(argv):
         rr["retired_ts"] = time.time()
         save_roster(roster)
     return do_revive([aid])
+
+
+def spawn_args_from_record(aid, rr):
+    """Rebuild the structured spawn arguments from a durable roster record."""
+    args = [aid, "--backend", rr.get("backend", "claude")]
+    if rr.get("boss_id"):
+        args += ["--boss", rr["boss_id"]]
+    if rr.get("cwd"):
+        args += ["--cwd", rr["cwd"]]
+    if rr.get("is_master"):
+        args += ["--master"]
+    if rr.get("model"):
+        args += ["--model", rr["model"]]
+    return args
+
+
+def do_reconcile(argv):
+    """Restore agents whose windows disappeared without an intentional mp kill.
+
+    Intent is durable: any retirement reason other than an observed window/server failure is a
+    deliberate stop and is never restarted here. Accidentally lost agents resume their persisted
+    backend session; if the session was never persisted, respawn the same roster identity.
+    """
+    roster = load_roster()
+    recovered, failed = [], []
+    now = time.time()
+    for aid, rr in sorted(roster.items()):
+        if not is_local(aid):
+            continue
+        if rr.get("is_master"):
+            continue
+        _, sess, tab = C.parse_agent_id(aid)
+        if not sess or not tab:
+            continue
+        if window_exists(sess, tab):
+            continue
+        reason = rr.get("retire_reason", "")
+        if rr.get("retired") and reason not in ACCIDENTAL_REASONS:
+            continue
+        last_attempt = float(rr.get("recovery_attempt_ts", 0) or 0)
+        if now - last_attempt < 30:
+            continue
+        rr["recovery_attempt_ts"] = now
+        rr["recovery_attempts"] = int(rr.get("recovery_attempts", 0) or 0) + 1
+        if not rr.get("retired"):
+            rr["retired"] = True
+            rr["retire_reason"] = "window-missing"
+            rr["retired_ts"] = now
+        save_roster(roster)
+
+        rc = do_revive([aid])
+        if rc != 0:
+            latest = load_roster().get(aid, rr)
+            rc = do_spawn(spawn_args_from_record(aid, latest))
+        if rc == 0:
+            recovered.append(aid)
+        else:
+            failed.append(aid)
+        roster = load_roster()
+    print("reconciled recovered=%d failed=%d" % (len(recovered), len(failed)))
+    for aid in recovered:
+        print("recovered %s" % aid)
+    for aid in failed:
+        print("FAILED %s" % aid)
+    return 0
 
 
 def do_status(argv):
@@ -517,13 +600,13 @@ def do_status(argv):
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: mp {status|spawn|send|peek|kill|answer|revive|ensure-boss} ...", file=sys.stderr)
+        print("usage: mp {status|spawn|send|peek|kill|answer|revive|ensure-boss|reconcile} ...", file=sys.stderr)
         return 2
     verb = sys.argv[1]
     rest = sys.argv[2:]
     return {"status": do_status, "spawn": do_spawn, "send": do_send, "peek": do_peek,
             "kill": do_kill, "answer": do_answer, "revive": do_revive,
-            "ensure-boss": do_ensure_boss}.get(
+            "ensure-boss": do_ensure_boss, "reconcile": do_reconcile}.get(
         verb, lambda a: (print("unknown verb %s" % verb, file=sys.stderr) or 2))(rest)
 
 
