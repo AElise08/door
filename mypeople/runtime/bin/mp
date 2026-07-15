@@ -33,6 +33,15 @@ ROLE_BUNDLE_DIR = os.path.join(INSTALL_DIR, "run", "role-bundles")  # derived pe
 HDR = {"X-Queue-Secret": SECRET}
 DOCTRINE_SUMMARY = ("Boss onboarded: plan-gate before engineering, drive the team autonomously "
                     "off the board via the mp queue (fire-and-forget), verify every result.")
+# Spawn readiness: SessionStart hook writes session_id. Under memory pressure Claude can take
+# much longer than a few seconds; default 45s balances false zombies vs blocking Boss.
+SPAWN_READY_SEC = float(os.environ.get("MYPEOPLE_SPAWN_READY_SEC")
+                        or CFG.get("MYPEOPLE_SPAWN_READY_SEC") or 45)
+# Birth-zombie: window+PID exist, status stuck at starting, session_id never written.
+ZOMBIE_STARTING_SEC = float(os.environ.get("MYPEOPLE_ZOMBIE_STARTING_SEC")
+                            or CFG.get("MYPEOPLE_ZOMBIE_STARTING_SEC") or 90)
+ZOMBIE_REAP_MAX = int(os.environ.get("MYPEOPLE_ZOMBIE_REAP_MAX")
+                      or CFG.get("MYPEOPLE_ZOMBIE_REAP_MAX") or 3)
 
 
 def resolve_role(role, backend, locked_role_ref=None):
@@ -151,11 +160,13 @@ def grok_pretrust():
         pass
 
 
-def write_status(aid, status, backend, summary=None, locked=False):
+def write_status(aid, status, backend, summary=None, locked=False, drop_session=False):
     _, sess, tab = C.parse_agent_id(aid)
     d = os.path.join(STATUS_DIR, "mc-%s" % sess)
     p = os.path.join(d, "%s.json" % tab)
     cur = C.read_json(p, {}) or {}
+    if drop_session:
+        cur.pop("session_id", None)
     cur.update({"status": status, "timestamp": time.time(),
                 "backend": backend, "state": "alive"})
     if summary is not None:
@@ -163,6 +174,104 @@ def write_status(aid, status, backend, summary=None, locked=False):
     if locked:
         cur["summary_locked"] = True
     C.write_json(p, cur)
+
+
+def status_path(aid):
+    _, sess, tab = C.parse_agent_id(aid)
+    return os.path.join(STATUS_DIR, "mc-%s" % sess, "%s.json" % tab)
+
+
+def read_agent_status(aid):
+    return C.read_json(status_path(aid), {}) or {}
+
+
+def pane_looks_ready(aid):
+    """True when the backend TUI has painted a usable composer (session_id may still be empty).
+
+    Claude 2.1.x often paints the welcome screen before any lifecycle hook writes session_id;
+    session_id is frequently first persisted on UserPromptSubmit (first successful mp send).
+    """
+    try:
+        pane = C.tmux_capture(C.tmux_target(aid), lines=80)
+    except Exception:
+        return False
+    if not (pane or "").strip():
+        return False
+    low = pane.lower()
+    markers = ("welcome back", "bypass permissions", "claude code",
+               "esc to interrupt", "ctrl+c:cancel", "codex", "grok build",
+               "shift+tab")
+    # bare composer prompt alone is weak (shell too); require a product marker
+    return any(m in low for m in markers)
+
+
+def pane_looks_working(aid):
+    """True when the pane shows an in-flight turn (do not reap as zombie)."""
+    try:
+        pane = C.tmux_capture(C.tmux_target(aid), lines=80)
+    except Exception:
+        return False
+    low = (pane or "").lower()
+    return ("waiting for response" in low or "esc to interrupt" in low
+            or "ctrl+c:cancel" in low or "tokens" in low)
+
+
+def wait_for_backend_ready(aid, timeout=None, interval=0.5):
+    """Wait until session_id is written OR the TUI is visibly up.
+
+    Returns (session_id_or_empty, reason) where reason is 'session' | 'pane' | ''.
+    """
+    timeout = SPAWN_READY_SEC if timeout is None else timeout
+    deadline = time.time() + max(0.0, float(timeout))
+    p = status_path(aid)
+    while time.time() < deadline:
+        st = C.read_json(p, {}) or {}
+        sid = (st.get("session_id") or "").strip()
+        if sid:
+            return sid, "session"
+        if pane_looks_ready(aid):
+            return "", "pane"
+        time.sleep(interval)
+    st = C.read_json(p, {}) or {}
+    sid = (st.get("session_id") or "").strip()
+    if sid:
+        return sid, "session"
+    if pane_looks_ready(aid):
+        return "", "pane"
+    return "", ""
+
+
+def is_birth_zombie(aid, rr, now=None):
+    """True when a live window never became a working agent (eng-170 class).
+
+    Signal triad (card 157dcb7c75):
+      1) roster/status session_id empty  (no UserPromptSubmit ever succeeded)
+      2) status stuck at 'starting' (or missing)
+      3) status timestamp older than ZOMBIE_STARTING_SEC
+    Plus pane is blank OR idle-welcome (not actively working). Window must exist.
+    """
+    now = time.time() if now is None else now
+    if not rr or rr.get("retired") or rr.get("is_master"):
+        return False
+    _, sess, tab = C.parse_agent_id(aid)
+    if not sess or not tab or not window_exists(sess, tab):
+        return False
+    st = read_agent_status(aid)
+    sid = (st.get("session_id") or rr.get("session_id") or "").strip()
+    if sid:
+        return False
+    status = (st.get("status") or "starting").strip().lower()
+    if status not in ("starting", ""):
+        return False
+    ts = float(st.get("timestamp") or 0) or 0.0
+    if ts <= 0:
+        return False
+    if (now - ts) < ZOMBIE_STARTING_SEC:
+        return False
+    if pane_looks_working(aid):
+        return False
+    # blank pane, idle welcome, or any non-working stuck starting without session_id
+    return True
 
 
 def window_exists(sess, tab):
@@ -403,7 +512,8 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
     spawn_cmd = " ".join(shlex.quote(x) for x in parts)
 
     e = tmux_env()
-    if window_exists(sess, tab):
+    reused = window_exists(sess, tab)
+    if reused:
         print("mp spawn: %s already exists, reusing" % aid)
     else:
         if not session_exists(sess):
@@ -427,10 +537,21 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
     # durable roster
     roster = load_roster()
     prior = roster.get(aid, {})
+    # A fresh spawn onto a DIFFERENT backend must not inherit the previous backend's session id.
+    # It is not resumable by the new backend, and carrying it means the next accidental death sends
+    # do_revive() hunting for a <new backend> transcript under a <old backend> id, finding nothing,
+    # and refusing to restore an agent that should have recovered. A resume (resume_session set) is
+    # the only case that legitimately carries a session id across, and reuse of a live window must
+    # never touch the running agent's id.
+    session_id = resume_session or prior.get("session_id", "")
+    if session_id and not resume_session and not reused and prior.get("backend") not in ("", backend):
+        print("mp spawn: backend %s -> %s; dropping unusable %s session id %s" %
+              (prior.get("backend"), backend, prior.get("backend"), session_id))
+        session_id = ""
     roster[aid] = {"agent_id": aid, "host": HOST_ID, "session": sess, "tab": tab,
                    "backend": backend, "boss_id": boss_id, "cwd": cwd, "spawn_cmd": spawn_cmd,
                    "model": (model or ""), "is_master": is_master, "retired": False,
-                   "session_id": resume_session or prior.get("session_id", ""),
+                   "session_id": session_id,
                    "summary": prior.get("summary", ""),
                    # durable role/revive contract (§role spec). These are also what makes the
                    # mounted personality VISIBLE: mp status and the board read them from here
@@ -441,13 +562,20 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
                    "skill_digests": role_meta.get("skill_digests", {}),
                    "adapter_version": role_meta.get("adapter_version", ""),
                    "role_bundle": role_meta.get("role_bundle", "")}
+    # preserve reap counters so a flapping host cannot infinite-loop respawns
+    if prior.get("zombie_reaps") is not None:
+        roster[aid]["zombie_reaps"] = prior.get("zombie_reaps")
     save_roster(roster)
 
     # initial status; master gets a keyword-bearing, locked doctrine summary (J2c)
+    # drop_session mirrors the roster: do_revive falls back to the status file, so a stale id left
+    # here would resurrect the exact trap the roster just dropped.
+    drop_session = (session_id == "" and not resume_session and not reused)
     if is_master:
-        write_status(aid, "starting", backend, summary=DOCTRINE_SUMMARY, locked=True)
+        write_status(aid, "starting", backend, summary=DOCTRINE_SUMMARY, locked=True,
+                     drop_session=drop_session)
     else:
-        write_status(aid, "starting", backend)
+        write_status(aid, "starting", backend, drop_session=drop_session)
 
     # register with the queue-server
     C.http_json("POST", QUEUE_URL + "/agents/register",
@@ -471,9 +599,28 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
         print("ERROR: window %s not named correctly after spawn" % tab, file=sys.stderr)
         return 4
 
+    # Readiness gate: fresh windows must show a usable TUI (and pick up session_id if hooks wrote
+    # it) before we claim success. Boss used to send into a blank pane -> eng-170 birth-zombie.
+    # Note: Claude often withholds session_id until the first UserPromptSubmit; pane-ready is
+    # enough for mp send to land. Reuse/resume already has an id.
+    ready_sid = ""
+    ready_how = ""
+    if not reused and not resume_session:
+        ready_sid, ready_how = wait_for_backend_ready(aid, timeout=SPAWN_READY_SEC)
+        if ready_sid:
+            roster = load_roster()
+            if aid in roster and not roster[aid].get("retired"):
+                roster[aid]["session_id"] = ready_sid
+                save_roster(roster)
+        elif not ready_how:
+            print("WARNING: %s window up but TUI/session not ready after %.0fs "
+                  "(birth-zombie risk)" % (aid, SPAWN_READY_SEC),
+                  file=sys.stderr)
+
     if is_master and not resume_session:
         # send the onboarding prompt (doctrine internalized) after the TUI comes up
-        time.sleep(6)
+        if not ready_how:
+            time.sleep(6)
         doc = ""
         if os.path.exists(BOSS_DOC):
             doc = open(BOSS_DOC).read()
@@ -724,15 +871,65 @@ def spawn_args_from_record(aid, rr):
     return args
 
 
+def reap_birth_zombie(aid, rr):
+    """Kill a birth-zombie window and respawn the same roster identity (fresh backend session).
+
+    Returns (ok: bool, detail: str). Capped per agent by ZOMBIE_REAP_MAX so a host that simply
+    cannot boot the backend loops a bounded number of times instead of forever.
+
+    The respawn re-resolves the role from spawn_args_from_record rather than pinning the recorded
+    digest the way do_revive does: a birth-zombie never ran a turn, so this is a retry of the BIRTH,
+    not the restoration of an agent that died holding a doctrine.
+    """
+    reaps = int(rr.get("zombie_reaps", 0) or 0)
+    if reaps >= ZOMBIE_REAP_MAX:
+        return False, "zombie-reap-cap (%d)" % reaps
+    _, sess, tab = C.parse_agent_id(aid)
+    e = tmux_env()
+    roster = load_roster()
+    cur = roster.get(aid, rr)
+    cur["retired"] = True
+    cur["retire_reason"] = "zombie-no-session"
+    cur["retired_ts"] = time.time()
+    cur["zombie_reaps"] = reaps + 1
+    cur["session_id"] = ""  # never resume a session that never started
+    cur.pop("recorder", None)
+    roster[aid] = cur
+    save_roster(roster)
+    C.http_json("POST", QUEUE_URL + "/agents/unregister", {"agent_id": aid}, HDR, timeout=6)
+    subprocess.run(["tmux", "kill-window", "-t", "mc-%s:%s" % (sess, tab)], env=e, capture_output=True)
+    # drop stale starting status so the next spawn's readiness wait is honest
+    write_status(aid, "starting", cur.get("backend", "claude"), drop_session=True)
+    latest = load_roster().get(aid, cur)
+    rc = do_spawn(spawn_args_from_record(aid, latest))
+    if rc != 0:
+        return False, "respawn-failed rc=%s" % rc
+    st = read_agent_status(aid)
+    sid = (st.get("session_id") or "").strip()
+    # Accept TUI-ready even without session_id (Claude often writes sid on first prompt).
+    if not sid and not pane_looks_ready(aid):
+        return False, "respawned-still-not-ready"
+    if latest.get("owner_task_id"):
+        C.tmux_send_message(
+            C.tmux_target(aid),
+            "Recovered after birth-zombie (empty session_id / stuck starting). "
+            "Read owner task %s on the TODO board, post a concise recovery status, "
+            "and continue from the card context." % latest["owner_task_id"])
+    return True, "respawned session_id=%s reaps=%d" % (sid or "(pending-prompt)", reaps + 1)
+
+
 def do_reconcile(argv):
     """Restore agents whose windows disappeared without an intentional mp kill.
 
     Intent is durable: any retirement reason other than an observed window/server failure is a
     deliberate stop and is never restarted here. Accidentally lost agents resume their persisted
     backend session; if the session was never persisted, respawn the same roster identity.
+
+    Also reaps birth-zombies (card 157dcb7c75): live window, empty session_id, status stuck at
+    starting longer than ZOMBIE_STARTING_SEC -- kill + fresh spawn + owner-task brief.
     """
     roster = load_roster()
-    recovered, failed = [], []
+    recovered, failed, zombies = [], [], []
     now = time.time()
     for aid, rr in sorted(roster.items()):
         if not is_local(aid):
@@ -742,6 +939,27 @@ def do_reconcile(argv):
         _, sess, tab = C.parse_agent_id(aid)
         if not sess or not tab:
             continue
+
+        # --- birth-zombie path (window present, backend never bootstrapped) ---
+        if not rr.get("retired") and is_birth_zombie(aid, rr, now=now):
+            last_attempt = float(rr.get("recovery_attempt_ts", 0) or 0)
+            if now - last_attempt < 30:
+                continue
+            roster = load_roster()
+            rr = roster.get(aid, rr)
+            rr["recovery_attempt_ts"] = now
+            rr["recovery_attempts"] = int(rr.get("recovery_attempts", 0) or 0) + 1
+            save_roster(roster)
+            ok, detail = reap_birth_zombie(aid, rr)
+            if ok:
+                recovered.append(aid)
+                zombies.append("%s (%s)" % (aid, detail))
+            else:
+                failed.append(aid)
+                zombies.append("%s FAILED %s" % (aid, detail))
+            roster = load_roster()
+            continue
+
         if window_exists(sess, tab):
             continue
         reason = rr.get("retire_reason", "")
@@ -759,20 +977,32 @@ def do_reconcile(argv):
         save_roster(roster)
 
         rc = do_revive([aid])
+        fresh = False
         if rc != 0:
             latest = load_roster().get(aid, rr)
             rc = do_spawn(spawn_args_from_record(aid, latest))
+            fresh = (rc == 0)
         if rc == 0:
             recovered.append(aid)
+            if fresh and rr.get("owner_task_id"):
+                # A resumed agent still has its context; a FRESH one lost it, so only that one
+                # needs pointing back at its card. readiness is already gated inside do_spawn.
+                C.tmux_send_message(C.tmux_target(aid),
+                    "Recovered after a tmux crash. Read owner task %s on the TODO board, post a "
+                    "concise recovery status, and continue from the card context." %
+                    rr["owner_task_id"])
         else:
             failed.append(aid)
         roster = load_roster()
-    print("reconciled recovered=%d failed=%d" % (len(recovered), len(failed)))
+    print("reconciled recovered=%d failed=%d zombies=%d" %
+          (len(recovered), len(failed), len(zombies)))
     for aid in recovered:
         print("recovered %s" % aid)
+    for z in zombies:
+        print("zombie %s" % z)
     for aid in failed:
-        print("FAILED %s" % aid)
-    return 0
+        print("FAILED %s" % aid, file=sys.stderr)
+    return 1 if failed else 0
 
 
 def role_tag(aid, a, roster):
