@@ -7,7 +7,7 @@ lifecycle hooks, and installs the functional tmux.conf. Starting daemons + spawn
 the CLI's job (see cli.up)."""
 import os, sys, json, shutil, secrets, socket, subprocess, shlex
 
-VALID_BACKENDS = ("claude", "codex")
+VALID_BACKENDS = ("claude", "codex", "grok")
 LIFECYCLE_EVENTS = ("SessionStart", "UserPromptSubmit", "Stop")
 
 def _config_path():
@@ -111,21 +111,39 @@ def _codex_authenticated():
     return False
 
 
+def _grok_authenticated():
+    """grok has no `login status` verb, and `grok models` EXITS 0 EVEN WHEN LOGGED OUT --
+    it just prints "You are not authenticated." and the anonymous model list. So the
+    returncode idiom used for codex would pass an unauthenticated node; the affirmative
+    stdout marker is the only honest signal. Fail closed on anything unrecognized."""
+    if shutil.which("grok"):
+        try:
+            r = subprocess.run(["grok", "models"], capture_output=True,
+                               text=True, timeout=25)
+            out = (r.stdout + r.stderr).lower()
+            if r.returncode == 0 and "you are logged in" in out:
+                return True
+        except Exception:
+            pass
+    return False
+
+
 def resolve_auth(preferred=None):
     """Require this node's own completed login for the selected agent backend."""
     preferred = (preferred or "").strip().lower()
     if preferred and preferred not in VALID_BACKENDS:
-        return False, preferred, "Unknown backend %r; choose claude or codex." % preferred
-    checks = {"claude": _claude_authenticated, "codex": _codex_authenticated}
+        return False, preferred, "Unknown backend %r; choose claude, codex or grok." % preferred
+    checks = {"claude": _claude_authenticated, "codex": _codex_authenticated,
+              "grok": _grok_authenticated}
     order = [preferred] if preferred else list(VALID_BACKENDS)
     for backend in order:
         if checks[backend]():
             return True, backend, "this node's %s login is active" % backend
-    requested = preferred or "claude or codex"
+    requested = preferred or "claude, codex or grok"
     return (False, preferred or "none",
-            "This node is not authenticated for %s. Run `claude auth login` or `codex login` "
-            "inside THIS node, then re-run MyPeople. Never copy or mount credentials from another "
-            "node." % requested)
+            "This node is not authenticated for %s. Run `claude auth login`, `codex login` or "
+            "`grok login` inside THIS node, then re-run MyPeople. Never copy or mount credentials "
+            "from another node." % requested)
 
 
 # ---------------------------------------------------------------- step 3: queue.env

@@ -1,6 +1,6 @@
 """mypeople CLI — thin wrapper over the existing daemons/supervisor.
 
-  mypeople up [--server|--client|--both] [--backend claude|codex] [--detach]
+  mypeople up [--server|--client|--both] [--backend claude|codex|grok] [--detach]
                                                         bring the stack up (default: both, foreground)
   mypeople            (no verb)                        alias for `up` (what `uvx mypeople` runs)
   mypeople down                                        stop daemons (board/roster kept on disk)
@@ -102,7 +102,7 @@ def cmd_up(args):
     if "--backend" in args:
         idx = args.index("--backend")
         if idx + 1 >= len(args):
-            print("[mypeople] --backend needs claude or codex", file=sys.stderr)
+            print("[mypeople] --backend needs claude, codex or grok", file=sys.stderr)
             return 2
         backend = args[idx + 1]
 

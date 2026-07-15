@@ -186,6 +186,7 @@ body.modal-open #modalbg{display:flex;}
     <span class="vb-label">spawn new</span>
     <button class="vbtn" id="bossSpawnClaude">Claude</button>
     <button class="vbtn" id="bossSpawnCodex">Codex</button>
+    <button class="vbtn" id="bossSpawnGrok">Grok</button>
     <span class="boss-msg subt" id="bossMsg"></span>
   </div>
   <div class="viewbar" id="viewbar">
@@ -642,7 +643,7 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&openTaskId) closeC
 $("#modalbg").addEventListener("click", e=>{ if(e.target.id==="modalbg") closeCard(); });
 
 // ---- data ----
-const BOSS_ENGINES=[["bossSpawnClaude","claude"],["bossSpawnCodex","codex"]];
+const BOSS_ENGINES=[["bossSpawnClaude","claude"],["bossSpawnCodex","codex"],["bossSpawnGrok","grok"]];
 let bossBusy=false;
 function renderBoss(boss){
   const st=document.getElementById("bossState"); if(!st) return;

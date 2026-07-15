@@ -28,7 +28,9 @@ WALL_HTML = os.path.join(HTML_DIR, "wall.html")
 STATUS_DIR = os.path.join(INSTALL_DIR, "status")
 
 VALID_STATES = {"needs_brainstorm", "working", "review", "done", "blocked", "cancelled", "recurring"}
-BOSS_BACKENDS = ("claude", "codex")
+# Engines offerable for a Boss spawn (card 0cc0bde980). Mirrors mp's VALID_BACKENDS; `mp` remains
+# the authority and rejects anything it does not support, so this is only a UX guard.
+BOSS_BACKENDS = ("claude", "codex", "grok")
 LOCK = threading.RLock()
 START = time.time()
 

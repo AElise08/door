@@ -85,8 +85,19 @@ case "$BACKEND" in
   codex)
     codex login status >/dev/null 2>&1 || codex login
     ;;
+  grok)
+    # Not auto-installed: grok ships an internal self-updater and publishes no install
+    # script we can pin, so we require an operator-installed CLI instead of curl|bash.
+    if ! command -v grok >/dev/null 2>&1; then
+      echo "[mypeople] MYPEOPLE_BACKEND=grok but the grok CLI is not on PATH." >&2
+      echo "[mypeople] Install Grok yourself, then re-run this installer." >&2
+      exit 2
+    fi
+    # `grok models` exits 0 even when logged out, so the stdout marker is the only real check.
+    grok models 2>&1 | grep -qi "you are logged in" || grok login
+    ;;
   *)
-    echo "[mypeople] MYPEOPLE_BACKEND must be claude or codex" >&2
+    echo "[mypeople] MYPEOPLE_BACKEND must be claude, codex or grok" >&2
     exit 2
     ;;
 esac

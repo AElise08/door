@@ -16,7 +16,8 @@ TTYD_PORT = CFG["TTYD_PORT"]
 DEFAULT_BACKEND = CFG.get("DEFAULT_BACKEND", "claude")
 DEFAULT_CLAUDE_MODEL = CFG.get("DEFAULT_CLAUDE_MODEL", CFG["DEFAULT_ENG_MODEL"])
 DEFAULT_CODEX_MODEL = CFG.get("DEFAULT_CODEX_MODEL", "")
-VALID_BACKENDS = ("claude", "codex")
+DEFAULT_GROK_MODEL = CFG.get("DEFAULT_GROK_MODEL", "")
+VALID_BACKENDS = ("claude", "codex", "grok")
 # A retirement is ACCIDENTAL only when the system itself observed the window/server vanish. Any
 # other reason is a deliberate stop and is never auto-restarted -- not by reconcile, and (since
 # card 0cc0bde980) not by ensure-boss either. roster.json is the single durable store of that
@@ -94,6 +95,60 @@ def pretrust(cwd):
         rec["hasTrustDialogAccepted"] = True
         proj[path] = rec
     C.write_json(p, d)
+
+
+def grok_pretrust():
+    """Disable Grok's project-directory picker (§5.5c analogue for grok).
+
+    With a non-git cwd (run/eng is not a repo) and prior sessions on record, Grok's TUI
+    answers the first message with a "Run Grok Build in a project directory?" modal that
+    swallows it. This is the key Grok's own "Don't ask me again" writes.
+
+    Only the bundle-less path needs this: a --role grok agent gets the hint baked into its
+    per-agent GROK_HOME config by mprole._grok_config_toml.
+    """
+    import re
+    root = os.environ.get("GROK_HOME") or os.path.expanduser("~/.grok")
+    p = os.path.join(root, "config.toml")
+    s = ""
+    if os.path.exists(p):
+        try:
+            with open(p) as f:
+                s = f.read()
+        except Exception:
+            return
+    m = re.search(r'^hints\s*=\s*\{([^}]*)\}[ \t]*$', s, re.M)
+    if m:
+        inner = m.group(1)
+        if re.search(r'project_picker_disabled\s*=\s*true', inner):
+            return
+        if "project_picker_disabled" in inner:
+            inner = re.sub(r'project_picker_disabled\s*=\s*\w+',
+                           'project_picker_disabled = true', inner)
+        else:
+            head = inner.strip().rstrip(",")
+            inner = (head + ", " if head else " ") + "project_picker_disabled = true "
+        out = s[:m.start()] + "hints = {%s}" % inner + s[m.end():]
+    elif re.search(r'^[ \t]*\[hints\][ \t]*$', s, re.M):
+        if re.search(r'^[ \t]*project_picker_disabled\s*=', s, re.M):
+            return
+        out = re.sub(r'^([ \t]*\[hints\][ \t]*\n)', r'\1project_picker_disabled = true\n',
+                     s, count=1, flags=re.M)
+    else:
+        # a bare key must precede the first [section] header
+        out = "hints = { project_picker_disabled = true }\n" + s
+    try:
+        import tomllib
+        parsed = tomllib.loads(out)
+        if not parsed.get("hints", {}).get("project_picker_disabled"):
+            return
+    except Exception:
+        return  # never leave the user's grok config unparseable
+    try:
+        os.makedirs(root, exist_ok=True)
+        C.atomic_write(p, out.encode("utf-8"))
+    except Exception:
+        pass
 
 
 def write_status(aid, status, backend, summary=None, locked=False):
@@ -206,6 +261,14 @@ def build_launch(aid, cwd, boss_id, is_master, model, backend, resume_session=No
             agent += " --model %s" % shlex.quote(model)
         if resume_session:
             agent += " resume %s" % shlex.quote(resume_session)
+    elif backend == "grok":
+        agent = "grok --permission-mode bypassPermissions"
+        if role_flags:
+            agent += " " + " ".join(shlex.quote(f) for f in role_flags)
+        if model:
+            agent += " --model %s" % shlex.quote(model)
+        if resume_session:
+            agent += " --resume %s" % shlex.quote(resume_session)
     else:
         raise ValueError("unsupported backend: %s" % backend)
     return "%s %s %s" % (prefix, envstr, agent)
@@ -213,7 +276,7 @@ def build_launch(aid, cwd, boss_id, is_master, model, backend, resume_session=No
 
 def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_digest=None):
     if not argv:
-        print("usage: mp spawn <agent_id> [--backend claude|codex] [--cwd PATH] [--boss <id>] "
+        print("usage: mp spawn <agent_id> [--backend claude|codex|grok] [--cwd PATH] [--boss <id>] "
               "[--master] [--model <id>] [--role boss|engineer]",
               file=sys.stderr)
         return 2
@@ -268,11 +331,13 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
         return 3
     backend = (backend or "").strip().lower()
     if backend not in VALID_BACKENDS:
-        print("ERROR: unsupported backend %r; choose claude or codex" % backend, file=sys.stderr)
+        print("ERROR: unsupported backend %r; choose claude, codex or grok" % backend, file=sys.stderr)
         return 2
     boss_id = full_aid(boss) if (boss_given and boss.strip()) else ""
     if not is_master and model is None:
-        model = DEFAULT_CLAUDE_MODEL if backend == "claude" else (DEFAULT_CODEX_MODEL or None)
+        model = {"claude": DEFAULT_CLAUDE_MODEL,
+                 "codex": DEFAULT_CODEX_MODEL,
+                 "grok": DEFAULT_GROK_MODEL}.get(backend) or None
     if not is_local(aid):
         ok, result = remote_task("spawn", aid, {
             "backend": backend, "cwd": cwd or "", "boss": boss_id,
@@ -289,6 +354,8 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
     os.makedirs(cwd, exist_ok=True)
     if backend == "claude":
         pretrust(cwd)
+    elif backend == "grok":
+        grok_pretrust()
 
     # --- FAIL-CLOSED ROLE PREFLIGHT + MOUNT (before any tmux pane / roster row) ---
     # Resolving and materializing here means a bad role leaves NO side effects: no window, no
@@ -440,11 +507,18 @@ def do_send(argv):
     return 0 if ok else 1
 
 
-def classify(pane):
+def classify(pane, backend=None):
     low = pane.lower()
     if "do you want" in low or "❯ 1." in pane or "1. yes" in low or "would you like" in low:
         return "BLOCKED"
     tail = "\n".join(pane.strip().splitlines()[-6:]).lower()
+    if backend == "grok":
+        # grok's own vocabulary: the footer offers ctrl+c:cancel only while a turn is in flight
+        if "run grok build in a project directory?" in low:
+            return "BLOCKED"
+        if "ctrl+c:cancel" in tail or "waiting for response" in tail or "esc to interrupt" in tail:
+            return "WORKING"
+        return "IDLE"
     if "esc to interrupt" in tail or "✳" in pane[-400:] or "running" in tail or "tokens" in tail:
         return "WORKING"
     return "IDLE"
@@ -459,7 +533,8 @@ def do_peek(argv):
         print(result)
         return 0 if ok else 1
     pane = C.tmux_capture(C.tmux_target(aid))
-    print("[state:%s]" % classify(pane))
+    backend = (load_roster().get(aid) or {}).get("backend")
+    print("[state:%s]" % classify(pane, backend))
     print(pane)
     return 0
 
@@ -518,6 +593,9 @@ def session_files(backend, session_id):
         pattern = os.path.expanduser("~/.claude/projects/**/%s.jsonl" % session_id)
     elif backend == "codex":
         pattern = os.path.expanduser("~/.codex/sessions/**/*%s.jsonl" % session_id)
+    elif backend == "grok":
+        root = os.environ.get("GROK_HOME") or os.path.expanduser("~/.grok")
+        pattern = os.path.join(root, "sessions", "**", session_id, "chat_history.jsonl")
     else:
         return []
     return glob.glob(pattern, recursive=True)
@@ -587,7 +665,7 @@ def do_ensure_boss(argv):
         backend = argv[idx + 1] if idx + 1 < len(argv) else ""
     backend = (backend or "").strip().lower()
     if backend not in VALID_BACKENDS:
-        print("ERROR: unsupported backend %r; choose claude or codex" % backend, file=sys.stderr)
+        print("ERROR: unsupported backend %r; choose claude, codex or grok" % backend, file=sys.stderr)
         return 2
     aid = full_aid(aid_arg)
     _, sess, tab = C.parse_agent_id(aid)

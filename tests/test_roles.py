@@ -37,7 +37,8 @@ def load_mp(home):
         'export DEFAULT_BACKEND="claude"\n'
         'export DEFAULT_ENG_MODEL="claude-opus-4-8"\n'
         'export DEFAULT_CLAUDE_MODEL="claude-opus-4-8"\n'
-        'export DEFAULT_CODEX_MODEL=""\n' % state,
+        'export DEFAULT_CODEX_MODEL=""\n'
+        'export DEFAULT_GROK_MODEL=""\n' % state,
         encoding="utf-8",
     )
     # mpcommon lets the ambient process env OVERRIDE the config file, so every mypeople key must be
@@ -225,28 +226,31 @@ class RoleLaunchTests(unittest.TestCase):
                              "grok takes no role flags; it mounts via GROK_HOME")
             self.assertEqual(mp.mprole.role_env(bundle)["GROK_HOME"], str(home))
 
-    def test_grok_is_not_a_product_backend_yet(self):
-        """Guard the seam: the grok adapter is dormant until grok lands as a product backend.
+    def test_grok_is_a_product_backend(self):
+        """The flipped seam: grok is productized, so the launch must actually carry GROK_HOME.
 
-        The profiles carry a grok adapter so a grok Boss can mount its doctrine, but this product
-        only launches claude and codex. When grok is productized, VALID_BACKENDS gains it and this
-        test should flip to asserting the launch carries GROK_HOME.
+        This replaces the dormant-adapter guard. The adapter contributes no flags -- grok mounts
+        everything through its home -- so GROK_HOME in the launch env is the only proof the role
+        reached the process.
         """
         with tempfile.TemporaryDirectory() as td:
             mp = load_mp(td)
-            self.assertNotIn("grok", mp.VALID_BACKENDS)
+            self.assertIn("grok", mp.VALID_BACKENDS)
             bundle = mp.materialize_role(mp.resolve_role("boss", "grok"), "t/main:Boss", "grok")
-            with self.assertRaises(ValueError):
-                mp.build_launch("t/main:Boss", td, "", True, None, "grok", role_bundle=bundle)
+            launch = mp.build_launch("t/main:Boss", td, "", True, None, "grok", role_bundle=bundle)
+            self.assertIn("GROK_HOME=%s" % bundle["grok_home"], launch)
+            self.assertIn("grok --permission-mode bypassPermissions", launch)
+            self.assertIn("MYPEOPLE_ROLE_DIGEST=%s" % bundle["digest"], launch)
 
     def test_legacy_launch_is_untouched_without_a_role(self):
         with tempfile.TemporaryDirectory() as td:
             mp = load_mp(td)
-            for backend in ("claude", "codex"):
+            for backend in ("claude", "codex", "grok"):
                 launch = mp.build_launch("t/main:x", td, "t/main:Boss", False, "m", backend)
                 self.assertNotIn("MYPEOPLE_ROLE", launch)
                 self.assertNotIn("--append-system-prompt-file", launch)
                 self.assertNotIn("CODEX_HOME=", launch)
+                self.assertNotIn("GROK_HOME=", launch)
 
 
 class NoBundlelessBossTests(unittest.TestCase):
