@@ -95,6 +95,14 @@ class TmuxSendMessageTests(unittest.TestCase):
         self.assertEqual(fake.literals(), ["status please"])
         self.assertEqual(len(fake.enters()), 1)
 
+    def test_single_line_ignores_a_stale_paste_marker(self):
+        """capture-pane reads 30 lines of scrollback, so a marker from an earlier multi-line
+        paste is still visible. A single-line send must not inspect the pane at all."""
+        ok, fake = self.send("status please", pane_text="> [Pasted text +9 lines]")
+        self.assertTrue(ok)
+        self.assertEqual(len(fake.enters()), 1)
+        self.assertEqual([c for c in fake.calls if "capture-pane" in c], [])
+
     def test_multiline_retries_only_when_paste_marker_remains(self):
         ok, fake = self.send("line one\nline two", pane_text="> [Pasted text +2 lines]")
         self.assertTrue(ok)
