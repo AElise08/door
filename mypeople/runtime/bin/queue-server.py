@@ -257,6 +257,11 @@ class Handler(BaseHTTPRequestHandler):
                             "retire_reason": rr.get("retire_reason", ""),
                             "retired_ts": rr.get("retired_ts"),
                             "session_id": rr.get("session_id", ""),
+                            # the ownership contract: /todo/owner refuses any agent whose row does
+                            # not say it was born an owner OF THAT CARD, so both must be projected
+                            # here or every assignment is rejected as ineligible.
+                            "lifecycle": rr.get("lifecycle", "legacy"),
+                            "owner_task_id": rr.get("owner_task_id", ""),
                             "spawn_cmd": rr.get("spawn_cmd", ""),
                             "revive_cmd": "mp revive %s" % aid,
                             "cwd": rr.get("cwd", ""), "model": rr.get("model", ""),

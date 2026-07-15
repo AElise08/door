@@ -28,6 +28,9 @@ WALL_HTML = os.path.join(HTML_DIR, "wall.html")
 STATUS_DIR = os.path.join(INSTALL_DIR, "status")
 
 VALID_STATES = {"needs_brainstorm", "working", "review", "done", "blocked", "cancelled", "recurring"}
+# A card in a terminal state has no work left, so it must have no living owner.
+TERMINAL_STATES = {"done", "cancelled"}
+FULL_AGENT_ID = re.compile(r"^[^/\s]+/[^/:\s]+:[^/:\s]+$")
 # Engines offerable for a Boss spawn (card 0cc0bde980). Mirrors mp's VALID_BACKENDS; `mp` remains
 # the authority and rejects anything it does not support, so this is only a UX guard.
 BOSS_BACKENDS = ("claude", "codex", "grok")
@@ -122,6 +125,88 @@ def mp_send(agent, message):
 
 def ping_boss(message):
     threading.Thread(target=mp_send, args=(BOSS_AGENT, message), daemon=True).start()
+
+
+# ---------------- card ownership ----------------
+def migrate_legacy_owner_fields(board):
+    """Idempotently describe existing owners without fabricating their original time."""
+    changed = False
+    for task in board.get("tasks", {}).values():
+        history = task.get("ownerHistory")
+        if not isinstance(history, list):
+            history = []
+            task["ownerHistory"] = history
+            changed = True
+        owner = task.get("assignee", "")
+        if owner and not history:
+            history.append({"action": "migrated_existing_owner", "agent_id": owner,
+                            "previous": "", "by": "system", "ts": now()})
+            changed = True
+        if not isinstance(task.get("ownerNeedsReplacement"), bool):
+            task["ownerNeedsReplacement"] = False
+            changed = True
+    return changed
+
+
+def record_owner_event(task, action, agent_id, previous="", by=BOSS_AGENT):
+    task.setdefault("ownerHistory", []).append({"action": action, "agent_id": agent_id,
+        "previous": previous, "by": by, "ts": now()})
+
+
+def queue_kill_owner(owner, reason):
+    """Actually kill a card owner via the queue (does not depend on Boss being alive).
+
+    Close/replace used to ONLY ping the Boss. If Boss was down, mid-crash, or a new session that
+    missed the lifecycle message, owners became permanent ghosts (card 476fd89607 -- six eng still
+    alive on closed cards). Submitting type=kill through queue-server is the same path /todo/boss
+    and queue-client already use.
+    """
+    if not owner or not FULL_AGENT_ID.match(owner):
+        return False
+    try:
+        code, r = C.http_json(
+            "POST", CFG["QUEUE_URL"] + "/task/submit",
+            {"type": "kill", "target_agent": owner,
+             "payload": {"reason": reason}},
+            {"X-Queue-Secret": SECRET}, timeout=10)
+        return code == 200 and isinstance(r, dict) and bool(r.get("task_id"))
+    except Exception:
+        return False
+
+
+def request_owner_lifecycle(task, action, owner=""):
+    if task.get("test"):
+        return
+    tid = task["id"]
+    if action == "close":
+        # Primary: kill via queue so ghosts cannot outlive a dead/busy Boss.
+        # Secondary: ping Boss for the audit trail / any extra bookkeeping.
+        if owner:
+            queue_kill_owner(owner, "card-%s-closed" % tid)
+        ping_boss('[todo lifecycle] Card %s was CLOSED by the CEO. Kill its owner %s now; '
+                  'preserve the assignee/history. Do not replace it unless the CEO reopens the card.' %
+                  (tid, owner or "unassigned"))
+    elif action == "reopen":
+        ping_boss('[todo lifecycle] Card %s was REOPENED by the CEO. CREATE one FRESH owner engineer '
+                  'with --owner-task %s; do not reuse %s.' % (tid, tid, owner or "unassigned"))
+    elif action == "replace":
+        if owner:
+            queue_kill_owner(owner, "card-%s-owner-replaced" % tid)
+        ping_boss('[todo lifecycle] Card %s owner was REPLACED. Kill prior owner %s; preserve history.' %
+                  (tid, owner or "unassigned"))
+
+
+def apply_owner_state_transition(task, previous, state, actor):
+    was_terminal, is_terminal = previous in TERMINAL_STATES, state in TERMINAL_STATES
+    owner = task.get("assignee", "")
+    if not was_terminal and is_terminal:
+        record_owner_event(task, "closed", owner, previous=owner, by=actor)
+        task["ownerNeedsReplacement"] = False
+        request_owner_lifecycle(task, "close", owner)
+    elif was_terminal and not is_terminal:
+        record_owner_event(task, "reopen_requested", "", previous=owner, by=actor)
+        task["ownerNeedsReplacement"] = True
+        request_owner_lifecycle(task, "reopen", owner)
 
 
 def title_of(task):
@@ -356,6 +441,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._update(body, ident)
         if p == "/todo/comment":
             return self._comment(body, ident)
+        if p == "/todo/owner":
+            return self._owner(body, ident)
         if p == "/todo/proof":
             return self._proof_json(body)
         if p == "/todo/status":
@@ -446,12 +533,16 @@ class Handler(BaseHTTPRequestHandler):
     # ---- update op ----
     def _update(self, body, ident):
         op = body.get("op")
+        actor = body.get("by") or ("CEO" if ident == "browser" else "")
         with LOCK:
             board = load_board()
             if op == "add":
                 tid = uuid.uuid4().hex[:10]
+                # assignee is NOT settable here: /todo/owner is the only door, and it is the one
+                # that checks the agent is alive, unretired, this Boss's, and born for this card.
                 task = {"id": tid, "text": body.get("text", ""), "state": "needs_brainstorm",
-                        "assignee": body.get("assignee", ""), "pinned": False, "pinRank": None,
+                        "assignee": "", "ownerHistory": [], "ownerNeedsReplacement": False,
+                        "pinned": False, "pinRank": None,
                         "doneCondition": "", "workToDone": "", "done": False, "verified": False,
                         "unread": 0, "pingsToBoss": 0, "comments": [], "proofs": [],
                         "test": bool(body.get("test")), "created": now(), "updated": now(),
@@ -483,6 +574,8 @@ class Handler(BaseHTTPRequestHandler):
                 t = board["tasks"].get(tid)
                 if not t:
                     return self._send(200, {"ok": False, "error": "no_task"})
+                if "assignee" in body:
+                    return self._send(400, {"ok": False, "error": "assignee_controlled"})
                 # reject removed features (subtasks/deps/hardgate) silently — never persist
                 for banned in ("parent", "dependsOn", "hardGate", "brainstorm"):
                     body.pop(banned, None)
@@ -494,7 +587,7 @@ class Handler(BaseHTTPRequestHandler):
                     t["state"] = st
                     if st == "done":
                         t["done"] = True
-                for f in ("text", "doneCondition", "workToDone", "assignee"):
+                for f in ("text", "doneCondition", "workToDone"):
                     if f in body:
                         t[f] = body[f]
                 if body.get("done") is True or body.get("workToDone") is True:
@@ -504,6 +597,8 @@ class Handler(BaseHTTPRequestHandler):
                     t["verified"] = bool(body["verified"])
                 t["updated"] = now()
                 t["lastAction"] = now()
+                if t.get("state") != prev_state:
+                    apply_owner_state_transition(t, prev_state, t.get("state"), actor)
                 save_board(board)
                 if t.get("state") != prev_state:
                     emit_task_event(board, t, "state -> %s" % t.get("state"))
@@ -611,6 +706,57 @@ class Handler(BaseHTTPRequestHandler):
                                         "note": target.get("note", "")})
             return self._send(400, {"ok": False, "error": "bad_op"})
 
+    # ---- owner ----
+    def _owner(self, body, ident):
+        """Boss-only. Every clause below is a way a card ends up with the wrong owner, so the
+        eligibility check is deliberately exhaustive: the agent must be alive, not retired, report
+        to THIS Boss, have been born for ownership, and have been born for THIS card."""
+        if ident != "machine" or body.get("by") != BOSS_AGENT:
+            return self._send(403, {"ok": False, "error": "boss_only"})
+        action, tid, agent_id = body.get("action"), body.get("task_id"), body.get("agent_id", "")
+        if action not in ("assign", "replace", "reopen") or not FULL_AGENT_ID.match(agent_id):
+            return self._send(400, {"ok": False, "error": "bad_owner_request"})
+        code, roster = C.http_json("GET", CFG["QUEUE_URL"] + "/roster", None,
+                                   {"X-Queue-Secret": SECRET})
+        if code != 200 or not isinstance(roster, list):
+            return self._send(503, {"ok": False, "error": "roster_unavailable"})
+        row = next((r for r in roster if r.get("agent_id") == agent_id), None)
+        if (not row or row.get("state") != "alive" or row.get("retired") is True or
+                row.get("boss_id") != BOSS_AGENT or row.get("lifecycle") != "owner" or
+                row.get("owner_task_id") != tid):
+            return self._send(400, {"ok": False, "error": "ineligible_owner"})
+        with LOCK:
+            board = load_board(); task = board.get("tasks", {}).get(tid)
+            if not task:
+                return self._send(200, {"ok": False, "error": "no_task"})
+            for other in board.get("tasks", {}).values():
+                if (other.get("id") != tid and other.get("assignee") == agent_id and
+                        other.get("state") not in TERMINAL_STATES):
+                    return self._send(409, {"ok": False, "error": "owner_busy"})
+            current = task.get("assignee", "")
+            if action == "assign":
+                if current == agent_id:
+                    return self._send(200, {"ok": True, "assignee": current,
+                                            "previous": current, "action": action})
+                if current:
+                    return self._send(409, {"ok": False, "error": "owner_exists"})
+            elif action == "replace":
+                if not current:
+                    return self._send(409, {"ok": False, "error": "no_owner_to_replace"})
+            elif action == "reopen":
+                if not task.get("ownerNeedsReplacement"):
+                    return self._send(409, {"ok": False, "error": "card_not_awaiting_reopen_owner"})
+                if current == agent_id:
+                    return self._send(409, {"ok": False, "error": "fresh_owner_required"})
+            previous = current
+            task["assignee"] = agent_id; task["ownerNeedsReplacement"] = False
+            record_owner_event(task, action, agent_id, previous=previous)
+            task["updated"] = now(); task["lastAction"] = now(); save_board(board)
+            if action == "replace" and previous:
+                request_owner_lifecycle(task, "replace", previous)
+            return self._send(200, {"ok": True, "assignee": agent_id,
+                                    "previous": previous, "action": action})
+
     # ---- comment ----
     def _comment(self, body, ident):
         with LOCK:
@@ -686,6 +832,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- status op ----
     def _status_op(self, body, ident):
+        actor = body.get("by") or ("CEO" if ident == "browser" else "")
         with LOCK:
             board = load_board()
             tid = body.get("task_id")
@@ -704,6 +851,8 @@ class Handler(BaseHTTPRequestHandler):
             t["updated"] = now()
             t["lastAction"] = now()
             t["idleFired"] = False
+            if st and st != prev:
+                apply_owner_state_transition(t, prev, st, actor)
             save_board(board)
             if st and st != prev:
                 emit_task_event(board, t, "state -> %s" % st)
@@ -715,6 +864,10 @@ def main():
     os.makedirs(TODOS_DIR, exist_ok=True)
     if not os.path.exists(BOARD_PATH):
         save_board(default_board())
+    with LOCK:
+        board = load_board()
+        if migrate_legacy_owner_fields(board):
+            save_board(board)
     srv = ThreadingHTTPServer((CFG["BIND_ADDR"], TODO_PORT), Handler)
     srv.daemon_threads = True
     sys.stderr.write("todo-server on %s:%d\n" % (CFG["BIND_ADDR"], TODO_PORT))

@@ -386,7 +386,8 @@ def build_launch(aid, cwd, boss_id, is_master, model, backend, resume_session=No
 def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_digest=None):
     if not argv:
         print("usage: mp spawn <agent_id> [--backend claude|codex|grok] [--cwd PATH] [--boss <id>] "
-              "[--master] [--model <id>] [--role boss|engineer]",
+              "[--master] [--model <id>] [--role boss|engineer] "
+              "[--owner-task <todo_id>|--temporary]",
               file=sys.stderr)
         return 2
     aid = full_aid(argv[0])
@@ -398,6 +399,8 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
     model = None
     role = None
     recorded_role_ref = None  # revive pins the exact recorded name@semver
+    owner_task_id = ""
+    temporary = False
     i = 1
     while i < len(argv):
         a = argv[i]
@@ -416,7 +419,13 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
             i += 1; role = argv[i] if i < len(argv) else ""
         elif a == "--role-ref":
             i += 1; recorded_role_ref = argv[i] if i < len(argv) else ""
+        elif a == "--owner-task":
+            i += 1; owner_task_id = argv[i] if i < len(argv) else ""
+        elif a == "--temporary":
+            temporary = True
         i += 1
+    if temporary and owner_task_id:
+        print("ERROR: --owner-task and --temporary are mutually exclusive", file=sys.stderr); return 2
     # revive/lock pins the exact recorded ref via kwarg OR --role-ref flag
     if locked_role_ref is None:
         locked_role_ref = recorded_role_ref
@@ -509,6 +518,10 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
         parts += ["--model", model]
     if role:
         parts += ["--role", role]
+    if owner_task_id:
+        parts += ["--owner-task", owner_task_id]
+    elif temporary:
+        parts += ["--temporary"]
     spawn_cmd = " ".join(shlex.quote(x) for x in parts)
 
     e = tmux_env()
@@ -537,6 +550,10 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
     # durable roster
     roster = load_roster()
     prior = roster.get(aid, {})
+    # An agent born for a card is bound to it for life: /todo/owner refuses to hand a card to an
+    # agent whose roster row does not say it was born for THAT card, so this is the durable half
+    # of the ownership contract. A legacy row keeps whatever it already had.
+    lifecycle = "owner" if owner_task_id else ("temporary" if temporary else prior.get("lifecycle", "legacy"))
     # A fresh spawn onto a DIFFERENT backend must not inherit the previous backend's session id.
     # It is not resumable by the new backend, and carrying it means the next accidental death sends
     # do_revive() hunting for a <new backend> transcript under a <old backend> id, finding nothing,
@@ -551,6 +568,7 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
     roster[aid] = {"agent_id": aid, "host": HOST_ID, "session": sess, "tab": tab,
                    "backend": backend, "boss_id": boss_id, "cwd": cwd, "spawn_cmd": spawn_cmd,
                    "model": (model or ""), "is_master": is_master, "retired": False,
+                   "lifecycle": lifecycle, "owner_task_id": owner_task_id,
                    "session_id": session_id,
                    "summary": prior.get("summary", ""),
                    # durable role/revive contract (§role spec). These are also what makes the
@@ -786,6 +804,11 @@ def do_revive(argv):
         args += ["--role", role]
     if rr.get("model"):
         args += ["--model", rr["model"]]
+    # A revived owner must come back bound to the same card (see spawn_args_from_record).
+    if rr.get("lifecycle") == "owner" and rr.get("owner_task_id"):
+        args += ["--owner-task", rr["owner_task_id"]]
+    elif rr.get("lifecycle") == "temporary":
+        args += ["--temporary"]
     # Pin the exact recorded ref+digest so a restored agent cannot silently come back under a
     # different doctrine than the one it died with.
     return do_spawn(args, resume_session=sid, locked_role_ref=rr.get("role_ref") or None,
@@ -866,6 +889,12 @@ def spawn_args_from_record(aid, rr):
     role = _record_role(rr)
     if role:
         args += ["--role", role]
+    # A recovered owner must come back still bound to its card, or /todo/owner will refuse to
+    # recognise it and the card is left ownerless with a live agent sitting on it.
+    if rr.get("owner_task_id"):
+        args += ["--owner-task", rr["owner_task_id"]]
+    elif rr.get("lifecycle") == "temporary":
+        args += ["--temporary"]
     if rr.get("model"):
         args += ["--model", rr["model"]]
     return args
