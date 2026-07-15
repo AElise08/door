@@ -38,6 +38,9 @@ ensure(){
 }
 
 TTYD_PORT="${TTYD_PORT:-7681}"
+# The Terminal Graph tiles onto a READ-ONLY ttyd: a tile is a view, and a stray click must never
+# type into a live agent. Stock ttyd is readonly unless -W, so this is the same binary, no flag.
+TTYD_RO_PORT="${TTYD_RO_PORT:-$((TTYD_PORT + 1))}"
 HUD_PORT="${HUD_PORT:-9900}"
 TODO_PORT="${TODO_PORT:-9933}"
 
@@ -47,6 +50,7 @@ while true; do
   ensure "$BIN/queue-client.py"            "exec python3 '$BIN/queue-client.py'"
   ensure "$BIN/board-exporter.py"          "exec python3 '$BIN/board-exporter.py'"
   ensure "ttyd -W -a -p $TTYD_PORT"        "exec ttyd -W -a -p $TTYD_PORT '$BIN/ttyd-attach.sh'"
+  ensure "ttyd -a -p $TTYD_RO_PORT"        "exec ttyd -a -p $TTYD_RO_PORT '$BIN/ttyd-attach.sh'"
   ensure "$BIN/boss-supervisor.sh"         "exec bash '$BIN/boss-supervisor.sh'"
   sleep 10
 done

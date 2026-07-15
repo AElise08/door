@@ -204,7 +204,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        if p == "/" or p == "/todos" or p == "/wall" or p.startswith("/todo/"):
+        if p in ("/", "/todos", "/wall", "/terminal-graph") or p.startswith("/todo/"):
             return C.proxy_request(self, "127.0.0.1", TODO_PORT)
         self.send_response(200)
         self.send_header("Content-Length", "0")
@@ -228,7 +228,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, raw=html, ctype="text/html; charset=utf-8",
                               extra_headers=self._page_headers())
         # TODO routes -> proxy to todo-server (symmetric front doors)
-        if p == "/" or p == "/todos" or p == "/wall" or p.startswith("/todo/"):
+        if p in ("/", "/todos", "/wall", "/terminal-graph") or p.startswith("/todo/"):
             return C.proxy_request(self, "127.0.0.1", TODO_PORT)
         # gated JSON
         if p in ("/agents", "/clients", "/roster"):

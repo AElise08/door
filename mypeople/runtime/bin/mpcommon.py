@@ -37,9 +37,10 @@ def load_env():
     # Live env overrides the file, including fleet/client-only keys not present in old configs.
     known = set(cfg) | {
         "INSTALL_DIR", "HOST_ID", "HUD_PORT", "TODO_PORT", "TTYD_PORT",
-        "TTYD_BROWSER_PORT", "BIND_ADDR",
+        "TTYD_BROWSER_PORT", "TTYD_RO_PORT", "BIND_ADDR",
         "QUEUE_URL", "QUEUE_SECRET", "TTYD_PUBLIC_URL", "DEFAULT_ENG_MODEL",
-        "DEFAULT_BACKEND", "DEFAULT_CLAUDE_MODEL", "DEFAULT_CODEX_MODEL",
+        "DEFAULT_BACKEND", "DEFAULT_CLAUDE_MODEL", "DEFAULT_CODEX_MODEL", "DEFAULT_GROK_MODEL",
+        "MYPEOPLE_RECORD",
         "QUEUE_DEAD_AFTER", "HEARTBEAT_INTERVAL", "UPSTREAM_QUEUE_URL",
         "UPSTREAM_QUEUE_SECRET", "NODE_PURPOSE", "NODE_TYPE", "NODE_RECORDING_URL",
     }
@@ -53,6 +54,9 @@ def load_env():
     cfg.setdefault("TODO_PORT", "9933")
     cfg.setdefault("TTYD_PORT", "7681")
     cfg.setdefault("TTYD_BROWSER_PORT", cfg["TTYD_PORT"])
+    # Read-only ttyd: the Terminal Graph's tiles are views, not consoles. Stock ttyd is readonly
+    # unless -W, so this is a second plain ttyd rather than a special build.
+    cfg.setdefault("TTYD_RO_PORT", str(int(cfg["TTYD_PORT"]) + 1))
     cfg.setdefault("BIND_ADDR", "0.0.0.0")
     cfg.setdefault("QUEUE_URL", "http://127.0.0.1:%s" % cfg["HUD_PORT"])
     cfg.setdefault("DEFAULT_ENG_MODEL", "claude-opus-4-8")

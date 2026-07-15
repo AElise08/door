@@ -207,6 +207,9 @@ def write_queue_env(install, backend):
         "TTYD_PORT": os.environ.get("TTYD_PORT", "7681"),
         "TTYD_BROWSER_PORT": os.environ.get(
             "TTYD_BROWSER_PORT", os.environ.get("TTYD_PORT", "7681")),
+        # read-only ttyd behind the Terminal Graph's tiles (stock ttyd, no -W)
+        "TTYD_RO_PORT": os.environ.get(
+            "TTYD_RO_PORT", str(int(os.environ.get("TTYD_PORT", "7681")) + 1)),
         "BIND_ADDR": os.environ.get("BIND_ADDR", "0.0.0.0"),
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
@@ -215,6 +218,7 @@ def write_queue_env(install, backend):
         "DEFAULT_CLAUDE_MODEL": os.environ.get(
             "DEFAULT_CLAUDE_MODEL", os.environ.get("DEFAULT_ENG_MODEL", "claude-opus-4-8")),
         "DEFAULT_CODEX_MODEL": os.environ.get("DEFAULT_CODEX_MODEL", ""),
+        "DEFAULT_GROK_MODEL": os.environ.get("DEFAULT_GROK_MODEL", ""),
         "QUEUE_DEAD_AFTER": "45",
         "HEARTBEAT_INTERVAL": "10",
     }

@@ -25,6 +25,7 @@ INBOX_LOG = os.path.join(TODOS_DIR, "boss-inbox.log")
 HTML_DIR = os.path.dirname(os.path.abspath(__file__))
 TODOS_HTML = os.path.join(HTML_DIR, "todos.html")
 WALL_HTML = os.path.join(HTML_DIR, "wall.html")
+TERMINAL_GRAPH_HTML = os.path.join(HTML_DIR, "terminal-graph.html")
 STATUS_DIR = os.path.join(INSTALL_DIR, "status")
 
 VALID_STATES = {"needs_brainstorm", "working", "review", "done", "blocked", "cancelled", "recurring"}
@@ -533,7 +534,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self):
         p = self.path.split("?", 1)[0]
-        if p in ("/", "/todos", "/wall"):
+        if p in ("/", "/todos", "/wall", "/terminal-graph"):
             self.send_response(200)
             for k, v in self._page_extra().items():
                 self.send_header(k, v)
@@ -563,6 +564,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._serve_page(TODOS_HTML)
         if p == "/wall":
             return self._serve_page(WALL_HTML if os.path.exists(WALL_HTML) else TODOS_HTML)
+        if p == "/terminal-graph":
+            return self._serve_page(TERMINAL_GRAPH_HTML if os.path.exists(TERMINAL_GRAPH_HTML)
+                                    else TODOS_HTML)
         # HUD routes -> proxy to queue-server (symmetric front doors)
         if p == "/dashboard" or p.startswith("/dashboard/") or p in ("/agents", "/clients", "/roster"):
             return C.proxy_request(self, "127.0.0.1", HUD_PORT)
@@ -591,6 +595,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(401, {"error": "unauthorized"})
             with LOCK:
                 return self._send(200, self._board_view())
+        if p == "/todo/terminal-graph":
+            if not ok:
+                return self._send(401, {"error": "unauthorized"})
+            return self._send(200, self._terminal_graph())
         if p == "/todo/wall":
             if not ok:
                 return self._send(401, {"error": "unauthorized"})
@@ -712,6 +720,58 @@ class Handler(BaseHTTPRequestHandler):
                                 "task_id": r["task_id"], "by": ident})
 
     # ---- board view (server-authoritative ordering: pinned first by pinRank, then order) ----
+    def _terminal_graph(self):
+        """Live fleet topology. Polling this metadata never replaces terminal iframe clients."""
+        acode, agents = C.http_json("GET", CFG["QUEUE_URL"] + "/agents", None,
+                                    {"X-Queue-Secret": SECRET})
+        rcode, roster = C.http_json("GET", CFG["QUEUE_URL"] + "/roster", None,
+                                    {"X-Queue-Secret": SECRET})
+        if acode != 200 or not isinstance(agents, list): agents = []
+        if rcode != 200 or not isinstance(roster, list): roster = []
+        roster_by_id = {r.get("agent_id", ""): r for r in roster}
+        live_ids = {a.get("agent_id", "") for a in agents if a.get("state", "alive") == "alive"}
+        nodes = []
+        for a in agents:
+            aid = a.get("agent_id", ""); rr = roster_by_id.get(aid, {})
+            if not aid or aid not in live_ids or rr.get("retired") is True: continue
+            target = a.get("tmux_target") or C.tmux_target(aid); cols = rows = 0
+            try:
+                out = subprocess.run(["tmux", "display-message", "-p", "-t", target,
+                                      "#{window_width} #{window_height}"],
+                                     capture_output=True, text=True, timeout=1.5,
+                                     env={**os.environ, "TMUX": ""})
+                if out.returncode == 0: cols, rows = [int(v) for v in out.stdout.strip().split()[:2]]
+            except Exception: pass
+            nodes.append({"agent_id": aid, "boss_id": rr.get("boss_id") or a.get("boss_id", ""),
+                          "is_master": bool(rr.get("is_master") or a.get("is_master")),
+                          "state": a.get("status", "ready"), "summary": a.get("summary", ""),
+                          "target": target, "host": rr.get("host") or a.get("host", ""),
+                          "cols": cols or 160, "rows": rows or 48})
+        nodes.sort(key=lambda n: (not n["is_master"], n["agent_id"]))
+        node_ids = {n["agent_id"] for n in nodes}
+        edges = [{"from": n["boss_id"], "to": n["agent_id"]} for n in nodes
+                 if n["boss_id"] in node_ids]
+        with LOCK: board = load_board()
+        tasks = []
+        for task in board.get("tasks", {}).values():
+            assignee = task.get("assignee") or ""; state = task.get("state") or "needs_brainstorm"
+            tid = task.get("id", "")
+            if not tid: continue
+            tasks.append({"id": tid, "title": task.get("text", ""), "state": state,
+                          "assignee": assignee, "owner_live": assignee in node_ids,
+                          "archived": state in TERMINAL_STATES,
+                          "pinned": bool(task.get("pinned")),
+                          "updated": task.get("updated", 0),
+                          "href": "/terminal-graph?task=" + urllib.parse.quote(tid, safe="")})
+        tasks.sort(key=lambda t: (t["assignee"], t["state"], t["id"]))
+        task_edges = [{"from": t["assignee"], "to": "task:" + t["id"]} for t in tasks
+                      if t["owner_live"] and not t["archived"]]
+        # Ports come from config, never constants: the tiles are iframes onto this install's own
+        # ttyd, and a hardcoded port silently renders every tile dead wherever ttyd was moved.
+        return {"nodes": nodes, "edges": edges, "tasks": tasks, "task_edges": task_edges,
+                "readonly_port": int(CFG["TTYD_RO_PORT"]),
+                "interactive_port": int(CFG["TTYD_BROWSER_PORT"]), "ts": now()}
+
     def _board_view(self):
         board = load_board()
         return board
