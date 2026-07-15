@@ -291,8 +291,30 @@ def tmux_env():
     return e
 
 
+def recording_enabled_global():
+    """Host-wide opt-in. Default OFF. Truthy: 1/true/yes/on."""
+    v = (os.environ.get("MYPEOPLE_RECORD")
+         or CFG.get("MYPEOPLE_RECORD")
+         or "0").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
+def want_recorder(record_flag, prior):
+    """Record only if --record, MYPEOPLE_RECORD=1, or roster already opted this agent in."""
+    if record_flag:
+        return True
+    if recording_enabled_global():
+        return True
+    if isinstance(prior, dict) and prior.get("record"):
+        return True
+    return False
+
+
 def start_recorder(tab, sess, previous=None):
-    """Auto-start a read-only asciinema recorder on the new pane (§spawn-recording). Best-effort."""
+    """Start a read-only asciinema recorder on the pane (opt-in only; §spawn-recording).
+    Best-effort. Callers must gate on want_recorder(): the recorder attaches a READ-ONLY tmux
+    client, and when it is the only client attached, tmux refuses send-keys with "client is
+    read-only" -- i.e. an unconditional recorder makes a headless agent unable to be spoken to."""
     rec_sess = "rec-%s" % tab
     e = tmux_env()
     current = C.current_recorder(sess, tab, HOST_ID)
@@ -387,7 +409,7 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
     if not argv:
         print("usage: mp spawn <agent_id> [--backend claude|codex|grok] [--cwd PATH] [--boss <id>] "
               "[--master] [--model <id>] [--role boss|engineer] "
-              "[--owner-task <todo_id>|--temporary]",
+              "[--owner-task <todo_id>|--temporary] [--record]",
               file=sys.stderr)
         return 2
     aid = full_aid(argv[0])
@@ -401,6 +423,7 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
     recorded_role_ref = None  # revive pins the exact recorded name@semver
     owner_task_id = ""
     temporary = False
+    record_flag = False
     i = 1
     while i < len(argv):
         a = argv[i]
@@ -423,6 +446,8 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
             i += 1; owner_task_id = argv[i] if i < len(argv) else ""
         elif a == "--temporary":
             temporary = True
+        elif a == "--record":
+            record_flag = True
         i += 1
     if temporary and owner_task_id:
         print("ERROR: --owner-task and --temporary are mutually exclusive", file=sys.stderr); return 2
@@ -522,6 +547,8 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
         parts += ["--owner-task", owner_task_id]
     elif temporary:
         parts += ["--temporary"]
+    if record_flag or recording_enabled_global():
+        parts += ["--record"]
     spawn_cmd = " ".join(shlex.quote(x) for x in parts)
 
     e = tmux_env()
@@ -565,11 +592,13 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
         print("mp spawn: backend %s -> %s; dropping unusable %s session id %s" %
               (prior.get("backend"), backend, prior.get("backend"), session_id))
         session_id = ""
+    do_record = want_recorder(record_flag, prior)
     roster[aid] = {"agent_id": aid, "host": HOST_ID, "session": sess, "tab": tab,
                    "backend": backend, "boss_id": boss_id, "cwd": cwd, "spawn_cmd": spawn_cmd,
                    "model": (model or ""), "is_master": is_master, "retired": False,
                    "lifecycle": lifecycle, "owner_task_id": owner_task_id,
                    "session_id": session_id,
+                   "record": do_record,
                    "summary": prior.get("summary", ""),
                    # durable role/revive contract (§role spec). These are also what makes the
                    # mounted personality VISIBLE: mp status and the board read them from here
@@ -583,6 +612,8 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
     # preserve reap counters so a flapping host cannot infinite-loop respawns
     if prior.get("zombie_reaps") is not None:
         roster[aid]["zombie_reaps"] = prior.get("zombie_reaps")
+    if not do_record:
+        roster[aid].pop("recorder", None)
     save_roster(roster)
 
     # initial status; master gets a keyword-bearing, locked doctrine summary (J2c)
@@ -603,11 +634,21 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
                  "summary": (DOCTRINE_SUMMARY if is_master else ""),
                  "spawn_cmd": spawn_cmd, "model": (model or "")}, HDR, timeout=6)
 
-    recorder = start_recorder(tab, sess, prior.get("recorder"))
-    if recorder:
+    if do_record:
+        recorder = start_recorder(tab, sess, prior.get("recorder"))
+        if recorder:
+            roster = load_roster()
+            if aid in roster and not roster[aid].get("retired"):
+                roster[aid]["recorder"] = recorder
+                roster[aid]["record"] = True
+                save_roster(roster)
+    else:
+        # Default-off: record the intent so nothing re-attaches a read-only client to this pane.
+        # Existing rec-* sessions are left alone here; `mp stop-recorders` is the fleet-wide relief.
         roster = load_roster()
         if aid in roster and not roster[aid].get("retired"):
-            roster[aid]["recorder"] = recorder
+            roster[aid]["record"] = False
+            roster[aid].pop("recorder", None)
             save_roster(roster)
 
     # SELF-CHECK window naming
@@ -947,6 +988,39 @@ def reap_birth_zombie(aid, rr):
     return True, "respawned session_id=%s reaps=%d" % (sid or "(pending-prompt)", reaps + 1)
 
 
+def do_stop_recorders(argv):
+    """Stop live asciinema recorders for local agents; clear roster.recorder. Agents stay up.
+
+    The relief valve for a fleet already recording: each recorder holds a read-only tmux client,
+    and a pane whose only client is read-only cannot be sent keys.
+    """
+    roster = load_roster()
+    stopped = 0
+    for aid, rr in sorted(roster.items()):
+        if not is_local(aid):
+            continue
+        _, sess, tab = C.parse_agent_id(aid)
+        if not sess or not tab:
+            continue
+        meta = rr.get("recorder")
+        cur = C.current_recorder(sess, tab, HOST_ID)
+        if not meta and not cur:
+            if not C.recorder_identity(sess, tab, HOST_ID):
+                continue
+        info = C.stop_recorder(sess, tab, meta or cur, HOST_ID)
+        if info or cur or meta:
+            stopped += 1
+        rr["recorder_stop"] = info
+        rr.pop("recorder", None)
+        # Also clear the intent, so the next spawn does not re-attach. --keep-intent stops the
+        # running processes but leaves the agent opted in.
+        if "--keep-intent" not in argv:
+            rr["record"] = False
+    save_roster(roster)
+    print("stopped recorders on %d local agent(s); agents left running" % stopped)
+    return 0
+
+
 def do_reconcile(argv):
     """Restore agents whose windows disappeared without an intentional mp kill.
 
@@ -1062,13 +1136,15 @@ def do_status(argv):
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: mp {status|spawn|send|peek|kill|answer|revive|ensure-boss|reconcile} ...", file=sys.stderr)
+        print("usage: mp {status|spawn|send|peek|kill|answer|revive|ensure-boss|reconcile|"
+              "stop-recorders} ...", file=sys.stderr)
         return 2
     verb = sys.argv[1]
     rest = sys.argv[2:]
     return {"status": do_status, "spawn": do_spawn, "send": do_send, "peek": do_peek,
             "kill": do_kill, "answer": do_answer, "revive": do_revive,
-            "ensure-boss": do_ensure_boss, "reconcile": do_reconcile}.get(
+            "ensure-boss": do_ensure_boss, "reconcile": do_reconcile,
+            "stop-recorders": do_stop_recorders}.get(
         verb, lambda a: (print("unknown verb %s" % verb, file=sys.stderr) or 2))(rest)
 
 
