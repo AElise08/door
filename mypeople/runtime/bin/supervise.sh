@@ -4,6 +4,9 @@
 # invariant: exactly one of each). Owns queue-server, todo-server, queue-client, ttyd, board-exporter,
 # boss-supervisor.
 set -u
+# The live Terminal Graph consumes several descriptors per persistent ttyd/WebSocket client. macOS launchd
+# defaults to 256, which can strand every live tile in ttyd's reconnect screen under normal fleets.
+ulimit -n "${MYPEOPLE_NOFILE_LIMIT:-8192}" 2>/dev/null || true
 source "${MYPEOPLE_CONFIG_PATH:-$HOME/.config/mypeople/queue.env}" 2>/dev/null || true
 ID="${INSTALL_DIR:-$HOME/mypeople}"
 export PATH="$HOME/.local/bin:$ID/bin:$PATH"

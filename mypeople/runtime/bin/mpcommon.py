@@ -369,6 +369,9 @@ def export_repo_path(cfg=None):
 def tmux_send_message(target, message):
     """Deliver a message into a tmux pane's composer and submit it.
     target = mc-<sess>:<tab>. Returns True on success."""
+    if message is None or not str(message).strip():
+        return False
+    message = str(message)
     env = dict(os.environ)
     env.pop("TMUX", None)  # never target the caller's pane
     ok = False
@@ -378,12 +381,18 @@ def tmux_send_message(target, message):
         if r.returncode != 0:
             time.sleep(0.3)
             continue
-        # bracketed paste literal, then Enter, wait, second Enter (5.5b)
+        # Literal paste + one submit. Multi-line composers get a conditional retry only when
+        # the backend still shows the bracketed-paste marker after the first Enter.
         subprocess.run(["tmux", "send-keys", "-t", target, "-l", message], env=env, capture_output=True)
         time.sleep(0.15)
         subprocess.run(["tmux", "send-keys", "-t", target, "Enter"], env=env, capture_output=True)
-        time.sleep(0.4)
-        subprocess.run(["tmux", "send-keys", "-t", target, "Enter"], env=env, capture_output=True)
+        if "\n" in message:
+            time.sleep(0.4)
+            pane = subprocess.run(["tmux", "capture-pane", "-p", "-t", target, "-S", "-30"],
+                                  env=env, capture_output=True, text=True)
+            if "[Pasted text" in (pane.stdout or ""):
+                subprocess.run(["tmux", "send-keys", "-t", target, "Enter"],
+                               env=env, capture_output=True)
         ok = True
         break
     return ok

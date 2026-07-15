@@ -14,5 +14,8 @@ while true; do
     mp ensure-boss "$HOST/main:Boss" >> "${INSTALL_DIR:-$HOME/mypeople}/logs/boss-supervisor.log" 2>&1 || \
       echo "$(date -u +%FT%TZ) ERROR: boss session recovery failed" >> "${INSTALL_DIR:-$HOME/mypeople}/logs/boss-supervisor.log"
   fi
+  # Reconcile the rest of the desired fleet too. Only accidental window/server loss is revived;
+  # agents stopped through `mp kill` retain their deliberate retirement reason and stay stopped.
+  mp reconcile >> "${INSTALL_DIR:-$HOME/mypeople}/logs/boss-supervisor.log" 2>&1 || true
   sleep 15
 done

@@ -28,6 +28,7 @@ body.modal-open{overflow:hidden;}
 h1{font-family:var(--serif);font-size:34px;font-weight:400;margin:0;color:var(--text-dark);}
 .subt{font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted-dark);margin-top:4px;}
 .navlink{color:var(--volt);text-decoration:none;text-transform:uppercase;}
+.navlink:focus-visible{outline:2px solid var(--volt);outline-offset:3px;border-radius:2px;}
 .counts{display:flex;align-items:center;gap:10px;margin:20px 0 14px;font-family:var(--mono);font-size:12px;flex-wrap:wrap;}
 .pill{border-radius:100px;padding:5px 12px;color:var(--muted-dark);background:rgba(255,255,255,0.03);border:1px solid var(--dark-border);}
 .live-pill{border-radius:100px;padding:5px 12px;background:rgba(213,239,138,0.1);color:var(--volt);text-transform:uppercase;font-weight:700;display:flex;align-items:center;gap:7px;}
@@ -52,6 +53,7 @@ h1{font-family:var(--serif);font-size:34px;font-weight:400;margin:0;color:var(--
 .vb-sep{width:1px;height:18px;background:rgba(255,255,255,0.09);margin:0 4px;}
 .vbtn{font-family:var(--mono);font-size:11px;border-radius:9px;background:rgba(255,255,255,0.05);border:1px solid var(--dark-border);color:var(--muted-dark);text-transform:uppercase;padding:5px 10px;cursor:pointer;}
 .vbtn.active{color:var(--midnight);background:var(--volt);border-color:var(--volt);}
+.vbtn:disabled{opacity:.3;cursor:not-allowed;}
 .bossbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:14px;}
 .boss-state{font-family:var(--mono);font-size:11px;border-radius:100px;text-transform:uppercase;font-weight:500;padding:4px 11px;}
 .boss-state.up{color:rgb(82,216,115);background:rgba(52,199,89,0.16);}
@@ -162,7 +164,7 @@ body.modal-open #modalbg{display:flex;}
     <div class="mark"><span>P</span></div>
     <div>
       <h1>Priorities</h1>
-      <div class="subt">Boss source-of-truth · MyPeople · <a class="navlink" href="/dashboard">HUD ↗</a></div>
+      <div class="subt">Boss source-of-truth · MyPeople · <a class="navlink" href="/dashboard">HUD ↗</a> · <a class="navlink" href="/terminal-graph">Terminal Graph ↗</a></div>
     </div>
   </div>
   <div class="counts">
@@ -216,6 +218,8 @@ let BOARD = {tasks:{},order:[],pinSeq:0};
 let AGENTS = {};      // agent_id -> attach_url
 let openTaskId = null;
 let boardSig = "";
+let boardReq = 0;     // monotonic id: a late-arriving stale /todo/board response must not clobber a newer one
+let boardFetchInFlight = null; // the 10 MB board can take >3s; never supersede every response with overlapping polls
 let BUILD = null;
 let stickBottom = true;
 let lastProg = 0;
@@ -248,6 +252,11 @@ async function openAgent(agent, ev){
     }
     window.open(base.replace(/\/$/,"")+"/?arg=-t&arg="+encodeURIComponent(d.target),"_blank");
   }catch(e){}
+}
+function appendAgentLink(parent,agent){
+  if(!agent){ parent.appendChild(document.createTextNode("unassigned")); return; }
+  const a=document.createElement("a"); a.className="asg-link"; a.href="#"; a.textContent=agent;
+  a.addEventListener("click",e=>openAgent(agent,e)); parent.appendChild(a);
 }
 
 function relTime(ts){
@@ -382,6 +391,10 @@ function timeline(task){
   items.sort((a,b)=>tsMs(a.ts)-tsMs(b.ts));
   return items;
 }
+function safeMarkdownHref(value){try{const u=new URL(value,location.href);return u.protocol==="http:"||u.protocol==="https:"?value:""}catch(e){return""}}
+function markdownInline(parent,text){const re=/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^\s)]+\))/g;let at=0,m;while((m=re.exec(text))){parent.appendChild(document.createTextNode(text.slice(at,m.index)));const token=m[0];if(token.startsWith("**")){const e=document.createElement("strong");e.textContent=token.slice(2,-2);parent.appendChild(e)}else if(token.startsWith("*")){const e=document.createElement("em");e.textContent=token.slice(1,-1);parent.appendChild(e)}else if(token.startsWith("`")){const e=document.createElement("code");e.textContent=token.slice(1,-1);parent.appendChild(e)}else{const x=token.match(/^\[([^\]]+)\]\(([^)]+)\)$/),href=x&&safeMarkdownHref(x[2]);if(href){const a=document.createElement("a");a.href=href;a.target="_blank";a.rel="noopener noreferrer";a.textContent=x[1];parent.appendChild(a)}else parent.appendChild(document.createTextNode(token))}at=m.index+token.length}parent.appendChild(document.createTextNode(text.slice(at)))}
+function markdownTable(lines,start,parent){if(start+1>=lines.length||!lines[start].includes("|")||!/^\s*\|?\s*:?-+/.test(lines[start+1]))return 0;const cells=s=>s.trim().replace(/^\||\|$/g,"").split("|").map(x=>x.trim()),heads=cells(lines[start]),rules=cells(lines[start+1]);if(heads.length!==rules.length)return 0;const aligns=rules.map(r=>r.startsWith(":")&&r.endsWith(":")?"center":r.endsWith(":")?"right":r.startsWith(":")?"left":""),table=document.createElement("table"),thead=document.createElement("thead"),tr=document.createElement("tr");heads.forEach((h,i)=>{const th=document.createElement("th");if(aligns[i])th.style.textAlign=aligns[i];markdownInline(th,h);tr.appendChild(th)});thead.appendChild(tr);table.appendChild(thead);const tb=document.createElement("tbody");let i=start+2;for(;i<lines.length&&lines[i].includes("|")&&lines[i].trim();i++){const row=document.createElement("tr");cells(lines[i]).forEach((c,j)=>{const td=document.createElement("td");if(aligns[j])td.style.textAlign=aligns[j];markdownInline(td,c);row.appendChild(td)});tb.appendChild(row)}table.appendChild(tb);parent.appendChild(table);return i-start}
+function renderMarkdown(parent,source){parent.replaceChildren();const lines=String(source||"").split(/\r?\n/);for(let i=0;i<lines.length;){const line=lines[i];if(line.startsWith("```")){const lang=line.slice(3).trim(),code=[];i++;while(i<lines.length&&!lines[i].startsWith("```"))code.push(lines[i++]);if(i<lines.length)i++;const pre=document.createElement("pre"),c=document.createElement("code");if(lang)c.className="language-"+lang.replace(/[^a-z0-9_-]/gi,"");c.textContent=code.join("\n");pre.appendChild(c);parent.appendChild(pre);continue}const used=markdownTable(lines,i,parent);if(used){i+=used;continue}if(!line.trim()){i++;continue}const hm=line.match(/^(#{1,6})\s+(.*)$/);if(hm){const h=document.createElement("h"+hm[1].length);markdownInline(h,hm[2]);parent.appendChild(h);i++;continue}if(/^[-*]\s+/.test(line)){const ul=document.createElement("ul");while(i<lines.length&&/^[-*]\s+/.test(lines[i])){const li=document.createElement("li");markdownInline(li,lines[i].replace(/^[-*]\s+/,""));ul.appendChild(li);i++}parent.appendChild(ul);continue}if(/^\d+\.\s+/.test(line)){const ol=document.createElement("ol");while(i<lines.length&&/^\d+\.\s+/.test(lines[i])){const li=document.createElement("li");markdownInline(li,lines[i].replace(/^\d+\.\s+/,""));ol.appendChild(li);i++}parent.appendChild(ol);continue}if(/^>\s?/.test(line)){const q=document.createElement("blockquote");markdownInline(q,line.replace(/^>\s?/,""));parent.appendChild(q);i++;continue}const p=document.createElement("p");while(i<lines.length&&lines[i].trim()&&!lines[i].startsWith("```")&&!/^(#{1,6})\s+/.test(lines[i])&&!/^[-*]\s+/.test(lines[i])&&!/^\d+\.\s+/.test(lines[i])&&!/^>\s?/.test(lines[i])){if(p.childNodes.length)p.appendChild(document.createElement("br"));markdownInline(p,lines[i++])}parent.appendChild(p)}}
 function evEl(it){
   const ev=document.createElement("div"); ev.className="ev";
   const av=document.createElement("div"); av.className="av"; av.textContent=initials(it.by);
@@ -400,7 +413,7 @@ function evEl(it){
       else if(it.pkind==="video"){ const v=document.createElement("video"); v.src=it.url; v.controls=true; txt.appendChild(v); }
       else if(it.pkind==="link"){ const a=document.createElement("a"); a.href=it.url; a.textContent=it.url; a.target="_blank"; txt.appendChild(a); }
       else { txt.textContent=it.body||it.url||"(proof)"; }
-    } else { txt.textContent=it.body||""; }
+    } else { renderMarkdown(txt,it.body||""); }
   }catch(e){ txt.textContent="(unrenderable)"; }
   b.appendChild(h); b.appendChild(txt); ev.appendChild(av); ev.appendChild(b);
   return ev;
@@ -540,6 +553,11 @@ function renderModal(task, forceBottom){
   const sig = JSON.stringify([task.text,task.doneCondition,task.assignee,task.state,
     timeline(task).map(i=>[i.ts,i.body,i.url,i.score,i.keep,i.note]), task.adResearch, task.adSettings, task.adGen, task.adSpend]);
   if(m.dataset.sig===sig && !forceBottom) return;   // change-guard: don't rebuild if unchanged
+  // preserve an in-progress composer draft (+caret/focus) across the rebuild so a background poll can't wipe what the CEO is typing
+  const oldTa=m.querySelector("#composer");
+  const draft = oldTa ? oldTa.value : null;
+  const draftFocused = oldTa && document.activeElement===oldTa;
+  const selStart = oldTa ? oldTa.selectionStart : null, selEnd = oldTa ? oldTa.selectionEnd : null;
   const thread = m.querySelector(".thread");
   let wasAtBottom=true, prevTop=0;
   if(thread){ prevTop=thread.scrollTop; wasAtBottom = (thread.scrollHeight-thread.scrollTop-thread.clientHeight) < 24; }
@@ -560,12 +578,7 @@ function renderModal(task, forceBottom){
   const dc=document.createElement("input"); dc.className="inline-field"; dc.value=task.doneCondition||""; dc.placeholder="done condition";
   dc.addEventListener("change",()=>patchTask(task.id,{doneCondition:dc.value})); row.appendChild(dc);
   row.appendChild(document.createTextNode("  ·  assignee: "));
-  const ai=document.createElement("input"); ai.className="inline-field"; ai.value=task.assignee||""; ai.placeholder="host/session:agent";
-  ai.addEventListener("change",()=>patchTask(task.id,{assignee:ai.value.trim()})); row.appendChild(ai);
-  if(task.assignee && task.assignee.includes(":")){
-    const ma=document.createElement("a"); ma.className="asg-link"; ma.href="#"; ma.textContent="open ↗";
-    ma.addEventListener("click",e=>openAgent(task.assignee,e)); row.appendChild(ma);
-  }
+  const owner=document.createElement("span"); appendAgentLink(owner,task.assignee); row.appendChild(owner);
   row.appendChild(document.createTextNode("  ·  "));
   const sel=document.createElement("select");
   ["needs_brainstorm","working","review","done","blocked","cancelled","recurring"].forEach(s=>{
@@ -577,6 +590,11 @@ function renderModal(task, forceBottom){
     await api("/todo/update",{method:"POST",body:JSON.stringify({op:"del",id:task.id})});
     closeCard(); fetchBoard(true); };
   row.appendChild(del);
+  const ownerHistory=document.createElement("div"); ownerHistory.className="m-row owner-history";
+  ownerHistory.appendChild(document.createTextNode("owner history: "));
+  (task.ownerHistory||[]).forEach((it,i)=>{if(i)ownerHistory.appendChild(document.createTextNode(" · "));
+    const txt=document.createElement("span"); txt.appendChild(document.createTextNode((it.action||"owner")+" "));
+    appendAgentLink(txt,it.agent_id||it.previous); if(it.previous){txt.appendChild(document.createTextNode(" from "));appendAgentLink(txt,it.previous);} ownerHistory.appendChild(txt);});
   const thr=document.createElement("div"); thr.className="thread";
   if(task.adResearch){
     // ad-research cards: render comments/non-image proofs inline as usual, but coalesce
@@ -602,6 +620,7 @@ function renderModal(task, forceBottom){
   thr.appendChild(jump);
   const comp=document.createElement("div"); comp.className="composer";
   const ta=document.createElement("textarea"); ta.id="composer"; ta.placeholder="Write a comment…";
+  if(draft!==null) ta.value=draft;   // restore the draft the CEO was typing before this rebuild
   const send=document.createElement("button"); send.className="btn-volt"; send.textContent="Send";
   const post=async ()=>{ const v=ta.value.trim(); if(!v)return; ta.value="";
     await api("/todo/comment",{method:"POST",body:JSON.stringify({task_id:task.id,body:v,by:"CEO"})});
@@ -609,7 +628,8 @@ function renderModal(task, forceBottom){
   send.onclick=post;
   ta.addEventListener("keydown",e=>{ if(e.key==="Enter"&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); post(); }});
   comp.appendChild(ta); comp.appendChild(send);
-  m.appendChild(head); m.appendChild(row); m.appendChild(adPanel(task)); m.appendChild(thr); m.appendChild(comp);
+  m.appendChild(head); m.appendChild(row); m.appendChild(ownerHistory); m.appendChild(adPanel(task)); m.appendChild(thr); m.appendChild(comp);
+  if(draftFocused){ ta.focus(); try{ ta.setSelectionRange(selStart,selEnd); }catch(e){} }   // keep the CEO's cursor where it was
   // reveal the show-more toggle only when the clamped title actually overflows its 3-line box
   requestAnimationFrame(()=>{ if(ti.classList.contains("clamped") && ti.scrollHeight-ti.clientHeight>2){ more.style.display="block"; } });
 
@@ -631,18 +651,31 @@ function renderModal(task, forceBottom){
   } else if(wasAtBottom){ progScroll(thr); }
   else { thr.scrollTop=prevTop; }
 }
-function openCard(id){
+function openCard(id, fromHistory){
   openTaskId=id; const task=BOARD.tasks[id]; if(!task)return;
   readTasks[id]=Date.now(); localStorage.setItem(READ_KEY,JSON.stringify(readTasks));
   document.body.classList.add("modal-open");
   renderModal(task, true);
   render();
+  if(!fromHistory){ const u=new URL(location.href); u.searchParams.set("task",id); history.pushState({task:id},"",u); }
 }
-function closeCard(){ openTaskId=null; document.body.classList.remove("modal-open"); $("#modal").dataset.sig=""; }
+function closeCard(push){ openTaskId=null; document.body.classList.remove("modal-open"); $("#modal").dataset.sig="";
+  if(push!==false){ const u=new URL(location.href); u.searchParams.delete("task"); history.pushState({},"",u); } }
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&openTaskId) closeCard(); });
 $("#modalbg").addEventListener("click", e=>{ if(e.target.id==="modalbg") closeCard(); });
 
 // ---- data ----
+async function loadAgents(){
+  try{ const r=await api("/agents"); if(r.ok){ const a=await r.json();
+    AGENTS={}; a.forEach(x=>{ if(x.attach_url) AGENTS[x.agent_id]=x.attach_url; });
+    renderBoss(a.find(x=>x.is_master && x.state==="alive")||null);
+    if(Object.keys(BOARD.tasks||{}).length) render();   // refresh assignee links once attach URLs known
+  } }catch(e){}
+}
+
+// ---- Boss lifecycle controls (card 0cc0bde980) ----
+// State rides the existing /agents poll; no extra poller. Kill and spawn are mutually exclusive by
+// construction — you can only spawn a Boss that is down, and only kill one that is up.
 const BOSS_ENGINES=[["bossSpawnClaude","claude"],["bossSpawnCodex","codex"],["bossSpawnGrok","grok"]];
 let bossBusy=false;
 function renderBoss(boss){
@@ -685,21 +718,22 @@ async function bossOp(action, backend){
   bossBusy=false;
   loadAgents();
 }
-async function loadAgents(){
-  try{ const r=await api("/agents"); if(r.ok){ const a=await r.json();
-    AGENTS={}; a.forEach(x=>{ if(x.attach_url) AGENTS[x.agent_id]=x.attach_url; });
-    renderBoss(a.find(x=>x.is_master && x.state==="alive")||null);
-    if(Object.keys(BOARD.tasks||{}).length) render();   // refresh assignee links once attach URLs known
-  } }catch(e){}
-}
-async function fetchBoard(force){
-  try{
+function fetchBoard(force){
+  if(boardFetchInFlight) return boardFetchInFlight;
+  boardFetchInFlight=(async()=>{
+   const myReq=++boardReq;
+   try{
     const r=await api("/todo/board"); if(!r.ok) return; const b=await r.json();
+    if(myReq!==boardReq) return;   // a newer fetchBoard was started after us — its snapshot is >= ours; drop this stale one so it can't wipe a just-posted comment
     const sig=JSON.stringify({o:b.order,p:b.pinSeq,t:Object.entries(b.tasks).map(([k,v])=>[k,v.state,v.pinned,v.pinRank,v.unread,v.verified,v.assignee,v.text,(v.comments||[]).length,(v.proofs||[]).length,JSON.stringify((v.proofs||[]).map(p=>[p.score,p.keep,p.note])),v.adResearch,JSON.stringify(v.adSettings||0),v.adGen,v.adSpend])});
     BOARD=b;
     if(sig!==boardSig || force){ boardSig=sig; render(); }
     if(openTaskId && BOARD.tasks[openTaskId]) renderModal(BOARD.tasks[openTaskId], false);
-  }catch(e){}
+    const deep=new URL(location.href).searchParams.get("task");
+    if(deep&&!openTaskId&&BOARD.tasks[deep]) openCard(deep,true);
+   }catch(e){}
+  })().finally(()=>{ boardFetchInFlight=null; });
+  return boardFetchInFlight;
 }
 async function addTask(){
   const inp=$("#addInput"); const v=inp.value.trim(); if(!v)return; inp.value="";
@@ -727,6 +761,8 @@ async function healthWatch(){
 }
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden) healthWatch(); });
 window.addEventListener("focus", healthWatch);
+window.addEventListener("popstate",()=>{ const id=new URL(location.href).searchParams.get("task");
+  if(id&&BOARD.tasks[id]) openCard(id,true); else closeCard(false); });
 
 document.addEventListener("DOMContentLoaded", ()=>{
   document.getElementById("bossKill").addEventListener("click",()=>bossOp("kill"));
