@@ -106,6 +106,24 @@ def pretrust(cwd):
     C.write_json(p, d)
 
 
+def codex_trust_override(cwd):
+    """Trust only an exact cwd inside MyPeople's managed agent run roots for this launch."""
+    resolved = os.path.realpath(os.path.abspath(os.path.expanduser(cwd)))
+    managed_roots = (
+        os.path.realpath(os.path.join(INSTALL_DIR, "run", "eng")),
+        os.path.realpath(os.path.join(INSTALL_DIR, "run", "boss")),
+    )
+    for root in managed_roots:
+        try:
+            if os.path.commonpath((resolved, root)) == root:
+                # A single `projects` inline table is accepted by Codex's --config parser. It
+                # applies only to this process, so unrelated user trust entries are untouched.
+                return 'projects={%s={trust_level="trusted"}}' % json.dumps(resolved)
+        except ValueError:
+            continue
+    return ""
+
+
 def grok_pretrust():
     """Disable Grok's project-directory picker (§5.5c analogue for grok).
 
@@ -386,6 +404,9 @@ def build_launch(aid, cwd, boss_id, is_master, model, backend, resume_session=No
             agent += " --resume %s" % shlex.quote(resume_session)
     elif backend == "codex":
         agent = "codex --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust"
+        trust_override = codex_trust_override(cwd)
+        if trust_override:
+            agent += " --config %s" % shlex.quote(trust_override)
         if role_flags:
             agent += " " + " ".join(shlex.quote(f) for f in role_flags)
         if model:
