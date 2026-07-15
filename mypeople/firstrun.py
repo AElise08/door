@@ -5,7 +5,7 @@ INSTALL_DIR from the packaged runtime, resolves the selected backend's auth, wri
 config file (~/.config/mypeople/queue.env, fresh QUEUE_SECRET per install), wires Claude/Codex
 lifecycle hooks, and installs the functional tmux.conf. Starting daemons + spawning the Boss is
 the CLI's job (see cli.up)."""
-import os, sys, json, shutil, secrets, socket, subprocess, shlex
+import os, sys, json, shutil, secrets, socket, stat, subprocess, shlex
 
 VALID_BACKENDS = ("claude", "codex", "grok")
 LIFECYCLE_EVENTS = ("SessionStart", "UserPromptSubmit", "Stop")
@@ -43,6 +43,29 @@ def _echo(msg):
 
 
 # ---------------------------------------------------------------- step 1: materialize
+def _replace_file(src, dst):
+    """copytree's default copy2 writes THROUGH the destination, which fails on an install that
+    mprole has already published to: the role store is chmod 444 so a runtime agent cannot rewrite
+    its own personality. Replace the file and put that mode back, so upgrading an install that has
+    ever spawned a role doesn't die half-way with EACCES."""
+    mode = None
+    if os.path.lexists(dst):
+        try:
+            mode = stat.S_IMODE(os.lstat(dst).st_mode)
+        except OSError:
+            mode = None
+        try:
+            os.unlink(dst)
+        except OSError:
+            pass
+    shutil.copy2(src, dst)
+    if mode is not None and not mode & stat.S_IWUSR:
+        try:
+            os.chmod(dst, mode)
+        except OSError:
+            pass
+
+
 def materialize(install):
     """Copy the packaged runtime into a WRITABLE INSTALL_DIR. Idempotent: never overwrite
     existing daemon code differently, and NEVER clobber live state (board/roster/logs)."""
@@ -55,11 +78,12 @@ def materialize(install):
     for sub in ("bin", "plugins", "plans", "verify", "config", "roles"):
         src = os.path.join(rt, sub)
         if os.path.isdir(src):
-            shutil.copytree(src, os.path.join(install, sub), dirs_exist_ok=True)
+            shutil.copytree(src, os.path.join(install, sub), dirs_exist_ok=True,
+                            copy_function=_replace_file)
     # Boss doctrine file
     bc = os.path.join(rt, "boss-CLAUDE.md")
     if os.path.exists(bc):
-        shutil.copy2(bc, os.path.join(install, "boss-CLAUDE.md"))
+        _replace_file(bc, os.path.join(install, "boss-CLAUDE.md"))
     # writable state skeletons — create empty, never overwrite existing board/roster/logs
     for sub in ("todos", "run", "status", "logs"):
         os.makedirs(os.path.join(install, sub), exist_ok=True)
