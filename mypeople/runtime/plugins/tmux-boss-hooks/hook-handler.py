@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared Claude/Codex lifecycle handler for SessionStart, UserPromptSubmit, and Stop."""
+"""Shared Claude/Codex/Grok lifecycle handler for SessionStart, UserPromptSubmit, and Stop."""
 import os, sys, json, time, glob
 
 INSTALL_DIR = os.environ.get("INSTALL_DIR", os.path.expanduser("~/mypeople"))
@@ -80,11 +80,28 @@ def set_status(aid, status, summary=None):
             C.write_json(roster_path, roster)
 
 
+def grok_transcript(tp, sid):
+    """Grok's transcriptPath points at updates.jsonl (chunked JSON-RPC); the clean
+    one-line-per-message log is chat_history.jsonl beside it."""
+    if tp:
+        cand = os.path.join(os.path.dirname(tp), "chat_history.jsonl")
+        if os.path.exists(cand):
+            return cand
+    if sid:
+        root = os.environ.get("GROK_HOME") or os.path.expanduser("~/.grok")
+        for f in glob.glob(os.path.join(root, "sessions", "**", sid, "chat_history.jsonl"),
+                           recursive=True):
+            return f
+    return None
+
+
 def find_transcript():
     tp = DATA.get("transcript_path")
+    sid = DATA.get("session_id")
+    if BACKEND == "grok":
+        return grok_transcript(tp, sid)
     if tp and os.path.exists(tp):
         return tp
-    sid = DATA.get("session_id")
     if sid and BACKEND == "claude":
         for f in glob.glob(os.path.expanduser("~/.claude/projects/**/%s.jsonl" % sid), recursive=True):
             return f
@@ -92,6 +109,18 @@ def find_transcript():
         for f in glob.glob(os.path.expanduser("~/.codex/sessions/**/*%s.jsonl" % sid), recursive=True):
             return f
     return None
+
+
+def content_text(content):
+    """Last text out of a content field: a bare string (grok) or a block list (claude)."""
+    if isinstance(content, str):
+        return content
+    text = ""
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text", "") or text
+    return text
 
 
 def last_assistant_summary():
@@ -111,10 +140,11 @@ def last_assistant_summary():
                         except Exception:
                             continue
                         if ev.get("type") == "assistant":
+                            # claude nests blocks under .message.content[]; grok puts the
+                            # reply text (or blocks) directly in .content
                             msg = ev.get("message", {})
-                            for block in msg.get("content", []):
-                                if isinstance(block, dict) and block.get("type") == "text":
-                                    text = block.get("text", "") or text
+                            text = (content_text(msg.get("content"))
+                                    or content_text(ev.get("content")) or text)
                         elif ev.get("role") == "assistant" and isinstance(ev.get("content"), str):
                             text = ev["content"] or text
                 if text:
@@ -137,6 +167,14 @@ def notify_completion(summary):
                 {"X-Queue-Secret": SECRET}, timeout=6)
 
 
+def normalize(d):
+    """Grok emits camelCase payload keys; map them onto the snake_case names read here."""
+    for cam, snake in (("sessionId", "session_id"), ("transcriptPath", "transcript_path")):
+        if cam in d and snake not in d:
+            d[snake] = d[cam]
+    return d
+
+
 def main():
     global DATA
     raw = sys.stdin.read()
@@ -144,10 +182,23 @@ def main():
         DATA = json.loads(raw) if raw.strip() else {}
     except Exception:
         DATA = {}
+    if isinstance(DATA, dict):
+        normalize(DATA)
+    else:
+        DATA = {}
     event = sys.argv[1] if len(sys.argv) > 1 else DATA.get("hook_event_name", "")
 
     if event == "SessionStart":
-        set_status(AGENT_ID, "starting")
+        # Persist session_id always. Do NOT force status back to "starting" when the agent
+        # is already working/idle/blocked: Claude Code re-fires SessionStart after turns
+        # (observed 2026-07-14 on card 157dcb7c75), which used to clobber healthy state and
+        # make the fleet look stuck at "starting" forever until the next UserPromptSubmit.
+        cur = read_status(AGENT_ID)
+        prev = cur.get("status") or ""
+        if prev in ("working", "idle", "blocked"):
+            set_status(AGENT_ID, prev)
+        else:
+            set_status(AGENT_ID, "starting")
     elif event == "UserPromptSubmit":
         set_status(AGENT_ID, "working")   # status-file only; NOTHING to stdout
     elif event == "Stop":

@@ -37,9 +37,10 @@ def load_env():
     # Live env overrides the file, including fleet/client-only keys not present in old configs.
     known = set(cfg) | {
         "INSTALL_DIR", "HOST_ID", "HUD_PORT", "TODO_PORT", "TTYD_PORT",
-        "TTYD_BROWSER_PORT", "BIND_ADDR",
+        "TTYD_BROWSER_PORT", "TTYD_RO_PORT", "BIND_ADDR",
         "QUEUE_URL", "QUEUE_SECRET", "TTYD_PUBLIC_URL", "DEFAULT_ENG_MODEL",
-        "DEFAULT_BACKEND", "DEFAULT_CLAUDE_MODEL", "DEFAULT_CODEX_MODEL",
+        "DEFAULT_BACKEND", "DEFAULT_CLAUDE_MODEL", "DEFAULT_CODEX_MODEL", "DEFAULT_GROK_MODEL",
+        "MYPEOPLE_RECORD",
         "QUEUE_DEAD_AFTER", "HEARTBEAT_INTERVAL", "UPSTREAM_QUEUE_URL",
         "UPSTREAM_QUEUE_SECRET", "NODE_PURPOSE", "NODE_TYPE", "NODE_RECORDING_URL",
     }
@@ -53,6 +54,9 @@ def load_env():
     cfg.setdefault("TODO_PORT", "9933")
     cfg.setdefault("TTYD_PORT", "7681")
     cfg.setdefault("TTYD_BROWSER_PORT", cfg["TTYD_PORT"])
+    # Read-only ttyd: the Terminal Graph's tiles are views, not consoles. Stock ttyd is readonly
+    # unless -W, so this is a second plain ttyd rather than a special build.
+    cfg.setdefault("TTYD_RO_PORT", str(int(cfg["TTYD_PORT"]) + 1))
     cfg.setdefault("BIND_ADDR", "0.0.0.0")
     cfg.setdefault("QUEUE_URL", "http://127.0.0.1:%s" % cfg["HUD_PORT"])
     cfg.setdefault("DEFAULT_ENG_MODEL", "claude-opus-4-8")
@@ -365,6 +369,9 @@ def export_repo_path(cfg=None):
 def tmux_send_message(target, message):
     """Deliver a message into a tmux pane's composer and submit it.
     target = mc-<sess>:<tab>. Returns True on success."""
+    if message is None or not str(message).strip():
+        return False
+    message = str(message)
     env = dict(os.environ)
     env.pop("TMUX", None)  # never target the caller's pane
     ok = False
@@ -374,12 +381,18 @@ def tmux_send_message(target, message):
         if r.returncode != 0:
             time.sleep(0.3)
             continue
-        # bracketed paste literal, then Enter, wait, second Enter (5.5b)
+        # Literal paste + one submit. Multi-line composers get a conditional retry only when
+        # the backend still shows the bracketed-paste marker after the first Enter.
         subprocess.run(["tmux", "send-keys", "-t", target, "-l", message], env=env, capture_output=True)
         time.sleep(0.15)
         subprocess.run(["tmux", "send-keys", "-t", target, "Enter"], env=env, capture_output=True)
-        time.sleep(0.4)
-        subprocess.run(["tmux", "send-keys", "-t", target, "Enter"], env=env, capture_output=True)
+        if "\n" in message:
+            time.sleep(0.4)
+            pane = subprocess.run(["tmux", "capture-pane", "-p", "-t", target, "-S", "-30"],
+                                  env=env, capture_output=True, text=True)
+            if "[Pasted text" in (pane.stdout or ""):
+                subprocess.run(["tmux", "send-keys", "-t", target, "Enter"],
+                               env=env, capture_output=True)
         ok = True
         break
     return ok

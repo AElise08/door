@@ -28,13 +28,24 @@ def load_mp(home):
         'export DEFAULT_BACKEND="claude"\n'
         'export DEFAULT_ENG_MODEL="claude-opus-4-8"\n'
         'export DEFAULT_CLAUDE_MODEL="claude-opus-4-8"\n'
-        'export DEFAULT_CODEX_MODEL=""\n' % (Path(home) / "state"),
+        'export DEFAULT_CODEX_MODEL=""\n'
+        'export DEFAULT_GROK_MODEL=""\n' % (Path(home) / "state"),
         encoding="utf-8",
     )
+    # mpcommon lets the ambient process env OVERRIDE the config file, so every mypeople key must be
+    # pinned explicitly here (same reason as tests/test_roles.py). Without this the suite inherits a
+    # developer's live HOST_ID/QUEUE_URL, decides these test agent_ids are REMOTE, and dispatches
+    # real tasks at their running queue -- which has already left a `test-node/main:eng-1` fossil in
+    # a live roster. QUEUE_URL points at a closed port so a regression can never reach a live daemon.
     with mock.patch.dict(os.environ, {
         "HOME": str(home),
         "MYPEOPLE_CONFIG_PATH": str(config),
         "MYPEOPLE_HOME": str(Path(home) / "state"),
+        "INSTALL_DIR": str(Path(home) / "state"),
+        "HOST_ID": "test-node",
+        "QUEUE_URL": "http://127.0.0.1:1",
+        "QUEUE_SECRET": "secret",
+        "DEFAULT_BACKEND": "claude",
     }, clear=False):
         sys.modules.pop("mpcommon", None)
         sys.path.insert(0, str(BIN))
@@ -47,6 +58,46 @@ def load_mp(home):
             return module
         finally:
             sys.path.remove(str(BIN))
+
+
+class GrokAuthTests(unittest.TestCase):
+    """`grok models` exits 0 whether or not the node is logged in (probed against grok 0.2.101).
+
+    So the returncode idiom that is correct for `codex login status` is a FALSE POSITIVE here:
+    it would report a logged-out node as authenticated and let `up` spawn a Boss that then sits
+    at a login prompt. These tests pin the stdout marker as the signal.
+    """
+
+    def _run(self, stdout, returncode=0):
+        return mock.patch.object(
+            firstrun.subprocess, "run",
+            return_value=subprocess.CompletedProcess([], returncode, stdout, ""))
+
+    def test_logged_out_grok_is_not_authenticated_despite_exit_zero(self):
+        with mock.patch.object(firstrun.shutil, "which", return_value="/usr/bin/grok"), \
+             self._run("You are not authenticated.\n\nDefault model: grok-build\n"):
+            self.assertFalse(firstrun._grok_authenticated())
+
+    def test_logged_in_grok_is_authenticated(self):
+        with mock.patch.object(firstrun.shutil, "which", return_value="/usr/bin/grok"), \
+             self._run("You are logged in with grok.com.\n\nDefault model: grok-4.5\n"):
+            self.assertTrue(firstrun._grok_authenticated())
+
+    def test_missing_grok_cli_is_not_authenticated(self):
+        with mock.patch.object(firstrun.shutil, "which", return_value=None):
+            self.assertFalse(firstrun._grok_authenticated())
+
+    def test_resolve_auth_accepts_grok(self):
+        with mock.patch.object(firstrun, "_grok_authenticated", return_value=True):
+            ok, backend, _ = firstrun.resolve_auth("grok")
+        self.assertTrue(ok)
+        self.assertEqual(backend, "grok")
+
+    def test_resolve_auth_rejects_logged_out_grok(self):
+        with mock.patch.object(firstrun, "_grok_authenticated", return_value=False):
+            ok, _, msg = firstrun.resolve_auth("grok")
+        self.assertFalse(ok)
+        self.assertIn("grok login", msg)
 
 
 class HookConfigTests(unittest.TestCase):
@@ -220,6 +271,72 @@ class HookHandlerTests(unittest.TestCase):
             self.assertEqual("idle", status["status"])
             self.assertEqual("codex-session", status["session_id"])
             self.assertEqual("Finished from Codex", status["summary"])
+
+    def _run(self, td, event, payload, backend="claude"):
+        env = dict(os.environ)
+        env.update({"INSTALL_DIR": td, "AGENT_ID": "node/main:eng",
+                    "MYPEOPLE_BACKEND": backend, "BOSS_ID": "", "QUEUE_URL": "", "GROK_HOME": td})
+        subprocess.run([sys.executable, str(HANDLER), event],
+                       input=json.dumps(payload), text=True, env=env, check=True)
+        return json.loads((Path(td) / "status" / "mc-main" / "eng.json").read_text())
+
+    def test_session_start_does_not_clobber_a_working_agent(self):
+        """Claude Code re-fires SessionStart after a turn. Forcing "starting" there made the
+        whole fleet read as stuck until the next prompt (card 157dcb7c75)."""
+        for live_state in ("working", "idle", "blocked"):
+            with tempfile.TemporaryDirectory() as td:
+                self._run(td, "UserPromptSubmit", {"session_id": "s1"})
+                p = Path(td) / "status" / "mc-main" / "eng.json"
+                cur = json.loads(p.read_text()); cur["status"] = live_state
+                p.write_text(json.dumps(cur))
+                status = self._run(td, "SessionStart", {"session_id": "s1"})
+                self.assertEqual(live_state, status["status"], live_state)
+
+    def test_session_start_still_starts_a_genuinely_new_agent(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual("starting", self._run(td, "SessionStart", {"session_id": "s1"})["status"])
+
+    def test_session_start_records_the_session_id_either_way(self):
+        """The id is why the hook exists: without it revive cannot find the transcript."""
+        with tempfile.TemporaryDirectory() as td:
+            self._run(td, "UserPromptSubmit", {"session_id": "s1"})
+            p = Path(td) / "status" / "mc-main" / "eng.json"
+            cur = json.loads(p.read_text()); cur["status"] = "working"
+            p.write_text(json.dumps(cur))
+            status = self._run(td, "SessionStart", {"session_id": "s2"})
+            self.assertEqual("s2", status["session_id"])
+            self.assertEqual("working", status["status"])
+
+    def test_grok_camelcase_keys_are_understood(self):
+        """Grok emits sessionId/transcriptPath; the handler reads snake_case."""
+        with tempfile.TemporaryDirectory() as td:
+            status = self._run(td, "SessionStart", {"sessionId": "grok-session"}, backend="grok")
+            self.assertEqual("grok-session", status["session_id"])
+
+    def test_grok_stop_reads_chat_history_beside_the_transcript_path(self):
+        """transcriptPath points at updates.jsonl (chunked JSON-RPC); the readable log is
+        chat_history.jsonl next to it, and grok puts reply text directly in .content."""
+        with tempfile.TemporaryDirectory() as td:
+            sess = Path(td) / "sessions" / "grok-session"
+            sess.mkdir(parents=True)
+            (sess / "updates.jsonl").write_text("{}\n")
+            (sess / "chat_history.jsonl").write_text(
+                json.dumps({"type": "assistant", "content": "Finished from Grok"}) + "\n")
+            status = self._run(td, "Stop",
+                               {"sessionId": "grok-session",
+                                "transcriptPath": str(sess / "updates.jsonl")}, backend="grok")
+            self.assertEqual("Finished from Grok", status["summary"])
+            self.assertEqual("idle", status["status"])
+
+    def test_grok_stop_finds_the_transcript_from_the_session_id_alone(self):
+        with tempfile.TemporaryDirectory() as td:
+            sess = Path(td) / "sessions" / "proj" / "grok-session"
+            sess.mkdir(parents=True)
+            (sess / "chat_history.jsonl").write_text(
+                json.dumps({"type": "assistant",
+                            "content": [{"type": "text", "text": "Block form too"}]}) + "\n")
+            status = self._run(td, "Stop", {"sessionId": "grok-session"}, backend="grok")
+            self.assertEqual("Block form too", status["summary"])
 
 
 if __name__ == "__main__":

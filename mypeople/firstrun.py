@@ -5,9 +5,9 @@ INSTALL_DIR from the packaged runtime, resolves the selected backend's auth, wri
 config file (~/.config/mypeople/queue.env, fresh QUEUE_SECRET per install), wires Claude/Codex
 lifecycle hooks, and installs the functional tmux.conf. Starting daemons + spawning the Boss is
 the CLI's job (see cli.up)."""
-import os, sys, json, shutil, secrets, socket, subprocess, shlex
+import os, sys, json, shutil, secrets, socket, stat, subprocess, shlex
 
-VALID_BACKENDS = ("claude", "codex")
+VALID_BACKENDS = ("claude", "codex", "grok")
 LIFECYCLE_EVENTS = ("SessionStart", "UserPromptSubmit", "Stop")
 
 def _config_path():
@@ -43,6 +43,29 @@ def _echo(msg):
 
 
 # ---------------------------------------------------------------- step 1: materialize
+def _replace_file(src, dst):
+    """copytree's default copy2 writes THROUGH the destination, which fails on an install that
+    mprole has already published to: the role store is chmod 444 so a runtime agent cannot rewrite
+    its own personality. Replace the file and put that mode back, so upgrading an install that has
+    ever spawned a role doesn't die half-way with EACCES."""
+    mode = None
+    if os.path.lexists(dst):
+        try:
+            mode = stat.S_IMODE(os.lstat(dst).st_mode)
+        except OSError:
+            mode = None
+        try:
+            os.unlink(dst)
+        except OSError:
+            pass
+    shutil.copy2(src, dst)
+    if mode is not None and not mode & stat.S_IWUSR:
+        try:
+            os.chmod(dst, mode)
+        except OSError:
+            pass
+
+
 def materialize(install):
     """Copy the packaged runtime into a WRITABLE INSTALL_DIR. Idempotent: never overwrite
     existing daemon code differently, and NEVER clobber live state (board/roster/logs)."""
@@ -55,11 +78,12 @@ def materialize(install):
     for sub in ("bin", "plugins", "plans", "verify", "config", "roles"):
         src = os.path.join(rt, sub)
         if os.path.isdir(src):
-            shutil.copytree(src, os.path.join(install, sub), dirs_exist_ok=True)
+            shutil.copytree(src, os.path.join(install, sub), dirs_exist_ok=True,
+                            copy_function=_replace_file)
     # Boss doctrine file
     bc = os.path.join(rt, "boss-CLAUDE.md")
     if os.path.exists(bc):
-        shutil.copy2(bc, os.path.join(install, "boss-CLAUDE.md"))
+        _replace_file(bc, os.path.join(install, "boss-CLAUDE.md"))
     # writable state skeletons — create empty, never overwrite existing board/roster/logs
     for sub in ("todos", "run", "status", "logs"):
         os.makedirs(os.path.join(install, sub), exist_ok=True)
@@ -111,21 +135,39 @@ def _codex_authenticated():
     return False
 
 
+def _grok_authenticated():
+    """grok has no `login status` verb, and `grok models` EXITS 0 EVEN WHEN LOGGED OUT --
+    it just prints "You are not authenticated." and the anonymous model list. So the
+    returncode idiom used for codex would pass an unauthenticated node; the affirmative
+    stdout marker is the only honest signal. Fail closed on anything unrecognized."""
+    if shutil.which("grok"):
+        try:
+            r = subprocess.run(["grok", "models"], capture_output=True,
+                               text=True, timeout=25)
+            out = (r.stdout + r.stderr).lower()
+            if r.returncode == 0 and "you are logged in" in out:
+                return True
+        except Exception:
+            pass
+    return False
+
+
 def resolve_auth(preferred=None):
     """Require this node's own completed login for the selected agent backend."""
     preferred = (preferred or "").strip().lower()
     if preferred and preferred not in VALID_BACKENDS:
-        return False, preferred, "Unknown backend %r; choose claude or codex." % preferred
-    checks = {"claude": _claude_authenticated, "codex": _codex_authenticated}
+        return False, preferred, "Unknown backend %r; choose claude, codex or grok." % preferred
+    checks = {"claude": _claude_authenticated, "codex": _codex_authenticated,
+              "grok": _grok_authenticated}
     order = [preferred] if preferred else list(VALID_BACKENDS)
     for backend in order:
         if checks[backend]():
             return True, backend, "this node's %s login is active" % backend
-    requested = preferred or "claude or codex"
+    requested = preferred or "claude, codex or grok"
     return (False, preferred or "none",
-            "This node is not authenticated for %s. Run `claude auth login` or `codex login` "
-            "inside THIS node, then re-run MyPeople. Never copy or mount credentials from another "
-            "node." % requested)
+            "This node is not authenticated for %s. Run `claude auth login`, `codex login` or "
+            "`grok login` inside THIS node, then re-run MyPeople. Never copy or mount credentials "
+            "from another node." % requested)
 
 
 # ---------------------------------------------------------------- step 3: queue.env
@@ -189,6 +231,9 @@ def write_queue_env(install, backend):
         "TTYD_PORT": os.environ.get("TTYD_PORT", "7681"),
         "TTYD_BROWSER_PORT": os.environ.get(
             "TTYD_BROWSER_PORT", os.environ.get("TTYD_PORT", "7681")),
+        # read-only ttyd behind the Terminal Graph's tiles (stock ttyd, no -W)
+        "TTYD_RO_PORT": os.environ.get(
+            "TTYD_RO_PORT", str(int(os.environ.get("TTYD_PORT", "7681")) + 1)),
         "BIND_ADDR": os.environ.get("BIND_ADDR", "0.0.0.0"),
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
@@ -197,6 +242,7 @@ def write_queue_env(install, backend):
         "DEFAULT_CLAUDE_MODEL": os.environ.get(
             "DEFAULT_CLAUDE_MODEL", os.environ.get("DEFAULT_ENG_MODEL", "claude-opus-4-8")),
         "DEFAULT_CODEX_MODEL": os.environ.get("DEFAULT_CODEX_MODEL", ""),
+        "DEFAULT_GROK_MODEL": os.environ.get("DEFAULT_GROK_MODEL", ""),
         "QUEUE_DEAD_AFTER": "45",
         "HEARTBEAT_INTERVAL": "10",
     }

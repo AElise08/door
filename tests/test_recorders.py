@@ -45,6 +45,74 @@ def load_runtime(name, filename, home):
             sys.path.remove(str(BIN))
 
 
+class RecorderOptInTests(unittest.TestCase):
+    """Recording is OPT-IN, and the default is the load-bearing part.
+
+    A recorder attaches a READ-ONLY tmux client. When it is the only client on a pane, tmux
+    refuses `send-keys` with "client is read-only" -- so an always-on recorder makes every agent
+    on a headless install unreachable. Default-off is therefore a correctness property, not a
+    preference, and it is what these tests pin.
+    """
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.home = self._td.name
+
+    def load(self):
+        # MYPEOPLE_RECORD is read at CALL time, so tests set it around the call, not the import.
+        with mock.patch.dict(os.environ, {"MYPEOPLE_RECORD": ""}, clear=False):
+            return load_runtime("mp_optin_%s" % id(self.home), "mp", self.home)
+
+    def test_recording_is_off_by_default(self):
+        mp = self.load()
+        with mock.patch.dict(os.environ, {"MYPEOPLE_RECORD": ""}, clear=False):
+            self.assertFalse(mp.recording_enabled_global())
+            self.assertFalse(mp.want_recorder(False, {}))
+
+    def test_recording_is_off_when_the_host_never_mentions_it(self):
+        """The true default: the variable does not exist at all."""
+        mp = self.load()
+        env = {k: v for k, v in os.environ.items() if k != "MYPEOPLE_RECORD"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertFalse(mp.recording_enabled_global())
+            self.assertFalse(mp.want_recorder(False, {}))
+
+    def test_the_record_flag_opts_in(self):
+        mp = self.load()
+        with mock.patch.dict(os.environ, {"MYPEOPLE_RECORD": ""}, clear=False):
+            self.assertTrue(mp.want_recorder(True, {}))
+
+    def test_the_host_env_opts_in(self):
+        mp = self.load()
+        for truthy in ("1", "true", "yes", "on", "TRUE", "On"):
+            with mock.patch.dict(os.environ, {"MYPEOPLE_RECORD": truthy}, clear=False):
+                self.assertTrue(mp.recording_enabled_global(), truthy)
+                self.assertTrue(mp.want_recorder(False, {}), truthy)
+
+    def test_a_non_truthy_host_env_stays_off(self):
+        mp = self.load()
+        for falsy in ("0", "off", "no", "false", ""):
+            with mock.patch.dict(os.environ, {"MYPEOPLE_RECORD": falsy}, clear=False):
+                self.assertFalse(mp.recording_enabled_global(), falsy)
+
+    def test_an_opted_in_agent_keeps_recording_across_a_respawn(self):
+        """The roster carries the intent, so reconcile/revive does not silently stop recording."""
+        mp = self.load()
+        with mock.patch.dict(os.environ, {"MYPEOPLE_RECORD": ""}, clear=False):
+            self.assertTrue(mp.want_recorder(False, {"record": True}))
+
+    def test_an_opted_out_agent_stays_opted_out_across_a_respawn(self):
+        mp = self.load()
+        with mock.patch.dict(os.environ, {"MYPEOPLE_RECORD": ""}, clear=False):
+            self.assertFalse(mp.want_recorder(False, {"record": False}))
+
+    def test_a_legacy_roster_row_without_the_field_stays_off(self):
+        mp = self.load()
+        with mock.patch.dict(os.environ, {"MYPEOPLE_RECORD": ""}, clear=False):
+            self.assertFalse(mp.want_recorder(False, {"backend": "claude"}))
+
+
 class RecorderLifecycleTests(unittest.TestCase):
     def test_pid_fallback_terms_validated_attach_child_first(self):
         with tempfile.TemporaryDirectory() as td:
