@@ -1,6 +1,6 @@
 services:
   mypeople:
-    image: ghcr.io/delattre1/mypeople:0.3.3
+    image: ghcr.io/delattre1/mypeople:0.4.0
     pull_policy: missing
     init: true
     ports:
