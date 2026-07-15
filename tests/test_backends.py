@@ -272,6 +272,72 @@ class HookHandlerTests(unittest.TestCase):
             self.assertEqual("codex-session", status["session_id"])
             self.assertEqual("Finished from Codex", status["summary"])
 
+    def _run(self, td, event, payload, backend="claude"):
+        env = dict(os.environ)
+        env.update({"INSTALL_DIR": td, "AGENT_ID": "node/main:eng",
+                    "MYPEOPLE_BACKEND": backend, "BOSS_ID": "", "QUEUE_URL": "", "GROK_HOME": td})
+        subprocess.run([sys.executable, str(HANDLER), event],
+                       input=json.dumps(payload), text=True, env=env, check=True)
+        return json.loads((Path(td) / "status" / "mc-main" / "eng.json").read_text())
+
+    def test_session_start_does_not_clobber_a_working_agent(self):
+        """Claude Code re-fires SessionStart after a turn. Forcing "starting" there made the
+        whole fleet read as stuck until the next prompt (card 157dcb7c75)."""
+        for live_state in ("working", "idle", "blocked"):
+            with tempfile.TemporaryDirectory() as td:
+                self._run(td, "UserPromptSubmit", {"session_id": "s1"})
+                p = Path(td) / "status" / "mc-main" / "eng.json"
+                cur = json.loads(p.read_text()); cur["status"] = live_state
+                p.write_text(json.dumps(cur))
+                status = self._run(td, "SessionStart", {"session_id": "s1"})
+                self.assertEqual(live_state, status["status"], live_state)
+
+    def test_session_start_still_starts_a_genuinely_new_agent(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual("starting", self._run(td, "SessionStart", {"session_id": "s1"})["status"])
+
+    def test_session_start_records_the_session_id_either_way(self):
+        """The id is why the hook exists: without it revive cannot find the transcript."""
+        with tempfile.TemporaryDirectory() as td:
+            self._run(td, "UserPromptSubmit", {"session_id": "s1"})
+            p = Path(td) / "status" / "mc-main" / "eng.json"
+            cur = json.loads(p.read_text()); cur["status"] = "working"
+            p.write_text(json.dumps(cur))
+            status = self._run(td, "SessionStart", {"session_id": "s2"})
+            self.assertEqual("s2", status["session_id"])
+            self.assertEqual("working", status["status"])
+
+    def test_grok_camelcase_keys_are_understood(self):
+        """Grok emits sessionId/transcriptPath; the handler reads snake_case."""
+        with tempfile.TemporaryDirectory() as td:
+            status = self._run(td, "SessionStart", {"sessionId": "grok-session"}, backend="grok")
+            self.assertEqual("grok-session", status["session_id"])
+
+    def test_grok_stop_reads_chat_history_beside_the_transcript_path(self):
+        """transcriptPath points at updates.jsonl (chunked JSON-RPC); the readable log is
+        chat_history.jsonl next to it, and grok puts reply text directly in .content."""
+        with tempfile.TemporaryDirectory() as td:
+            sess = Path(td) / "sessions" / "grok-session"
+            sess.mkdir(parents=True)
+            (sess / "updates.jsonl").write_text("{}\n")
+            (sess / "chat_history.jsonl").write_text(
+                json.dumps({"type": "assistant", "content": "Finished from Grok"}) + "\n")
+            status = self._run(td, "Stop",
+                               {"sessionId": "grok-session",
+                                "transcriptPath": str(sess / "updates.jsonl")}, backend="grok")
+            self.assertEqual("Finished from Grok", status["summary"])
+            self.assertEqual("idle", status["status"])
+
+    def test_grok_stop_finds_the_transcript_from_the_session_id_alone(self):
+        with tempfile.TemporaryDirectory() as td:
+            sess = Path(td) / "sessions" / "proj" / "grok-session"
+            sess.mkdir(parents=True)
+            (sess / "chat_history.jsonl").write_text(
+                json.dumps({"type": "assistant",
+                            "content": [{"type": "text", "text": "Block form too"}]}) + "\n")
+            status = self._run(td, "Stop", {"sessionId": "grok-session"}, backend="grok")
+            self.assertEqual("Block form too", status["summary"])
+
 
 if __name__ == "__main__":
     unittest.main()
