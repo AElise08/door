@@ -696,7 +696,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(409, {"ok": False, "error": "boss_already_alive",
                                         "agent_id": live_id,
                                         "detail": "kill the running Boss before spawning another"})
-            payload = {"backend": backend, "is_master": True}
+            # role:boss is required or do_spawn refuses a bundle-less Boss; queue-client also
+            # defaults it for any master spawn, but state it explicitly here (card f6339b85a2).
+            payload = {"backend": backend, "is_master": True, "role": "boss"}
             target = BOSS_AGENT
         elif action == "revive":
             if alive:

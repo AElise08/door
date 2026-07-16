@@ -202,6 +202,57 @@ def _safe_aid(aid):
     return re.sub(r"[^A-Za-z0-9._-]", "_", aid)
 
 
+def _link_grok_home_entry(grok_home, name):
+    """Symlink ~/.grok/<name> into a per-agent GROK_HOME, promoting private auth first.
+
+    auth.json is load-bearing. Grok may unlink the symlink and write a private auth.json into
+    GROK_HOME during device-login; we must never discard a newer private token (root cause of the
+    "Boss opens as Grok unauthenticated" flap: the old loop os.remove()'d the fresh token and
+    re-linked the stale one on every respawn). Card f6339b85a2.
+    """
+    src = os.path.expanduser("~/.grok/%s" % name)
+    dst = os.path.join(grok_home, name)
+    if name == "auth.json" and os.path.lexists(dst) and (not os.path.islink(dst)) and os.path.isfile(dst):
+        try:
+            promote = False
+            if not os.path.exists(src):
+                promote = os.path.getsize(dst) > 0
+            elif os.path.getsize(dst) > 0 and os.path.getmtime(dst) > (os.path.getmtime(src) + 0.5):
+                promote = True
+            if promote:
+                os.makedirs(os.path.dirname(src) or ".", exist_ok=True)
+                tmp = src + ".mypeople-promote-%d" % os.getpid()
+                import shutil
+                shutil.copy2(dst, tmp)
+                os.chmod(tmp, 0o600)
+                os.replace(tmp, src)
+                os.chmod(src, 0o600)
+        except OSError as e:
+            raise RoleError("failed to promote private GROK_HOME auth.json into ~/.grok: %s" % e)
+    if os.path.lexists(dst):
+        try:
+            os.remove(dst)
+        except OSError as e:
+            if name == "auth.json":
+                raise RoleError("cannot replace GROK_HOME auth.json with symlink: %s" % e)
+            return
+    if not os.path.exists(src):
+        if name == "auth.json":
+            raise RoleError(
+                "operator ~/.grok/auth.json missing — run `grok` once outside MyPeople and "
+                "complete login, then re-spawn the Grok Boss")
+        return
+    try:
+        os.symlink(src, dst)
+    except OSError as e:
+        if name == "auth.json":
+            raise RoleError("cannot symlink GROK_HOME auth.json -> ~/.grok/auth.json: %s" % e)
+        return
+    if name == "auth.json":
+        if not os.path.islink(dst) or not os.path.samefile(dst, src):
+            raise RoleError("GROK_HOME auth.json is not a live symlink to ~/.grok/auth.json after mount")
+
+
 def _write_ro(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if os.path.exists(path):
@@ -314,17 +365,7 @@ def materialize_role(item, aid, backend, bundle_root):
         # -- symlinks, never copied bytes, so credentials are never duplicated into the bundle and
         # a token refresh writes through to the one real auth.json.
         for name in _GROK_HOME_LINKS:
-            src = os.path.expanduser("~/.grok/%s" % name)
-            if not os.path.exists(src):
-                continue
-            dst = os.path.join(grok_home, name)
-            if os.path.islink(dst) or os.path.exists(dst):
-                try: os.remove(dst)
-                except OSError: pass
-            try:
-                os.symlink(src, dst)
-            except OSError:
-                pass
+            _link_grok_home_entry(grok_home, name)
         # A per-agent home starts with no config, which would re-arm the project picker that
         # swallows the first message (see mp.grok_pretrust) and drop the operator's
         # permission_mode -- a mounted Boss would hang on an approval prompt. Carry the operator's
