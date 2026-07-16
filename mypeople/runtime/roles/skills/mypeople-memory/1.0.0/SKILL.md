@@ -1,5 +1,5 @@
 ---
-name: agent-memory
+name: mypeople-memory
 description: Recall what the team already did by loading the whole board into a Python variable and searching it with code (RLM context-as-variable), instead of asking around.
 metadata:
   version: 1.0.0
