@@ -893,85 +893,6 @@ class Handler(BaseHTTPRequestHandler):
                 t["pinRank"] = None
                 save_board(board)
                 return self._send(200, {"ok": True})
-            if op == "adset":
-                # auto-research-ads tag + settings (additive; composes with any state).
-                tid = body.get("id")
-                t = board["tasks"].get(tid)
-                if not t:
-                    return self._send(200, {"ok": False, "error": "no_task"})
-                if "on" in body:
-                    t["adResearch"] = bool(body.get("on"))
-                s = t.get("adSettings") or {"quality": "medium", "batch": 4, "size": "1536x1024"}
-                inp = body.get("settings") or {}
-                if inp.get("quality") in ("low", "medium", "high"):
-                    s["quality"] = inp["quality"]
-                if "batch" in inp:
-                    try:
-                        bn = int(inp["batch"])
-                        if 1 <= bn <= 10:
-                            s["batch"] = bn
-                    except Exception:
-                        pass
-                if inp.get("size") in ("1536x1024", "1024x1024", "1024x1536"):
-                    s["size"] = inp["size"]
-                t["adSettings"] = s
-                if "adAgent" in body:
-                    t["adAgent"] = body.get("adAgent") or ""
-                t.setdefault("adGen", 0)
-                t.setdefault("adSpend", 0.0)
-                t["updated"] = now()
-                t["lastAction"] = now()
-                save_board(board)
-                return self._send(200, {"ok": True, "adResearch": t.get("adResearch", False),
-                                        "adSettings": s, "adAgent": t.get("adAgent", "")})
-            if op == "adscore":
-                # Per-image HIL fitness signal (score/keep/note), persisted ON THE PROOF,
-                # keyed by its unique url. Additive; composes with any state; mirrors the
-                # adset safe write path. This is the results.tsv-equivalent memory the
-                # bound ad-research agent reads to breed the next generation.
-                tid = body.get("id")
-                t = board["tasks"].get(tid)
-                if not t:
-                    return self._send(200, {"ok": False, "error": "no_task"})
-                url = body.get("proof")
-                if not url:
-                    return self._send(200, {"ok": False, "error": "no_proof_url"})
-                target = None
-                for p in t.get("proofs", []):
-                    if p.get("url") == url:
-                        target = p
-                        break
-                if target is None:
-                    return self._send(200, {"ok": False, "error": "no_proof"})
-                if "score" in body:
-                    sc = body.get("score")
-                    if sc is None:
-                        target["score"] = None
-                    else:
-                        try:
-                            sc = int(sc)
-                        except Exception:
-                            return self._send(400, {"ok": False, "error": "bad_score"})
-                        if not (1 <= sc <= 10):
-                            return self._send(400, {"ok": False, "error": "bad_score"})
-                        target["score"] = sc
-                if "keep" in body:
-                    kp = body.get("keep")
-                    if kp not in (True, False, None):
-                        return self._send(400, {"ok": False, "error": "bad_keep"})
-                    target["keep"] = kp
-                if "note" in body:
-                    nt = body.get("note")
-                    target["note"] = ("" if nt is None else str(nt))[:500]
-                target["scoredBy"] = body.get("by") or "CEO"
-                target["scoredTs"] = now()
-                t["updated"] = now()
-                t["lastAction"] = now()
-                save_board(board)
-                return self._send(200, {"ok": True, "proof": url,
-                                        "score": target.get("score"),
-                                        "keep": target.get("keep"),
-                                        "note": target.get("note", "")})
             return self._send(400, {"ok": False, "error": "bad_op"})
 
     # ---- owner ----
@@ -1046,15 +967,6 @@ class Handler(BaseHTTPRequestHandler):
             emit_comment_event(board, t, by, c["body"])
             save_board(board)
             wd_schedule_unanswered(tid, c["id"], by)
-            # Additive ad-research routing: a CEO comment on a tagged card ALSO nudges the bound
-            # agent directly. Fire-and-forget (never blocks the response), no-op if unbound. The
-            # Boss ping in emit_comment_event above still fires — Boss stays router-of-record.
-            if t.get("adResearch") and by == "CEO":
-                agent = t.get("adAgent")
-                if agent:
-                    threading.Thread(target=mp_send,
-                                     args=(agent, '[adcard %s] CEO: %s' % (tid, c["body"][:400])),
-                                     daemon=True).start()
             return self._send(200, {"ok": True, "id": c["id"]})
 
     # ---- proof (json) ----
