@@ -31,6 +31,7 @@ BOSS_DOC = os.path.join(INSTALL_DIR, "boss-CLAUDE.md")
 ROLE_DIR = os.path.join(INSTALL_DIR, "roles")            # canonical read-only role store
 ROLE_BUNDLE_DIR = os.path.join(INSTALL_DIR, "run", "role-bundles")  # derived per-agent views
 HDR = {"X-Queue-Secret": SECRET}
+TODO_URL = "http://127.0.0.1:%s" % CFG.get("TODO_PORT", "9933")  # board/todo-server origin
 DOCTRINE_SUMMARY = ("Boss onboarded: plan-gate before engineering, drive the team autonomously "
                     "off the board via the mp queue (fire-and-forget), verify every result.")
 # Spawn readiness: SessionStart hook writes session_id. Under memory pressure Claude can take
@@ -1155,17 +1156,107 @@ def do_status(argv):
     return 0
 
 
+def _fetch_board():
+    """GET /todo/board with the machine credential. Returns (board_dict, err_str)."""
+    code, board = C.http_json("GET", TODO_URL + "/todo/board", None, HDR, timeout=12)
+    if code != 200 or not isinstance(board, dict):
+        return None, "board fetch failed (HTTP %s): %s" % (code, str(board)[:200])
+    return board, None
+
+
+def do_board(argv):
+    """mp board [--compact] — print the whole board as JSON (no curl/secret/jq needed)."""
+    board, err = _fetch_board()
+    if err:
+        print("ERROR: " + err, file=sys.stderr); return 1
+    if "--compact" in argv:
+        print(json.dumps(board, ensure_ascii=False, separators=(",", ":")))
+    else:
+        print(json.dumps(board, ensure_ascii=False, indent=2))
+    return 0
+
+
+def do_card(argv):
+    """mp card <task_id> [--compact] — print a single card (exact id or unique prefix)."""
+    ids = [a for a in argv if not a.startswith("--")]
+    if not ids:
+        print("usage: mp card <task_id> [--compact]", file=sys.stderr); return 2
+    tid = ids[0]
+    board, err = _fetch_board()
+    if err:
+        print("ERROR: " + err, file=sys.stderr); return 1
+    tasks = board.get("tasks", {}) or {}
+    t = tasks.get(tid)
+    if t is None:
+        matches = [k for k in tasks if k.startswith(tid)]
+        if len(matches) == 1:
+            t = tasks[matches[0]]
+        elif len(matches) > 1:
+            print("ERROR: %r is ambiguous (%d cards match)" % (tid, len(matches)), file=sys.stderr); return 1
+    if t is None:
+        print("ERROR: no card matching %r" % tid, file=sys.stderr); return 1
+    if "--compact" in argv:
+        print(json.dumps(t, ensure_ascii=False, separators=(",", ":")))
+    else:
+        print(json.dumps(t, ensure_ascii=False, indent=2))
+    return 0
+
+
+def do_comment(argv):
+    """mp comment <task_id> <body...> [--by <id>] — post a card comment as $AGENT_ID.
+
+    Body comes from the remaining args, or from stdin when no body args are given."""
+    if not argv:
+        print("usage: mp comment <task_id> <body...> [--by <id>]   (body may come from stdin)",
+              file=sys.stderr)
+        return 2
+    tid = argv[0]
+    rest = argv[1:]
+    by = os.environ.get("AGENT_ID", "").strip()
+    if "--by" in rest:
+        i = rest.index("--by")
+        by = (rest[i + 1] if i + 1 < len(rest) else by)
+        rest = rest[:i] + rest[i + 2:]
+    by = full_aid(by) if by else "CEO"
+    body = " ".join(rest).strip()
+    if not body and not sys.stdin.isatty():
+        body = sys.stdin.read().strip()
+    if not body:
+        print("ERROR: empty comment body (pass as args or pipe via stdin)", file=sys.stderr); return 2
+    code, res = C.http_json("POST", TODO_URL + "/todo/comment",
+                            {"task_id": tid, "by": by, "body": body}, HDR, timeout=12)
+    if code != 200 or not (isinstance(res, dict) and res.get("ok")):
+        print("ERROR: comment failed (HTTP %s): %s" % (code, str(res)[:200]), file=sys.stderr); return 1
+    print("commented on %s as %s (id %s)" % (tid, by, res.get("id")))
+    return 0
+
+
+def do_proof(argv):
+    """mp proof <task_id> <url> [body...] — attach durable proof (link + optional note)."""
+    if len(argv) < 2:
+        print("usage: mp proof <task_id> <url> [body...]", file=sys.stderr); return 2
+    tid, url = argv[0], argv[1]
+    body = " ".join(argv[2:]).strip()
+    code, res = C.http_json("POST", TODO_URL + "/todo/proof",
+                            {"task_id": tid, "url": url, "body": body}, HDR, timeout=12)
+    if code != 200 or not (isinstance(res, dict) and res.get("ok")):
+        print("ERROR: proof failed (HTTP %s): %s" % (code, str(res)[:200]), file=sys.stderr); return 1
+    print("proof attached to %s" % tid)
+    return 0
+
+
 def main():
     if len(sys.argv) < 2:
         print("usage: mp {status|spawn|send|peek|kill|answer|revive|ensure-boss|reconcile|"
-              "stop-recorders} ...", file=sys.stderr)
+              "stop-recorders|board|card|comment|proof} ...", file=sys.stderr)
         return 2
     verb = sys.argv[1]
     rest = sys.argv[2:]
     return {"status": do_status, "spawn": do_spawn, "send": do_send, "peek": do_peek,
             "kill": do_kill, "answer": do_answer, "revive": do_revive,
             "ensure-boss": do_ensure_boss, "reconcile": do_reconcile,
-            "stop-recorders": do_stop_recorders}.get(
+            "stop-recorders": do_stop_recorders,
+            "board": do_board, "card": do_card, "comment": do_comment, "proof": do_proof}.get(
         verb, lambda a: (print("unknown verb %s" % verb, file=sys.stderr) or 2))(rest)
 
 
