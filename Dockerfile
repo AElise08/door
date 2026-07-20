@@ -37,6 +37,21 @@ RUN set -eux; \
     echo "${sha256}  /usr/local/bin/ttyd" | sha256sum -c -; \
     chmod 0755 /usr/local/bin/ttyd
 
+# grok publishes no checksum, so we pin the artifact digest ourselves instead of piping its
+# installer. The binary lands in /usr/local/bin (NOT ~/.grok/bin): /home/mypeople is a volume, and
+# an existing volume would hide anything the image put under it. ~/.grok (auth, skills) stays on the
+# volume, which is where per-node credentials belong.
+ARG GROK_VERSION=0.2.106
+RUN set -eux; \
+    case "$TARGETARCH" in \
+      amd64) asset=x86_64; sha256=7180d0e03cc2a496033ff3aae2223ce239446a9827a59faa76091c7edd5e1c38 ;; \
+      arm64) asset=aarch64; sha256=d12be1698d56d4543f1f1095c2c26cd3d17a64e88772629673740991c188e4ff ;; \
+      *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://x.ai/cli/grok-${GROK_VERSION}-linux-${asset}" -o /usr/local/bin/grok; \
+    echo "${sha256}  /usr/local/bin/grok" | sha256sum -c -; \
+    chmod 0755 /usr/local/bin/grok
+
 # Agent CLIs are installed in the image, but credentials are never baked into an image layer.
 ARG CLAUDE_VERSION=2.1.205
 ARG CODEX_VERSION=0.144.1
