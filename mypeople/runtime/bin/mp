@@ -299,6 +299,78 @@ def window_exists(sess, tab):
     return r.returncode == 0 and tab in r.stdout.split()
 
 
+# The permission-bypass flag each backend MUST be launched with. An agent without it stops on the
+# first tool prompt and looks hung to whoever installed MyPeople -- the exact symptom reported for
+# a first-run Boss (card 5211716904, items 6+7).
+BYPASS_MARKERS = {
+    "claude": ["--dangerously-skip-permissions"],
+    "codex": ["--dangerously-bypass-approvals-and-sandbox"],
+    "grok": ["--permission-mode", "bypassPermissions"],
+}
+
+
+def _pane_process_tree(sess, tab):
+    """Command lines of every process under an agent window's panes, or None if undeterminable.
+
+    None is NOT "nothing running": it means tmux or ps could not answer, and callers must not
+    destroy a pane on that basis.
+    """
+    r = subprocess.run(["tmux", "list-panes", "-t", "mc-%s:%s" % (sess, tab), "-F", "#{pane_pid}"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    roots = [p for p in r.stdout.split() if p.isdigit()]
+    if not roots:
+        return None
+    ps = subprocess.run(["ps", "-eo", "pid=,ppid=,command="], capture_output=True, text=True)
+    if ps.returncode != 0:
+        return None
+    children, cmd = {}, {}
+    for line in ps.stdout.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid, ppid, command = parts
+        if not (pid.isdigit() and ppid.isdigit()):
+            continue
+        cmd[pid] = command
+        children.setdefault(ppid, []).append(pid)
+    seen, out, stack = set(), [], list(roots)
+    while stack:
+        pid = stack.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        if pid in cmd:
+            out.append(cmd[pid])
+        stack.extend(children.get(pid, []))
+    return out
+
+
+def window_runs_launched_agent(sess, tab, backend):
+    """True/False/None: is this window running a correctly launched `backend` agent?
+
+    A window existing is NOT proof an agent is in it. An interactive `claude auth login`, a
+    leftover shell, or a dead pane all leave the window standing. do_spawn used to treat the mere
+    window as success -- printing "reusing", writing the roster and returning 0 without ever
+    running `launch` -- which is how a Boss came up without its bypass flag and why the Spawn
+    buttons looked dead while Revive worked (Revive is only reachable once the window is gone, so
+    it takes the branch that actually launches).
+
+    None means "could not tell"; callers must treat it as leave-alone, never as a reason to kill.
+    """
+    tree = _pane_process_tree(sess, tab)
+    if tree is None:
+        return None
+    markers = BYPASS_MARKERS.get(backend)
+    if not markers:
+        return None
+    for command in tree:
+        if backend in command and all(m in command for m in markers):
+            return True
+    return False
+
+
 def session_exists(sess):
     return subprocess.run(["tmux", "has-session", "-t", "mc-%s" % sess],
                           capture_output=True).returncode == 0
@@ -576,7 +648,32 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
     e = tmux_env()
     reused = window_exists(sess, tab)
     if reused:
-        print("mp spawn: %s already exists, reusing" % aid)
+        # A standing window is not a running agent. Reusing one that holds anything else -- a bare
+        # `claude` from the interactive auth step, a leftover shell -- is what shipped a Boss with
+        # no bypass flag and made the Spawn buttons no-ops: the old code returned 0 here having
+        # never run `launch`. Relaunch in place instead, and only ever stay hands-off when the
+        # agent is genuinely there (True) or undeterminable (None).
+        launched = window_runs_launched_agent(sess, tab, backend)
+        tgt = "mc-%s:%s" % (sess, tab)
+        if launched is False:
+            print("mp spawn: %s exists but holds no correctly launched %s agent; relaunching"
+                  % (aid, backend))
+            rw = subprocess.run(["tmux", "respawn-window", "-k", "-t", tgt, "-c", cwd, launch],
+                                env=e, capture_output=True, text=True)
+            if rw.returncode != 0:
+                print("ERROR: could not relaunch %s: %s"
+                      % (aid, (rw.stderr or "").strip() or "tmux respawn-window failed"),
+                      file=sys.stderr)
+                return 1
+            subprocess.run(["tmux", "set-option", "-t", tgt, "-w", "automatic-rename", "off"],
+                           env=e, capture_output=True)
+            subprocess.run(["tmux", "set-option", "-t", tgt, "-w", "allow-rename", "off"],
+                           env=e, capture_output=True)
+        elif launched is None:
+            print("mp spawn: %s already exists and its pane could not be inspected; reusing"
+                  % aid)
+        else:
+            print("mp spawn: %s already running a launched %s agent, reusing" % (aid, backend))
     else:
         if not session_exists(sess):
             subprocess.run(["tmux", "new-session", "-d", "-s", "mc-%s" % sess, "-n", tab,
@@ -902,7 +999,11 @@ def do_ensure_boss(argv):
         return 2
     aid = full_aid(aid_arg)
     _, sess, tab = C.parse_agent_id(aid)
-    if window_exists(sess, tab):
+    # "Window is there" was the whole liveness test, so a Boss window holding a bare `claude` from
+    # the interactive auth step was adopted as-is and never relaunched with its bypass flag. Only a
+    # window that actually runs a launched agent counts as alive; an undeterminable pane is left
+    # alone rather than churned.
+    if window_exists(sess, tab) and window_runs_launched_agent(sess, tab, backend) is not False:
         print("Boss already alive: %s" % aid)
         return 0
     roster = load_roster()
