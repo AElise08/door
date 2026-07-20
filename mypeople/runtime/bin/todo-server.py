@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """mypeople todo-server (:9933): board API + board->Boss ping.
-Serves todos.html at / and /todos, the wall at /wall, reverse-proxies the HUD routes so the
+Serves todos.html at / and /todos, and reverse-proxies the HUD routes so the
 cross-nav works from either front door. Python 3 stdlib only.
 MODULE-LEVEL imports of every stdlib a handler uses (§5.3b UnboundLocalError guard)."""
 import os, sys, json, time, uuid, threading, shutil, subprocess, glob, re
@@ -24,7 +24,6 @@ PROOFS_DIR = os.path.join(TODOS_DIR, "proofs")
 INBOX_LOG = os.path.join(TODOS_DIR, "boss-inbox.log")
 HTML_DIR = os.path.dirname(os.path.abspath(__file__))
 TODOS_HTML = os.path.join(HTML_DIR, "todos.html")
-WALL_HTML = os.path.join(HTML_DIR, "wall.html")
 TERMINAL_GRAPH_HTML = os.path.join(HTML_DIR, "terminal-graph.html")
 STATUS_DIR = os.path.join(INSTALL_DIR, "status")
 
@@ -554,7 +553,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self):
         p = self.path.split("?", 1)[0]
-        if p in ("/", "/todos", "/wall", "/terminal-graph"):
+        if p in ("/", "/todos", "/terminal-graph"):
             self.send_response(200)
             for k, v in self._page_extra().items():
                 self.send_header(k, v)
@@ -582,8 +581,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(204, raw=b"")
         if p in ("/", "/todos"):
             return self._serve_page(TODOS_HTML)
-        if p == "/wall":
-            return self._serve_page(WALL_HTML if os.path.exists(WALL_HTML) else TODOS_HTML)
         if p == "/terminal-graph":
             return self._serve_page(TERMINAL_GRAPH_HTML if os.path.exists(TERMINAL_GRAPH_HTML)
                                     else TODOS_HTML)
@@ -619,10 +616,6 @@ class Handler(BaseHTTPRequestHandler):
             if not ok:
                 return self._send(401, {"error": "unauthorized"})
             return self._send(200, self._terminal_graph())
-        if p == "/todo/wall":
-            if not ok:
-                return self._send(401, {"error": "unauthorized"})
-            return self._send(200, self._wall_tiles())
         if p.startswith("/todo/attach"):
             if not ok:
                 return self._send(401, {"error": "unauthorized"})
@@ -797,17 +790,6 @@ class Handler(BaseHTTPRequestHandler):
     def _board_view(self):
         board = load_board()
         return board
-
-    def _wall_tiles(self):
-        code, agents = C.http_json("GET", CFG["QUEUE_URL"] + "/agents", None, {"X-Queue-Secret": SECRET})
-        tiles = []
-        for a in (agents or []):
-            tiles.append({"agent_id": a["agent_id"], "state": a.get("status", "ready"),
-                          "summary": a.get("summary", ""), "attach_url": a.get("attach_url", "")})
-        # working-first sort
-        order = {"working": 0, "blocked": 1, "ready": 2, "idle": 3}
-        tiles.sort(key=lambda t: order.get(t["state"], 5))
-        return {"tiles": tiles}
 
     # ---- update op ----
     def _update(self, body, ident):

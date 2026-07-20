@@ -175,7 +175,7 @@ class LoginBannerTests(unittest.TestCase):
     def test_every_shipped_page_shows_the_banner(self):
         self._write_state(authenticated=False, message="no login")
         C = load_mpcommon(self.install)
-        for name in ("todos.html", "wall.html", "dashboard.html", "terminal-graph.html"):
+        for name in ("todos.html", "dashboard.html", "terminal-graph.html"):
             with self.subTest(page=name):
                 src = open(os.path.join(self.install, "bin", name), encoding="utf-8").read()
                 out = C.render_page(src)
@@ -199,7 +199,7 @@ class LoginBannerTests(unittest.TestCase):
     def test_banner_is_not_injected_twice(self):
         self._write_state(authenticated=False)
         C = load_mpcommon(self.install)
-        src = open(os.path.join(self.install, "bin", "wall.html"), encoding="utf-8").read()
+        src = open(os.path.join(self.install, "bin", "todos.html"), encoding="utf-8").read()
         self.assertEqual(C.render_page(C.render_page(src)).count('id="mp-login-banner"'), 1)
 
     def test_banner_survives_a_page_with_no_body_tag(self):

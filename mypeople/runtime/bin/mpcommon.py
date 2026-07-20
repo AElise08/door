@@ -112,12 +112,12 @@ _VERSION_BADGE = """
 
 # Every first-class surface, reachable from every other one. Injected at this seam for the same
 # reason as the badge: a page added later is linked by construction, and no page can drift into
-# being a dead end you can only reach by typing a URL. Terminals live on their own port (ttyd is a
-# separate binary), so that one link is built client-side from the browser's own hostname -- a
-# hardcoded 127.0.0.1 would break for anyone viewing the node over the network.
+# being a dead end you can only reach by typing a URL. There are exactly three surfaces -- Board
+# (the priorities), Graph, HUD -- and the bar sits at the TOP of every page. Individual terminals
+# are not a surface: the HUD is how you reach a terminal.
 _NAV = """
 <style>
-#mp-nav{position:fixed;left:8px;bottom:8px;z-index:2147483000;display:flex;gap:2px;
+#mp-nav{position:fixed;left:8px;top:8px;z-index:2147483000;display:flex;gap:2px;
  font:500 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em;
  background:rgba(22,27,34,.82);border:1px solid rgba(139,148,158,.22);border-radius:999px;
  padding:3px;backdrop-filter:blur(4px)}
@@ -128,21 +128,26 @@ _NAV = """
 </style>
 <nav id="mp-nav" aria-label="MyPeople surfaces">
  <a href="/" data-mp-path="/">Board</a>
- <a href="/dashboard" data-mp-path="/dashboard">HUD</a>
- <a id="mp-nav-terminals" href="/terminal-graph">Terminals</a>
  <a href="/terminal-graph" data-mp-path="/terminal-graph">Graph</a>
- <a href="/wall" data-mp-path="/wall">Wall</a>
+ <a href="/dashboard" data-mp-path="/dashboard">HUD</a>
 </nav>
 <script>
 (function(){
-  var t=document.getElementById("mp-nav-terminals");
-  if(t){t.href=location.protocol+"//"+location.hostname+":__TTYD_PORT__/";t.target="_blank";
-        t.rel="noopener";}
   var here=location.pathname.replace(/\\/+$/,"")||"/";
   if(here==="/todos"){here="/";}
   document.querySelectorAll("#mp-nav a[data-mp-path]").forEach(function(a){
     if(a.getAttribute("data-mp-path")===here){a.setAttribute("aria-current","page");}
   });
+  // The login banner is sticky at the very top; measured rather than hardcoded because its
+  // height depends on how many login steps this node prints. Found by attribute, not by id, so
+  // this script never carries the banner's id into a page that has no banner.
+  var nav=document.getElementById("mp-nav");
+  function place(){
+    var b=document.querySelector("[data-mp-banner]");
+    nav.style.top=(b?b.getBoundingClientRect().height+8:8)+"px";
+  }
+  place();
+  window.addEventListener("resize",place);
 })();
 </script>
 """
@@ -161,7 +166,7 @@ _LOGIN_BANNER_TMPL = """
  color:#ffe9bd;background:rgba(0,0,0,.35);border:1px solid rgba(255,212,121,.25);border-radius:5px;
  user-select:all}
 </style>
-<div id="mp-login-banner">
+<div id="mp-login-banner" data-mp-banner>
   <b>Login required.</b> This node has no AI login yet, so no agent can run.
   Run it inside this node: __MP_LOGIN_STEPS__
   <span style="opacity:.8">The Boss starts by itself ~15s after login — no restart needed.</span>

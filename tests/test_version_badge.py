@@ -90,7 +90,7 @@ class PageRenderTests(unittest.TestCase):
         self.C = load_mpcommon(self.install)
 
     def test_every_shipped_ui_page_renders_the_version(self):
-        pages = ("todos.html", "wall.html", "dashboard.html", "terminal-graph.html")
+        pages = ("todos.html", "dashboard.html", "terminal-graph.html")
         for name in pages:
             with self.subTest(page=name):
                 src = open(os.path.join(self.install, "bin", name), encoding="utf-8").read()
@@ -109,7 +109,7 @@ class PageRenderTests(unittest.TestCase):
             self.assertNotIn(placeholder, out)
 
     def test_badge_is_not_injected_twice(self):
-        once = self.C.render_page(open(os.path.join(self.install, "bin", "wall.html"),
+        once = self.C.render_page(open(os.path.join(self.install, "bin", "todos.html"),
                                        encoding="utf-8").read())
         twice = self.C.render_page(once)
         self.assertEqual(twice.count('id="mp-version-badge"'), 1)
@@ -117,26 +117,26 @@ class PageRenderTests(unittest.TestCase):
     def test_every_shipped_ui_page_can_reach_every_other_one(self):
         """No first-class surface may be a dead end you can only leave by typing a URL. Injected at
         the render seam, so a page added later is linked without anyone remembering to do it."""
-        pages = ("todos.html", "wall.html", "dashboard.html", "terminal-graph.html")
+        pages = ("todos.html", "dashboard.html", "terminal-graph.html")
         for name in pages:
             with self.subTest(page=name):
                 src = open(os.path.join(self.install, "bin", name), encoding="utf-8").read()
                 out = self.C.render_page(src)
                 self.assertIn('id="mp-nav"', out, "%s has no nav" % name)
-                for href in ('href="/"', 'href="/dashboard"', 'href="/terminal-graph"',
-                             'href="/wall"'):
+                for href in ('href="/"', 'href="/terminal-graph"', 'href="/dashboard"'):
                     self.assertIn(href, out, "%s cannot reach %s" % (name, href))
-                self.assertIn("mp-nav-terminals", out, "%s cannot reach the terminals" % name)
 
-    def test_terminals_link_uses_the_browser_facing_port(self):
-        """ttyd runs on its own port and its link is built client-side from location.hostname:
-        a hardcoded 127.0.0.1 would break every remote viewer of the node."""
+    def test_nav_offers_exactly_the_three_surfaces(self):
+        """Board, Graph, HUD -- and nothing else. Terminals are reached through the HUD, and the
+        wall is not a product surface at all."""
         out = self.C.render_page("<h1>mypeople</h1>")
-        self.assertIn("location.hostname", out)
-        self.assertNotIn("__TTYD_PORT__", out, "the nav's port placeholder must be substituted")
+        nav = out.split('id="mp-nav"', 1)[1].split("</nav>", 1)[0]
+        self.assertEqual(nav.count("<a "), 3, "the nav is Board / Graph / HUD only")
+        self.assertNotIn("/wall", out)
+        self.assertNotIn("Terminals", out)
 
     def test_nav_is_not_injected_twice(self):
-        once = self.C.render_page(open(os.path.join(self.install, "bin", "wall.html"),
+        once = self.C.render_page(open(os.path.join(self.install, "bin", "todos.html"),
                                        encoding="utf-8").read())
         twice = self.C.render_page(once)
         self.assertEqual(twice.count('id="mp-nav"'), 1)

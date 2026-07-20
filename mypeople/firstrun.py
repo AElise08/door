@@ -91,6 +91,15 @@ def materialize(install):
         if os.path.isdir(src):
             shutil.copytree(src, os.path.join(install, sub), dirs_exist_ok=True,
                             copy_function=_replace_file)
+    # Files a previous version shipped and this one does not. copytree(dirs_exist_ok) only ever
+    # adds, so a retired page would survive every upgrade forever as a file the product no longer
+    # serves. Removing it here is what makes "removed" true on an upgraded install, not just a
+    # fresh one.
+    for gone in ("bin/wall.html",):
+        try:
+            os.remove(os.path.join(install, *gone.split("/")))
+        except OSError:
+            pass
     # Boss doctrine file
     bc = os.path.join(rt, "boss-CLAUDE.md")
     if os.path.exists(bc):
