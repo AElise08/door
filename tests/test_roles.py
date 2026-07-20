@@ -194,7 +194,12 @@ class RoleLaunchTests(unittest.TestCase):
             words = shlex.split(launch)
             self.assertIn("--append-system-prompt-file", words)
             self.assertIn("--plugin-dir", words)
-            self.assertIn("MYPEOPLE_ROLE_REF=engineer@1.2.0", launch)
+            # Assert the launch carries the ref of the profile the registry actually resolved.
+            # A frozen literal here goes stale on every profile bump and fails for a reason
+            # that has nothing to do with how claude is mounted.
+            resolved = mp.resolve_role("engineer", "claude")
+            self.assertIn("MYPEOPLE_ROLE_REF=%s" % resolved["role_ref"], launch)
+            self.assertTrue(resolved["role_ref"].startswith("engineer@"))
 
     def test_codex_mounts_via_home_and_profile(self):
         with tempfile.TemporaryDirectory() as td:

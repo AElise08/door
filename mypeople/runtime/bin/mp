@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """mp - mypeople CLI. verbs: status spawn send peek kill answer revive.
 Implements the §4 agent_id<->tmux mapping and the §5 spawn contracts."""
-import os, sys, json, time, shlex, subprocess, shutil
+import os, sys, json, time, shlex, subprocess, shutil, urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mpcommon as C
@@ -1356,17 +1356,46 @@ def do_comment(argv):
     return 0
 
 
+def _local_proof_path(target):
+    """Return a local filesystem path if target names one, else None.
+
+    A screenshot on disk is the common case, and it reaches us either as a plain path or as
+    the file:// URL a browser/tool handed back. Both must be uploaded — a file:// URL stored
+    as-is renders as a broken image on the board, because the page is served over http.
+    """
+    if target.startswith("file://"):
+        return urllib.parse.unquote(urllib.parse.urlparse(target).path)
+    if target.startswith(("http://", "https://", "/todo/")):
+        return None
+    if os.path.sep in target or target.startswith("~") or os.path.exists(target):
+        return os.path.abspath(os.path.expanduser(target))
+    return None
+
+
 def do_proof(argv):
-    """mp proof <task_id> <url> [body...] — attach durable proof (link + optional note)."""
+    """mp proof <task_id> <path-or-url> [body...] — attach durable proof.
+
+    A local file is uploaded and served by the board; an http(s) link is stored as a link.
+    """
     if len(argv) < 2:
-        print("usage: mp proof <task_id> <url> [body...]", file=sys.stderr); return 2
-    tid, url = argv[0], argv[1]
+        print("usage: mp proof <task_id> <path-or-url> [body...]", file=sys.stderr); return 2
+    tid, target = argv[0], argv[1]
     body = " ".join(argv[2:]).strip()
-    code, res = C.http_json("POST", TODO_URL + "/todo/proof",
-                            {"task_id": tid, "url": url, "body": body}, HDR, timeout=12)
+    local = _local_proof_path(target)
+    if local is not None:
+        if not os.path.isfile(local):
+            print("ERROR: no such file: %s" % local, file=sys.stderr)
+            print("       pass a readable file path, or an http(s) URL for a link proof",
+                  file=sys.stderr)
+            return 2
+        code, res = C.http_upload(TODO_URL + "/todo/proof", {"task_id": tid, "body": body},
+                                  local, HDR, timeout=120)
+    else:
+        code, res = C.http_json("POST", TODO_URL + "/todo/proof",
+                                {"task_id": tid, "url": target, "body": body}, HDR, timeout=12)
     if code != 200 or not (isinstance(res, dict) and res.get("ok")):
         print("ERROR: proof failed (HTTP %s): %s" % (code, str(res)[:200]), file=sys.stderr); return 1
-    print("proof attached to %s" % tid)
+    print("proof attached to %s -> %s" % (tid, (res.get("proof") or {}).get("url", "")))
     return 0
 
 

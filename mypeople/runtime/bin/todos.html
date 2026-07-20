@@ -111,6 +111,9 @@ body.modal-open #modalbg{display:flex;}
 .jump{position:absolute;right:30px;bottom:88px;width:38px;height:38px;border-radius:50%;background:var(--volt);color:var(--midnight);border:none;font-size:18px;cursor:pointer;display:none;z-index:5;}
 .jump.show{display:block;}
 .proofregion{}
+.proof-broken{border:1px solid #a33;border-radius:8px;padding:10px 12px;background:rgba(170,51,51,.08);font-family:var(--sans);font-size:13px;line-height:1.5;}
+.proof-broken b{display:block;margin-bottom:4px;}
+.proof-broken code{font-family:var(--mono,monospace);font-size:12px;word-break:break-all;opacity:.85;}
 </style>
 </head>
 <body>
@@ -213,6 +216,22 @@ function appendAgentLink(parent,agent){
   if(!agent){ parent.appendChild(document.createTextNode("unassigned")); return; }
   const a=document.createElement("a"); a.className="asg-link"; a.href="#"; a.textContent=agent;
   a.addEventListener("click",e=>openAgent(agent,e)); parent.appendChild(a);
+}
+
+// Replace a media proof that failed to load with a visible reason, so a broken proof is
+// never mistaken for a missing one. file:// is the usual culprit: the board is served over
+// http and the browser refuses to reach the filesystem.
+function failedProof(el,url){
+  const box=document.createElement("div"); box.className="proof-broken";
+  const t=document.createElement("b");
+  t.textContent=(url||"").startsWith("file://")
+    ? "Proof cannot load: file:// is not reachable from the board"
+    : "Proof cannot load";
+  const c=document.createElement("code"); c.textContent=url||"(no url)";
+  const h=document.createElement("div");
+  h.textContent="Re-attach by uploading the file: mp proof <task_id> <path> [note]";
+  box.appendChild(t); box.appendChild(c); box.appendChild(h);
+  if(el.parentNode) el.parentNode.replaceChild(box,el);
 }
 
 function relTime(ts){
@@ -364,8 +383,9 @@ function evEl(it){
   const txt=document.createElement("div"); txt.className="ev-text";
   try{
     if(it.kind==="proof"){
-      if(it.pkind==="image"){ const im=document.createElement("img"); im.src=it.url; im.alt="image proof"; txt.appendChild(im); }
-      else if(it.pkind==="video"){ const v=document.createElement("video"); v.src=it.url; v.controls=true; txt.appendChild(v); }
+      // A proof that cannot load must say so. Silently showing nothing reads as "no proof".
+      if(it.pkind==="image"){ const im=document.createElement("img"); im.alt="image proof"; im.onerror=()=>failedProof(im,it.url); im.src=it.url; txt.appendChild(im); }
+      else if(it.pkind==="video"){ const v=document.createElement("video"); v.controls=true; v.onerror=()=>failedProof(v,it.url); v.src=it.url; txt.appendChild(v); }
       else if(it.pkind==="link"){ const a=document.createElement("a"); a.href=it.url; a.textContent=it.url; a.target="_blank"; txt.appendChild(a); }
       else { txt.textContent=it.body||it.url||"(proof)"; }
     } else { renderMarkdown(txt,it.body||""); }

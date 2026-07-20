@@ -470,6 +470,27 @@ def classify_kind(url=None, filename=None, content_type=None, given=None):
     return "text"
 
 
+def unservable_proof_url(url):
+    """Explain why a proof URL could never render on the board, or return '' if it can.
+
+    The board is served over http, so a file:// URL or a bare local path is dead on arrival:
+    the browser refuses to load it and the card shows a broken image with no explanation.
+    Such a proof must be uploaded (multipart) so it is served from /todo/proof-file/.
+    """
+    u = (url or "").strip()
+    if not u:
+        return "empty url"
+    if u.startswith("file://"):
+        return ("file:// URLs cannot be loaded by the board (page is served over http). "
+                "Upload the file instead: mp proof <task_id> <path> [note]")
+    if u.startswith("/todo/") or u.startswith("http://") or u.startswith("https://"):
+        return ""
+    if u.startswith("/") or u.startswith("~") or u.startswith("./") or u.startswith("../"):
+        return ("local filesystem paths are not reachable from the board. "
+                "Upload the file instead: mp proof <task_id> <path> [note]")
+    return ""
+
+
 def parse_multipart(handler, ctype):
     """Minimal multipart/form-data parser: returns (fields:dict, file:(filename,ctype,bytes)|None)."""
     m = re.search(r'boundary=("?)([^";]+)\1', ctype)
@@ -486,7 +507,10 @@ def parse_multipart(handler, ctype):
         if b"\r\n\r\n" not in part:
             continue
         head, data = part.split(b"\r\n\r\n", 1)
-        data = data.rstrip(b"\r\n")
+        # Strip exactly the one CRLF that delimits the part, never trailing payload bytes —
+        # rstrip() would silently corrupt any file whose last bytes are 0x0d/0x0a.
+        if data.endswith(b"\r\n"):
+            data = data[:-2]
         htxt = head.decode("latin-1", "ignore")
         dm = re.search(r'name="([^"]+)"', htxt)
         fm = re.search(r'filename="([^"]*)"', htxt)
@@ -982,6 +1006,9 @@ class Handler(BaseHTTPRequestHandler):
             if not t:
                 return self._send(200, {"ok": False, "error": "no_task"})
             url = body.get("url", "")
+            bad = unservable_proof_url(url)
+            if bad:
+                return self._send(200, {"ok": False, "error": "unservable_url", "detail": bad})
             kind = classify_kind(url=url, given=body.get("kind"))
             proof = {"kind": kind, "url": url, "body": body.get("body", ""), "ts": now()}
             t["proofs"].append(proof)
