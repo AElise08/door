@@ -208,7 +208,8 @@ def cmd_down(args):
     # Writable + read-only ttyd. On Linux, supervise.sh detaches children with setsid so
     # killpg on the supervisor does not reach them. Without both pkill patterns, `down`/`up`
     # upgrades leave the RO graph-tile ttyd running with the old argv (card 789b5d04f9).
-    port = cfg.get("TTYD_PORT", "7681")
+    # Empty string is a present key — cfg.get default only applies when MISSING.
+    port = cfg.get("TTYD_PORT") or "7681"
     ro = cfg.get("TTYD_RO_PORT") or str(int(port) + 1)
     subprocess.run(["pkill", "-f", "ttyd -W -a -p %s" % port], capture_output=True)
     subprocess.run(["pkill", "-f", "ttyd -a -p %s" % ro], capture_output=True)
