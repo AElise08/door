@@ -46,14 +46,19 @@ TTYD_PORT="${TTYD_PORT:-7681}"
 TTYD_RO_PORT="${TTYD_RO_PORT:-$((TTYD_PORT + 1))}"
 HUD_PORT="${HUD_PORT:-9900}"
 TODO_PORT="${TODO_PORT:-9933}"
+# Closing a browser TTY tab must never prompt "Are you sure you want to leave this page?" — a tile
+# or attach view is disposable, and the xterm.js beforeunload guard is pure friction here. Client
+# options go AFTER -p so the pgrep liveness patterns above stay an exact prefix of the live argv.
+# ttyd 1.7.x rewrites argv for ps (`-t key=value` shows as `key value`), so never grep key=value.
+TTYD_CLIENT_OPTS="-t disableLeaveAlert=true"
 
 while true; do
   ensure "$BIN/queue-server.py"            "exec python3 '$BIN/queue-server.py'"
   ensure "$BIN/todo-server.py"             "exec python3 '$BIN/todo-server.py'"
   ensure "$BIN/queue-client.py"            "exec python3 '$BIN/queue-client.py'"
   ensure "$BIN/board-exporter.py"          "exec python3 '$BIN/board-exporter.py'"
-  ensure "ttyd -W -a -p $TTYD_PORT"        "exec ttyd -W -a -p $TTYD_PORT '$BIN/ttyd-attach.sh'"
-  ensure "ttyd -a -p $TTYD_RO_PORT"        "exec ttyd -a -p $TTYD_RO_PORT '$BIN/ttyd-attach.sh'"
+  ensure "ttyd -W -a -p $TTYD_PORT"        "exec ttyd -W -a -p $TTYD_PORT $TTYD_CLIENT_OPTS '$BIN/ttyd-attach.sh'"
+  ensure "ttyd -a -p $TTYD_RO_PORT"        "exec ttyd -a -p $TTYD_RO_PORT $TTYD_CLIENT_OPTS '$BIN/ttyd-attach.sh'"
   ensure "$BIN/boss-supervisor.sh"         "exec bash '$BIN/boss-supervisor.sh'"
   sleep 10
 done
