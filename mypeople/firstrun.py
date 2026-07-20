@@ -123,22 +123,52 @@ def materialize(install):
 
 
 # ---------------------------------------------------------------- step 2: auth
+def _authcheck():
+    """Load the runtime's authcheck module (shared with the daemons, which cannot import us)."""
+    import importlib.machinery, importlib.util
+    path = os.path.join(runtime_dir(), "bin", "authcheck.py")
+    loader = importlib.machinery.SourceFileLoader("mypeople_authcheck", path)
+    spec = importlib.util.spec_from_loader("mypeople_authcheck", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
 def _claude_authenticated():
-    if shutil.which("claude"):
+    """A parseable credential file is NOT a login (card 8a6ebe4e48).
+
+    `claude auth status` returns `loggedIn: true` for a credential whose access AND refresh tokens
+    both expired -- proven against a hand-built dead credential, where the very next `claude -p`
+    answered `Failed to authenticate. API Error: 401`. Trusting that flag is what made MyPeople
+    announce `this node's claude login is active`, start the Boss, and paint the HUD ALIVE while
+    the agent sat at "Not logged in". So the flag is now only the FIRST hurdle: the credential
+    still has to survive authcheck (expiry stamps, then a real one-word probe).
+    """
+    if not shutil.which("claude"):
+        return False
+    try:
+        r = subprocess.run(["claude", "auth", "status"], capture_output=True,
+                           text=True, timeout=15)
+        logged_in = False
         try:
-            r = subprocess.run(["claude", "auth", "status"], capture_output=True,
-                               text=True, timeout=15)
-            logged_in = False
-            try:
-                logged_in = bool(json.loads(r.stdout).get("loggedIn"))
-            except Exception:
-                normalized = "".join(ch for ch in (r.stdout + r.stderr).lower() if ch.isalnum())
-                logged_in = "loggedintrue" in normalized or "loginmethod" in normalized
-            if r.returncode == 0 and logged_in:
-                return True
+            logged_in = bool(json.loads(r.stdout).get("loggedIn"))
         except Exception:
-            pass
-    return False
+            normalized = "".join(ch for ch in (r.stdout + r.stderr).lower() if ch.isalnum())
+            logged_in = "loggedintrue" in normalized or "loginmethod" in normalized
+        if r.returncode != 0 or not logged_in:
+            return False
+    except Exception:
+        return False
+    try:
+        state, detail = _authcheck().claude_verdict(timeout=90)
+    except Exception:
+        # authcheck itself is broken/absent -- fall back to the old (weaker) answer rather than
+        # locking out a node that really is logged in.
+        return True
+    if state == "dead":
+        _echo("[mypeople] claude credential rejected: %s" % detail)
+        return False
+    return True
 
 
 def _codex_authenticated():

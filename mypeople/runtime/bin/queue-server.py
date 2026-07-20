@@ -80,17 +80,25 @@ def agent_row(aid, rec):
     model = rec.get("model") or rrec.get("model", "")
     st = status_for(aid)
     summary = (st or {}).get("summary") or rec.get("summary", "")
+    state = rec.get("state", "alive")
+    status = display_status(st)
+    if state == "unauthenticated":
+        # The lifecycle hook fires on prompt-submit, so an agent that received a ping it can never
+        # answer is frozen at "working" forever. Reporting that alongside a dead credential is the
+        # false green this card exists to kill (8a6ebe4e48): it is blocked, on login.
+        status = "blocked"
+        summary = rec.get("auth_detail") or "not authenticated — run `claude auth login` on this node"
     row = {
         "agent_id": aid,
         "host": host,
         "session": rec.get("session", C.parse_agent_id(aid)[1]),
         "tab": rec.get("tab", C.parse_agent_id(aid)[2]),
         "backend": rec.get("backend", "claude"),
-        "state": rec.get("state", "alive"),
+        "state": state,
         "boss_id": rec.get("boss_id", ""),
         "is_master": rec.get("is_master", False),
         "summary": summary,
-        "status": display_status(st),
+        "status": status,
         "ts": rec.get("ts", now()),
         "tmux_target": tgt,
         "attach_base": ab,
@@ -139,6 +147,7 @@ def upsert_agents(host, agents):
             "state": a.get("state", "alive"),
             "boss_id": a.get("boss_id", rec.get("boss_id", "")),
             "is_master": a.get("is_master", rec.get("is_master", False)),
+            "auth_detail": a.get("auth_detail", ""),
             "summary": a.get("summary", rec.get("summary", "")),
             "spawn_cmd": a.get("spawn_cmd", rec.get("spawn_cmd", "")),
             "model": a.get("model", rec.get("model", "")),
@@ -270,7 +279,10 @@ class Handler(BaseHTTPRequestHandler):
                             "role": rr.get("role", ""),
                             "role_ref": rr.get("role_ref", ""),
                             "role_digest": rr.get("role_digest", ""),
-                            "state": ("alive" if aid in AGENTS else "dead"),
+                            # the announced state, not just "is it in the table" -- an
+                            # unauthenticated agent is present but cannot answer (8a6ebe4e48)
+                            "state": (AGENTS[aid].get("state", "alive")
+                                      if aid in AGENTS else "dead"),
                         })
                     return self._send(200, out)
         if p.startswith("/task/poll"):

@@ -6,6 +6,7 @@ import os, sys, json, time, subprocess, threading, urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mpcommon as C
+import authcheck
 
 CFG = C.CFG
 INSTALL_DIR = CFG["INSTALL_DIR"]
@@ -47,10 +48,25 @@ def status_summary(aid):
     return (d or {}).get("summary", "")
 
 
+def auth_health():
+    """Can this node's credential still answer? (card 8a6ebe4e48)
+
+    A tmux window is proof a process exists, not proof it can reach the model. With a dead OAuth
+    token every agent here kept announcing `alive`, the HUD painted WORKING, and none of them
+    could answer a single ping. Cheap every heartbeat; the real probe is rate-limited inside
+    authcheck. Never fails the heartbeat -- an error here means UNKNOWN, not a fleet blackout."""
+    try:
+        return authcheck.node_auth_health(INSTALL_DIR, backend=CFG.get("DEFAULT_BACKEND", "claude"))
+    except Exception as exc:
+        return {"state": authcheck.UNKNOWN, "detail": "auth health check failed: %s" % exc}
+
+
 def live_agents():
     """Re-announce every live agent from the durable roster. Robust to a session/tab-less roster:
     derive session/tab from the agent_id itself when the roster fields are missing (§3)."""
     roster = C.read_json(ROSTER_PATH, {}) or {}
+    health = auth_health()
+    node_unauthenticated = health.get("state") == authcheck.DEAD
     out = []
     changed = False
     for aid, rr in roster.items():
@@ -79,9 +95,14 @@ def live_agents():
                 C.stop_recorder(sess, tab, prior_recorder, HOST_ID, include_current=False)
             rr["recorder"] = current_recorder
             changed = True
+        backend = rr.get("backend", "claude")
+        # Only the backend whose credential we actually validated is downgraded; a codex agent on
+        # a node with a dead claude token is still alive.
+        starved = node_unauthenticated and backend == CFG.get("DEFAULT_BACKEND", "claude")
         out.append({
             "agent_id": aid, "host": HOST_ID, "session": sess, "tab": tab,
-            "backend": rr.get("backend", "claude"), "state": "alive",
+            "backend": backend, "state": "unauthenticated" if starved else "alive",
+            "auth_detail": health.get("detail", "") if starved else "",
             "boss_id": rr.get("boss_id", ""), "is_master": rr.get("is_master", False),
             "summary": status_summary(aid), "spawn_cmd": rr.get("spawn_cmd", ""),
             "model": rr.get("model", ""), "tmux_target": "mc-%s:%s" % (sess, tab),

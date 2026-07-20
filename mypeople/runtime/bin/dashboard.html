@@ -31,6 +31,9 @@ th{font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--m
 .aid{font-family:var(--mono);font-size:12px;}
 .alive{color:var(--volt);font-family:var(--mono);text-transform:uppercase;font-size:11px;}
 .dead{color:var(--muted-dark);font-family:var(--mono);text-transform:uppercase;font-size:11px;}
+/* not dead and not usable: the process is up but its credential was refused (card 8a6ebe4e48).
+   Reads as a problem to fix, not as a tombstone. */
+.unauth{color:var(--danger);font-family:var(--mono);text-transform:uppercase;font-size:11px;}
 .badge{font-family:var(--mono);font-size:10px;border-radius:100px;padding:3px 9px;text-transform:uppercase;display:inline-flex;align-items:center;gap:5px;}
 .dot{width:7px;height:7px;border-radius:50%;display:inline-block;}
 .b-working{color:var(--warning);background:rgba(254,188,46,0.16);}
@@ -93,7 +96,7 @@ async function refresh(){
       const revive=esc(a.revive_cmd||("mp revive "+a.agent_id));
       tr.innerHTML=
         '<td class="aid">'+esc(a.agent_id)+'</td>'+
-        '<td><span class="'+(a.state==="alive"?"alive":"dead")+'">'+esc(a.state)+'</span></td>'+
+        '<td><span class="'+(a.state==="alive"?"alive":a.state==="unauthenticated"?"unauth":"dead")+'">'+esc(a.state)+'</span></td>'+
         '<td>'+badge(a.status)+'</td>'+
         '<td>'+esc(a.backend)+'</td>'+
         '<td class="aid">'+esc(a.boss_id||"—")+'</td>'+
