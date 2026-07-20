@@ -169,22 +169,75 @@ def _grok_authenticated():
     return False
 
 
-def resolve_auth(preferred=None):
-    """Require this node's own completed login for the selected agent backend."""
+def authenticated_backends():
+    """Every backend this node has its own completed login for, in VALID_BACKENDS order."""
+    checks = {"claude": _claude_authenticated, "codex": _codex_authenticated,
+              "grok": _grok_authenticated}
+    return [b for b in VALID_BACKENDS if checks[b]()]
+
+
+def resolve_auth(preferred=None, chooser=None):
+    """Require this node's own completed login for the selected agent backend.
+
+    With no explicit preference this used to return the first authenticated backend in
+    VALID_BACKENDS order, so a machine that merely had Claude installed got Claude and was never
+    asked -- reported as "since I have claude installed it used that for mypeople instead of
+    chatgpt automatically" (card 5211716904, items 8+9). List order is an implementation detail,
+    not a decision: when several logins are live, `chooser` decides, and if there is nobody to ask
+    the pick is at least stated out loud along with how to override it.
+    """
     preferred = (preferred or "").strip().lower()
     if preferred and preferred not in VALID_BACKENDS:
         return False, preferred, "Unknown backend %r; choose claude, codex or grok." % preferred
     checks = {"claude": _claude_authenticated, "codex": _codex_authenticated,
               "grok": _grok_authenticated}
-    order = [preferred] if preferred else list(VALID_BACKENDS)
-    for backend in order:
-        if checks[backend]():
-            return True, backend, "this node's %s login is active" % backend
+    if preferred:
+        if checks[preferred]():
+            return True, preferred, "this node's %s login is active" % preferred
+        available = []
+    else:
+        available = authenticated_backends()
+    if available:
+        if len(available) == 1:
+            return True, available[0], "this node's %s login is active" % available[0]
+        picked = (chooser(available) or "").strip().lower() if chooser else ""
+        if picked in available:
+            return True, picked, "using %s (chosen; %s also authenticated)" % (
+                picked, ", ".join(b for b in available if b != picked))
+        return True, available[0], (
+            "%s are all authenticated; defaulting to %s. Re-run with `--backend <name>` to pick "
+            "another." % (", ".join(available), available[0]))
     requested = preferred or "claude, codex or grok"
     return (False, preferred or "none",
             "This node is not authenticated for %s. Run `claude auth login`, `codex login` or "
             "`grok login` inside THIS node, then re-run MyPeople. Never copy or mount credentials "
             "from another node." % requested)
+
+
+def _prompt_backend(available):
+    """Ask which authenticated backend to run, when there is a human on the other end.
+
+    A non-interactive install (docker build, CI, any piped stdin) must never block on a prompt, so
+    this answers nothing and lets resolve_auth fall back to a stated default.
+    """
+    try:
+        if not (sys.stdin and sys.stdin.isatty()):
+            return ""
+    except Exception:
+        return ""
+    _echo("\n[mypeople] More than one AI backend is authenticated on this node:")
+    for i, b in enumerate(available, 1):
+        _echo("  %d) %s" % (i, b))
+    try:
+        raw = input("[mypeople] Which should MyPeople use? [1-%d, default %s]: "
+                    % (len(available), available[0])).strip()
+    except (EOFError, KeyboardInterrupt):
+        return ""
+    if not raw:
+        return available[0]
+    if raw.isdigit() and 1 <= int(raw) <= len(available):
+        return available[int(raw) - 1]
+    return raw.lower()
 
 
 # ---------------------------------------------------------------- step 3: queue.env
@@ -409,7 +462,7 @@ def ensure(preferred_backend=None):
     configured = _read_env_val("DEFAULT_BACKEND")
     requested = (preferred_backend or os.environ.get("MYPEOPLE_BACKEND") or
                  os.environ.get("DEFAULT_BACKEND") or configured)
-    ok, backend, msg = resolve_auth(requested)
+    ok, backend, msg = resolve_auth(requested, chooser=_prompt_backend)
     if not ok:
         _echo("\n[mypeople] " + msg + "\n")
         sys.exit(2)
