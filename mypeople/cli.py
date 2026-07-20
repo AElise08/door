@@ -72,6 +72,50 @@ def wait_health(cfg, seconds=40):
     return False
 
 
+def _serving_version_path(install):
+    return os.path.join(install, "run", "serving.version")
+
+
+def _daemons_running(install):
+    pat = os.path.join(install, "bin", "todo-server.py")
+    return subprocess.run(["pgrep", "-f", pat], capture_output=True).returncode == 0
+
+
+def restart_if_serving_stale(cfg, install):
+    """An upgrade rewrites the daemon code on disk, but supervise.sh is CHECK-BEFORE-SPAWN: it
+    never respawns a daemon that is already alive. So an upgraded node keeps SERVING the old code
+    from memory -- old pages, old version badge -- until something cycles it. `mypeople up` is that
+    something. Returns True if it restarted.
+
+    A node whose daemons predate this stamp has no file: treat that as stale exactly once, which
+    costs a few seconds and gets everyone onto the version they actually installed.
+    """
+    if not _daemons_running(install):
+        return False
+    stamp = _serving_version_path(install)
+    try:
+        with open(stamp) as f:
+            serving = f.read().strip()
+    except Exception:
+        serving = ""
+    if serving == __version__:
+        return False
+    print("[mypeople] daemons are serving %s, installed is %s — restarting them"
+          % (serving or "an older build", __version__))
+    cmd_down([])
+    time.sleep(1)
+    return True
+
+
+def _stamp_serving_version(install):
+    try:
+        os.makedirs(os.path.join(install, "run"), exist_ok=True)
+        with open(_serving_version_path(install), "w") as f:
+            f.write(__version__ + "\n")
+    except OSError:
+        pass
+
+
 def urls(cfg):
     return {
         "board": "http://localhost:%s" % cfg.get("TODO_PORT", "9933"),
@@ -127,12 +171,14 @@ def cmd_up(args):
         return _up_client(cfg, env, bindir, foreground)
 
     # server / both: the existing supervisor starts every daemon + boss-supervisor
+    restart_if_serving_stale(cfg, install)
     log = os.path.join(install, "logs", "supervise.out")
     os.makedirs(os.path.dirname(log), exist_ok=True)
     with open(log, "ab") as lf:
         supervisor = subprocess.Popen(["bash", os.path.join(bindir, "supervise.sh")],
                                       env=env, stdout=lf, stderr=lf, stdin=subprocess.DEVNULL,
                                       start_new_session=True, cwd=install)
+    _stamp_serving_version(install)
     print("[mypeople] daemons starting (role=%s) ..." % role)
     if not wait_health(cfg):
         print("[mypeople] WARNING: HUD health not ready after 40s; check `mypeople logs`",

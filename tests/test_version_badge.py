@@ -114,6 +114,33 @@ class PageRenderTests(unittest.TestCase):
         twice = self.C.render_page(once)
         self.assertEqual(twice.count('id="mp-version-badge"'), 1)
 
+    def test_every_shipped_ui_page_can_reach_every_other_one(self):
+        """No first-class surface may be a dead end you can only leave by typing a URL. Injected at
+        the render seam, so a page added later is linked without anyone remembering to do it."""
+        pages = ("todos.html", "wall.html", "dashboard.html", "terminal-graph.html")
+        for name in pages:
+            with self.subTest(page=name):
+                src = open(os.path.join(self.install, "bin", name), encoding="utf-8").read()
+                out = self.C.render_page(src)
+                self.assertIn('id="mp-nav"', out, "%s has no nav" % name)
+                for href in ('href="/"', 'href="/dashboard"', 'href="/terminal-graph"',
+                             'href="/wall"'):
+                    self.assertIn(href, out, "%s cannot reach %s" % (name, href))
+                self.assertIn("mp-nav-terminals", out, "%s cannot reach the terminals" % name)
+
+    def test_terminals_link_uses_the_browser_facing_port(self):
+        """ttyd runs on its own port and its link is built client-side from location.hostname:
+        a hardcoded 127.0.0.1 would break every remote viewer of the node."""
+        out = self.C.render_page("<h1>mypeople</h1>")
+        self.assertIn("location.hostname", out)
+        self.assertNotIn("__TTYD_PORT__", out, "the nav's port placeholder must be substituted")
+
+    def test_nav_is_not_injected_twice(self):
+        once = self.C.render_page(open(os.path.join(self.install, "bin", "wall.html"),
+                                       encoding="utf-8").read())
+        twice = self.C.render_page(once)
+        self.assertEqual(twice.count('id="mp-nav"'), 1)
+
     def test_env_override_wins(self):
         os.environ["MYPEOPLE_VERSION"] = "0.5.0-rc1"
         self.addCleanup(os.environ.pop, "MYPEOPLE_VERSION", None)

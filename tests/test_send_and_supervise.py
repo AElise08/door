@@ -160,7 +160,13 @@ class BoardUiTests(unittest.TestCase):
         self.assertIn("ownerHistory", self.HTML)
 
     def test_terminal_graph_is_reachable_from_the_board(self):
-        self.assertIn("terminal-graph", self.HTML)
+        """Reachability moved from a hand-placed anchor in todos.html to the shared render seam,
+        so every surface links to every other one instead of each page carrying its own partial
+        list. The rendered-page assertions live in test_version_badge.PageRenderTests; here we
+        only pin that the seam still owns the link."""
+        nav = (BIN / "mpcommon.py").read_text()
+        self.assertIn('href="/terminal-graph"', nav)
+        self.assertIn('id="mp-nav"', nav)
 
     def test_assignee_is_not_a_free_text_field(self):
         """/todo/owner owns assignment: op=set refuses a supplied assignee, so an editable input

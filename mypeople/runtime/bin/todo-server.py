@@ -248,6 +248,28 @@ def default_board():
     return {"version": 2, "order": [], "pinSeq": 0, "tasks": {}}
 
 
+def board_exists():
+    """Is there already a board in the ACTIVE backend?
+
+    Must be asked of the backend, never by statting BOARD_PATH: under sqlite the JSON file never
+    exists, so a plain os.path.exists() call reads every boot as a fresh install and seeds an empty
+    board OVER the live one. The shrink guard hid this for busy boards (>5 cards) and let it through
+    for small ones -- i.e. it deleted the board of every NEW user and nobody else's.
+    """
+    if BOARD_BACKEND == "sqlite":
+        return BS.is_initialized(_sqlite_path())
+    return os.path.exists(BOARD_PATH)
+
+
+def seed_board_if_missing():
+    """Boot step: give a genuinely fresh install an empty board, and never touch an existing one.
+    Split out of main() so a test can run the real boot decision without starting a server."""
+    if board_exists():
+        return False
+    save_board(default_board())
+    return True
+
+
 def load_board():
     if BOARD_BACKEND == "sqlite":
         return BS.load_board(_sqlite_path())
@@ -1045,8 +1067,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     os.makedirs(TODOS_DIR, exist_ok=True)
-    if not os.path.exists(BOARD_PATH):
-        save_board(default_board())
+    seed_board_if_missing()
     with LOCK:
         board = load_board()
         if migrate_legacy_owner_fields(board):

@@ -119,6 +119,34 @@ class SqliteBoardRoundTripTests(unittest.TestCase):
         self.assertEqual(got["tasks"]["a1"]["comments"][0]["body"], "ship it")
         self.assertEqual(got["order"], ["a1"])
 
+    def test_boot_never_seeds_over_an_existing_sqlite_board(self):
+        """Regression: a restart wiped the board of every new user.
+
+        todo-server.main() decided "fresh install" with os.path.exists(BOARD_PATH) -- the JSON path,
+        which never exists under the sqlite backend. So every boot seeded an empty board over the
+        live one. It stayed invisible because boardstore's shrink guard refuses a >50% shrink only
+        for boards with more than 5 cards: busy boards survived, and a new user with one or two
+        cards lost everything. The round-trip test above missed it by calling load_board() directly
+        and never running the boot path.
+        """
+        with mock.patch.dict(os.environ, {"MYPEOPLE_BOARD_BACKEND": "sqlite"}, clear=False):
+            srv = load_module(self.tmp.name, "todo-server.py", "ts_seed_1")
+            srv.save_board(sample_board())
+            self.assertFalse(os.path.exists(srv.BOARD_PATH), "sqlite backend writes no JSON board")
+
+            # a fresh process boots against the same state dir: this is the real restart
+            srv2 = load_module(self.tmp.name, "todo-server.py", "ts_seed_2")
+            self.assertTrue(srv2.board_exists(), "an initialized sqlite board must count as existing")
+            self.assertFalse(srv2.seed_board_if_missing(), "boot must not seed over a live board")
+            self.assertEqual(srv2.load_board()["tasks"]["a1"]["text"], "olá — açaí ☕")
+
+    def test_boot_still_seeds_a_genuinely_fresh_install(self):
+        with mock.patch.dict(os.environ, {"MYPEOPLE_BOARD_BACKEND": "sqlite"}, clear=False):
+            srv = load_module(self.tmp.name, "todo-server.py", "ts_seed_3")
+            self.assertFalse(srv.board_exists())
+            self.assertTrue(srv.seed_board_if_missing(), "a fresh install still gets its empty board")
+            self.assertEqual(srv.load_board()["tasks"], {})
+
     def test_json_backend_still_works(self):
         with mock.patch.dict(os.environ, {"MYPEOPLE_BOARD_BACKEND": "json"}, clear=False):
             srv = load_module(self.tmp.name, "todo-server.py", "ts_json_1")

@@ -110,6 +110,43 @@ _VERSION_BADGE = """
 <div id="mp-version-badge" title="MyPeople version serving this page">__MP_VERSION__</div>
 """
 
+# Every first-class surface, reachable from every other one. Injected at this seam for the same
+# reason as the badge: a page added later is linked by construction, and no page can drift into
+# being a dead end you can only reach by typing a URL. Terminals live on their own port (ttyd is a
+# separate binary), so that one link is built client-side from the browser's own hostname -- a
+# hardcoded 127.0.0.1 would break for anyone viewing the node over the network.
+_NAV = """
+<style>
+#mp-nav{position:fixed;left:8px;bottom:8px;z-index:2147483000;display:flex;gap:2px;
+ font:500 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em;
+ background:rgba(22,27,34,.82);border:1px solid rgba(139,148,158,.22);border-radius:999px;
+ padding:3px;backdrop-filter:blur(4px)}
+#mp-nav a{color:#8b949e;text-decoration:none;padding:4px 9px;border-radius:999px}
+#mp-nav a:hover{color:#e6edf3;background:rgba(139,148,158,.14)}
+#mp-nav a[aria-current="page"]{color:#e6edf3;background:rgba(139,148,158,.20)}
+@media print{#mp-nav{display:none}}
+</style>
+<nav id="mp-nav" aria-label="MyPeople surfaces">
+ <a href="/" data-mp-path="/">Board</a>
+ <a href="/dashboard" data-mp-path="/dashboard">HUD</a>
+ <a id="mp-nav-terminals" href="/terminal-graph">Terminals</a>
+ <a href="/terminal-graph" data-mp-path="/terminal-graph">Graph</a>
+ <a href="/wall" data-mp-path="/wall">Wall</a>
+</nav>
+<script>
+(function(){
+  var t=document.getElementById("mp-nav-terminals");
+  if(t){t.href=location.protocol+"//"+location.hostname+":__TTYD_PORT__/";t.target="_blank";
+        t.rel="noopener";}
+  var here=location.pathname.replace(/\\/+$/,"")||"/";
+  if(here==="/todos"){here="/";}
+  document.querySelectorAll("#mp-nav a[data-mp-path]").forEach(function(a){
+    if(a.getAttribute("data-mp-path")===here){a.setAttribute("aria-current","page");}
+  });
+})();
+</script>
+"""
+
 # Shown on every page while this node has no AI login. It is deliberately loud and at the top of
 # the document: the failure it describes ("nothing happens when I ask for anything") is otherwise
 # indistinguishable from the product being broken.
@@ -164,8 +201,6 @@ def render_page(html):
     """Substitute the page placeholders every UI page shares, and make the running version
     visible on it. Injecting here (rather than in each .html) is what makes 'every page'
     true by construction — including pages added later."""
-    html = html.replace("__TTYD_PORT__", str(CFG["TTYD_BROWSER_PORT"]))
-    html = html.replace("__HOST_ID__", CFG["HOST_ID"])
     banner = _login_banner()
     if banner and "id=\"mp-login-banner\"" not in html:
         if "<body" in html:
@@ -174,12 +209,20 @@ def render_page(html):
             html = html[:end] + banner + html[end:]
         else:
             html = banner + html
+    chrome = ""
+    if "id=\"mp-nav\"" not in html:
+        chrome += _NAV
     if "id=\"mp-version-badge\"" not in html:
-        badge = _VERSION_BADGE
+        chrome += _VERSION_BADGE
+    if chrome:
         if "</body>" in html:
-            html = html.replace("</body>", badge + "</body>", 1)
+            html = html.replace("</body>", chrome + "</body>", 1)
         else:
-            html += badge
+            html += chrome
+    # Placeholders are substituted LAST, after every injection: the nav and the banner carry
+    # placeholders of their own, and substituting first would ship them to the browser literally.
+    html = html.replace("__TTYD_PORT__", str(CFG["TTYD_BROWSER_PORT"]))
+    html = html.replace("__HOST_ID__", CFG["HOST_ID"])
     return html.replace("__MP_VERSION__", "v" + version())
 
 

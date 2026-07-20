@@ -55,7 +55,7 @@ a.attach{color:var(--volt);text-decoration:none;font-family:var(--mono);font-siz
 <div class="grain"></div>
 <div class="wrap">
   <h1>MyPeople - HUD</h1>
-  <div class="meta" id="meta">refreshing… <a class="navlink" href="/">TODO ↗</a></div>
+  <div class="meta" id="meta">refreshing…</div>
   <h2>Engineers</h2>
   <table>
     <thead><tr><th>Agent ID</th><th>State</th><th>Status</th><th>Backend</th><th>Boss</th><th>Summary</th><th>Spawn Cmd</th><th>Attach</th></tr></thead>
@@ -131,7 +131,7 @@ async function refresh(){
       b.textContent="Timed out"; b.title="resume task timed out";
     });
     $("#meta").innerHTML="refreshed "+new Date().toLocaleTimeString()+" · "+agents.length+" agents "+
-      '<a class="navlink" href="/">TODO ↗</a>';
+      '';
     document.querySelectorAll("code").forEach(c=>c.onclick=()=>{
       try{ navigator.clipboard&&navigator.clipboard.writeText(c.title||c.textContent);}catch(e){} });
   }catch(e){}
