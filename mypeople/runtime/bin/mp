@@ -107,6 +107,25 @@ def pretrust(cwd):
     C.write_json(p, d)
 
 
+def claude_consent_settings():
+    """Path to a settings file that declares the bypass-permissions consent, written on demand.
+
+    A role-mounted spawn carries the consent in its own bundle overlay, but a BUNDLE-LESS claude
+    spawn gets no --settings at all -- so it would fall back to whatever ~/.claude happens to hold
+    and, on a node that was never seeded, block on the Bypass Permissions modal whose default
+    button is "No, exit" (card 293fc81898). Every claude launch must be self-sufficient, so hand
+    the bundle-less ones this file instead. Returns None if it cannot be written; the launch then
+    degrades to the ~/.claude path rather than failing outright.
+    """
+    path = os.path.join(INSTALL_DIR, "run", "claude-consent.settings.json")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        C.write_json(path, {"skipDangerousModePermissionPrompt": True})
+        return path
+    except OSError:
+        return None
+
+
 def codex_trust_override(cwd):
     """Trust only an exact cwd inside MyPeople's managed agent run roots for this launch."""
     resolved = os.path.realpath(os.path.abspath(os.path.expanduser(cwd)))
@@ -471,6 +490,11 @@ def build_launch(aid, cwd, boss_id, is_master, model, backend, resume_session=No
         agent = "claude --dangerously-skip-permissions"
         if role_flags:
             agent += " " + " ".join(shlex.quote(f) for f in role_flags)
+        if "--settings" not in role_flags:
+            # bundle-less spawn: nothing else would carry the consent (card 293fc81898)
+            consent = claude_consent_settings()
+            if consent:
+                agent += " --settings %s" % shlex.quote(consent)
         if model:
             agent += " --model %s" % shlex.quote(model)
         if resume_session:

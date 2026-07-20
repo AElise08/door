@@ -15,6 +15,7 @@ belt-and-braces role-bundle overlay.
 import json
 import os
 from pathlib import Path
+import shlex
 import sys
 import tempfile
 import unittest
@@ -113,6 +114,31 @@ class SeedRunsBeforeTheAuthGateTests(unittest.TestCase):
 class RoleBundleOverlayTests(unittest.TestCase):
     """`--settings <bundle>` is Claude's `flagSettings` layer, which it ORs with user settings --
     so a role-mounted spawn stays in bypass mode even on a node whose ~ was never seeded."""
+
+    def test_every_claude_spawn_carries_the_consent(self):
+        """CEO mandate: EVERY spawn self-sufficient, not just the role-mounted ones.
+
+        A Boss is forced to carry --role, but an engineer spawned without one gets no bundle and
+        therefore no --settings -- on an unseeded node that spawn blocks on the modal. Walk the
+        real matrix and assert each launch names a settings file that actually declares consent.
+        """
+        matrix = [("boss", True), ("engineer", False), (None, False)]
+        with tempfile.TemporaryDirectory() as td:
+            mp = load_mp(td)
+            for role, is_master in matrix:
+                with self.subTest(role=role, master=is_master):
+                    bundle = None
+                    if role:
+                        bundle = mp.materialize_role(mp.resolve_role(role, "claude"),
+                                                     "t/main:a", "claude")
+                    launch = mp.build_launch("t/main:a", td, "" if is_master else "t/main:Boss",
+                                             is_master, None, "claude", role_bundle=bundle)
+                    words = shlex.split(launch)
+                    self.assertIn("--dangerously-skip-permissions", words)
+                    self.assertIn("--settings", words, "no consent file on this launch")
+                    self.assertEqual(words.count("--settings"), 1, "claude takes one --settings")
+                    with open(words[words.index("--settings") + 1]) as f:
+                        self.assertTrue(json.load(f)["skipDangerousModePermissionPrompt"])
 
     def test_overlay_declares_the_consent(self):
         with tempfile.TemporaryDirectory() as td:
