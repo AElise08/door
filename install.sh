@@ -4,6 +4,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 export PATH="$HOME/.local/bin:$PATH"
 
+have_tty() {
+  [ -t 0 ] && [ -t 1 ]
+}
+
+# Status probes must never hang: without a TTY a wedged CLI stalls the whole install.
+probe() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 30 "$@"
+  else
+    "$@"
+  fi
+}
+
 as_root() {
   if [ "$(id -u)" -eq 0 ]; then
     "$@"
@@ -65,25 +78,49 @@ PY
 
 install_host_deps
 
-if ! command -v claude >/dev/null 2>&1 || ! claude --version >/dev/null 2>&1; then
+if ! command -v claude >/dev/null 2>&1 || ! probe claude --version >/dev/null 2>&1; then
   echo "[mypeople] installing Claude Code"
   curl -fsSL https://claude.ai/install.sh | bash
   export PATH="$HOME/.local/bin:$PATH"
 fi
 
-if ! command -v codex >/dev/null 2>&1 || ! codex --version >/dev/null 2>&1; then
+if ! command -v codex >/dev/null 2>&1 || ! probe codex --version >/dev/null 2>&1; then
   echo "[mypeople] installing Codex CLI"
   curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh
   export PATH="$HOME/.local/bin:$PATH"
 fi
 
 BACKEND="${MYPEOPLE_BACKEND:-claude}"
+
+# The login flows are all interactive browser handshakes. Called from a pipe, a CI
+# job or `ssh host cmd` they print a URL and wait for a keypress that can never
+# arrive, so the installer hangs forever. Without a TTY we skip the login, say so,
+# and finish the install with auth deferred.
+AUTH_PENDING=""
+defer_login() {
+  AUTH_PENDING="$1"
+  cat >&2 <<EOF
+[mypeople] ============================================================
+[mypeople] AUTH PENDING: this shell has no TTY, so the interactive
+[mypeople] '$BACKEND' login was skipped (it would hang forever here).
+[mypeople] The install continues; agents stay idle until you log in.
+[mypeople] Finish it from a real terminal:
+[mypeople]     $1
+[mypeople]     mypeople up --backend $BACKEND
+[mypeople] ============================================================
+EOF
+}
+
 case "$BACKEND" in
   claude)
-    claude auth status >/dev/null 2>&1 || claude auth login
+    probe claude auth status >/dev/null 2>&1 || {
+      if have_tty; then claude auth login; else defer_login "claude auth login"; fi
+    }
     ;;
   codex)
-    codex login status >/dev/null 2>&1 || codex login
+    probe codex login status >/dev/null 2>&1 || {
+      if have_tty; then codex login; else defer_login "codex login"; fi
+    }
     ;;
   grok)
     # Not auto-installed: grok ships an internal self-updater and publishes no install
@@ -94,7 +131,9 @@ case "$BACKEND" in
       exit 2
     fi
     # `grok models` exits 0 even when logged out, so the stdout marker is the only real check.
-    grok models 2>&1 | grep -qi "you are logged in" || grok login
+    probe grok models 2>&1 | grep -qi "you are logged in" || {
+      if have_tty; then grok login; else defer_login "grok login"; fi
+    }
     ;;
   *)
     echo "[mypeople] MYPEOPLE_BACKEND must be claude, codex or grok" >&2
@@ -115,6 +154,20 @@ WHEEL="$(ls -t dist/mypeople-*.whl | head -1)"
 uv tool install --force "$WHEEL"
 export PATH="$HOME/.local/bin:$PATH"
 UP_ARGS=(up --detach --backend "$MYPEOPLE_BACKEND")
+if [ -n "$AUTH_PENDING" ]; then
+  # With the login deferred, `up` refuses to start unauthenticated agents. That refusal
+  # is correct, not an install failure: the package is installed and only the login is
+  # missing, so report what is left to do instead of dying on its exit status.
+  mypeople "${UP_ARGS[@]}" || true
+  echo "[mypeople] ============================================================" >&2
+  echo "[mypeople] MyPeople is INSTALLED, but '$BACKEND' is NOT authenticated." >&2
+  echo "[mypeople] Nothing is running yet. From a terminal with a TTY, run:" >&2
+  echo "[mypeople]     $AUTH_PENDING" >&2
+  echo "[mypeople]     mypeople up --backend $BACKEND" >&2
+  echo "[mypeople] Then open http://localhost:${TODO_PORT:-9933}" >&2
+  echo "[mypeople] ============================================================" >&2
+  exit 0
+fi
 mypeople "${UP_ARGS[@]}"
 mypeople status
 echo "[mypeople] open http://localhost:${TODO_PORT:-9933}"
