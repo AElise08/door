@@ -118,13 +118,24 @@ _VERSION_BADGE = """
 # are not a surface: the HUD is how you reach a terminal.
 _NAV = """
 <style>
-#mp-nav{position:fixed;left:8px;top:8px;z-index:2147483000;display:flex;gap:2px;
- font:500 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em;
- background:rgba(22,27,34,.82);border:1px solid rgba(139,148,158,.22);border-radius:999px;
- padding:3px;backdrop-filter:blur(4px)}
-#mp-nav a{color:#8b949e;text-decoration:none;padding:4px 9px;border-radius:999px}
-#mp-nav a:hover{color:#e6edf3;background:rgba(139,148,158,.14)}
-#mp-nav a[aria-current="page"]{color:#e6edf3;background:rgba(139,148,158,.20)}
+/* Brand tokens, read off the page itself. todos/dashboard and the graph name them differently
+   (--muted-dark vs --muted, --text-dark vs --ink), so each one falls back to the other and then
+   to a literal -- the nav must look native on a page that defines neither. */
+#mp-nav{position:fixed;right:22px;top:22px;z-index:2147483000;display:flex;gap:8px;
+ --mp-volt:var(--volt,#D5EF8A);
+ --mp-ink:var(--text-dark,var(--ink,#F0F0E8));
+ --mp-muted:var(--muted-dark,var(--muted,rgba(240,240,232,.45)));
+ --mp-line:var(--dark-border,rgba(255,255,255,.09));
+ font-family:var(--mono,'DM Mono','SF Mono',ui-monospace,monospace)}
+#mp-nav a{display:block;padding:6px 14px;border-radius:100px;text-decoration:none;
+ font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;
+ color:var(--mp-muted);background:rgba(255,255,255,.03);border:1px solid var(--mp-line);
+ backdrop-filter:blur(6px);transition:color .15s,background .15s,border-color .15s}
+#mp-nav a:hover{color:var(--mp-ink);background:rgba(255,255,255,.08)}
+#mp-nav a:focus-visible{outline:2px solid var(--mp-volt);outline-offset:3px}
+#mp-nav a[aria-current="page"]{color:var(--mp-volt);font-weight:700;
+ background:rgba(213,239,138,.10);border-color:rgba(213,239,138,.35)}
+@media(max-width:700px){#mp-nav{right:12px;top:12px;gap:6px}#mp-nav a{padding:5px 11px}}
 @media print{#mp-nav{display:none}}
 </style>
 <nav id="mp-nav" aria-label="MyPeople surfaces">
@@ -145,7 +156,7 @@ _NAV = """
   var nav=document.getElementById("mp-nav");
   function place(){
     var b=document.querySelector("[data-mp-banner]");
-    nav.style.top=(b?b.getBoundingClientRect().height+8:8)+"px";
+    nav.style.top=(b?b.getBoundingClientRect().height+14:22)+"px";
   }
   place();
   window.addEventListener("resize",place);
