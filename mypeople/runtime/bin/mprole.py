@@ -319,7 +319,12 @@ def materialize_role(item, aid, backend, bundle_root):
         for s in item["skills"]:
             _write_ro(os.path.join(plugin_path, "skills", s["name"], "SKILL.md"), s["bytes"])
         settings_path = os.path.join(bp, "claude", "settings.json")
-        overlay = {"hooks": {ev: [{"hooks": [{"type": "command",
+        # This file is handed to claude as --settings, which is the `flagSettings` layer. Claude
+        # ORs skipDangerousModePermissionPrompt across user/local/flag/policy settings before it
+        # decides whether to block on the Bypass Permissions modal, so declaring it here makes a
+        # role-mounted spawn self-sufficient even if ~/.claude was never seeded (card 293fc81898).
+        overlay = {"skipDangerousModePermissionPrompt": True,
+                   "hooks": {ev: [{"hooks": [{"type": "command",
                                               "command": "%s %s" % (handler_abs, ev)}]}]
                              for ev in events}}
         _write_ro(settings_path, json.dumps(overlay, indent=2))

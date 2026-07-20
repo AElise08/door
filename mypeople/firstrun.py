@@ -542,6 +542,14 @@ def ensure(preferred_backend=None, allow_unauthenticated=None):
         # Only PID 1 under a restart policy. An installer or an interactive `mypeople up` still
         # refuses cleanly and starts nothing -- that behaviour is the reference, not the bug.
         allow_unauthenticated = os.environ.get("MYPEOPLE_CONTAINER") == "1"
+    # Backend config seeding happens BEFORE the auth gate on purpose (card 293fc81898). It writes
+    # only local files and needs no login, but it is what pre-accepts Claude's first-run modals
+    # (onboarding, folder trust, and the Bypass Permissions warning whose default button is "No,
+    # exit"). Below the `sys.exit(2)` it never ran on a fresh install -- so the very first agent
+    # spawned after the login landed sat on a modal, ate its prompt and died instead of running
+    # with --dangerously-skip-permissions.
+    write_claude_config(install)
+    write_codex_config(install)
     ok, backend, msg = resolve_auth(requested, chooser=_prompt_backend)
     if not ok:
         _echo("\n[mypeople] " + msg + "\n")
@@ -557,8 +565,6 @@ def ensure(preferred_backend=None, allow_unauthenticated=None):
     else:
         _echo("[mypeople] auth: %s" % msg)
     fresh = write_queue_env(install, backend or requested or "claude")
-    write_claude_config(install)
-    write_codex_config(install)
     install_tmux_conf(install)
     write_auth_state(install, ok, backend, msg, requested or "")
     host = os.environ.get("HOST_ID") or _read_env_val("HOST_ID") or socket.gethostname().split(".")[0]

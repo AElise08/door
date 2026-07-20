@@ -259,6 +259,15 @@ def cmd_auth_check(args):
         # Persist the backend the login actually landed on, so every later spawn agrees with it.
         if (firstrun._read_env_val("DEFAULT_BACKEND") or "") != backend:
             firstrun.write_queue_env(install, backend)
+        # This is the last thing that runs before boss-supervisor spawns the Boss, and on a node
+        # that came up degraded it may be the first pass that ever completes. Re-seed the backend
+        # first-run config here so the Boss cannot be launched into an unaccepted Bypass
+        # Permissions modal (card 293fc81898). Both writers are idempotent merges.
+        try:
+            firstrun.write_claude_config(install)
+            firstrun.write_codex_config(install)
+        except Exception as e:
+            print("[mypeople] warning: could not seed backend config: %s" % e, file=sys.stderr)
         if "--quiet" not in args:
             print("[mypeople] auth: %s" % msg)
         return 0
