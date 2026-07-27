@@ -114,6 +114,22 @@ body.modal-open #modalbg{display:flex;}
 .proof-broken{border:1px solid #a33;border-radius:8px;padding:10px 12px;background:rgba(170,51,51,.08);font-family:var(--sans);font-size:13px;line-height:1.5;}
 .proof-broken b{display:block;margin-bottom:4px;}
 .proof-broken code{font-family:var(--mono,monospace);font-size:12px;word-break:break-all;opacity:.85;}
+/* mobile: fill the screen and track the visual viewport (--vvh) so the on-screen keyboard never hides the composer */
+@media (max-width:640px){
+  #modalbg{align-items:flex-start;justify-content:flex-start;}
+  #modal{position:fixed;left:0;top:var(--vvtop,0);width:100vw;height:var(--vvh,100dvh);max-height:none;border-radius:0;border:0;}
+  .thread{min-height:0;padding:14px 16px;}   /* min-height:0 lets the thread shrink so the composer stays pinned above the keyboard; tighter sides = wider text column */
+  .m-head{padding:56px 16px 14px;}   /* 56px top clears the fixed Board/Graph/HUD nav floating over the full-screen modal; tighter sides */
+  /* smaller, denser type so long comment threads read comfortably on a phone (CEO 302dae6fb9) */
+  h1{font-size:26px;}
+  .task-text{font-size:17px;}
+  .m-title{font-size:19px;}
+  .m-row{padding:10px 16px;}
+  .ev{gap:10px;padding:11px 2px;}
+  .av{width:28px;height:28px;font-size:11px;}
+  .ev-text{font-size:15px;line-height:1.45;}
+  .composer{padding:12px 16px;}   /* #composer stays 18px (>=16px) so iOS never tap-zooms */
+}
 </style>
 </head>
 <body>
@@ -581,6 +597,14 @@ document.querySelectorAll(".vbtn").forEach(b=>b.addEventListener("click",()=>{
 
 function tick(){ const d=new Date(); $("#clock").textContent=d.toLocaleTimeString(); }
 setInterval(tick,1000); tick();
+
+// track the visual viewport so the mobile task modal (height:var(--vvh)) shrinks when the
+// soft keyboard opens, keeping the composer above it instead of hidden behind it
+if(window.visualViewport){
+  const vv=window.visualViewport, root=document.documentElement.style;
+  const fit=()=>{ root.setProperty("--vvh",vv.height+"px"); root.setProperty("--vvtop",vv.offsetTop+"px"); };
+  vv.addEventListener("resize",fit); vv.addEventListener("scroll",fit); fit();
+}
 
 // live poll + build watcher
 async function healthWatch(){
