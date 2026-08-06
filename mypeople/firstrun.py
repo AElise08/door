@@ -95,15 +95,15 @@ def materialize(install):
     # adds, so a retired page would survive every upgrade forever as a file the product no longer
     # serves. Removing it here is what makes "removed" true on an upgraded install, not just a
     # fresh one.
-    for gone in ("bin/wall.html",):
+    for gone in ("bin/wall.html", "boss-CLAUDE.md"):
         try:
             os.remove(os.path.join(install, *gone.split("/")))
         except OSError:
             pass
     # Boss doctrine file
-    bc = os.path.join(rt, "boss-CLAUDE.md")
+    bc = os.path.join(rt, "mp-boss-doctrine.md")
     if os.path.exists(bc):
-        _replace_file(bc, os.path.join(install, "boss-CLAUDE.md"))
+        _replace_file(bc, os.path.join(install, "mp-boss-doctrine.md"))
     # Stamp the version this runtime was materialized from. The daemons run the copies above
     # under a bare interpreter with no route back to the package, so this file is how they (and
     # the UI) know which version is serving. Rewritten here so an upgrade cannot leave a stale

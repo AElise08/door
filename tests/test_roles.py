@@ -67,7 +67,7 @@ def load_mp(home):
             # point the role store at the packaged one; bundles go to the throwaway install
             module.ROLE_DIR = str(ROLES)
             module.ROLE_BUNDLE_DIR = str(state / "run" / "role-bundles")
-            boss_doc = state / "boss-CLAUDE.md"
+            boss_doc = state / "mp-boss-doctrine.md"
             boss_doc.parent.mkdir(parents=True, exist_ok=True)
             boss_doc.write_text("# Boss doctrine\nDrive the team off the board.\n",
                                 encoding="utf-8")
@@ -92,19 +92,19 @@ class RoleStoreTests(unittest.TestCase):
             refs = [s["ref"] for s in spec["skills"]]
             refs += spec.get("hookRefs", [])
             refs += [spec.get("toolsetRef"), spec.get("policyRef")]
-            personality = spec.get("personalityRef", "")
-            if personality and not personality.startswith("mypeople://"):
-                refs.append(personality)
+            doctrine = spec.get("doctrineRef", "")
+            if doctrine and not doctrine.startswith("mypeople://"):
+                refs.append(doctrine)
             for ref in filter(None, refs):
                 self.assertTrue((ROLES / ref).exists(), "%s -> dangling ref %s" % (role, ref))
 
-    def test_mypeople_system_skill_is_mandatory_for_every_role(self):
+    def test_mp_system_skill_is_mandatory_for_every_role(self):
         reg = json.loads((ROLES / "registry.json").read_text())
         for role, rel in reg["roles"].items():
             spec = json.loads((ROLES / rel).read_text())["spec"]
             mandatory = [s["ref"] for s in spec["skills"] if s.get("required")]
-            self.assertTrue(any("mypeople-system" in r for r in mandatory),
-                            "%s does not require the mypeople-system skill" % role)
+            self.assertTrue(any("mp-system/" in r for r in mandatory),
+                            "%s does not require the mp-system skill" % role)
 
     def test_no_skill_depends_on_something_the_product_does_not_ship(self):
         """A persona may only reference Skills that ship in this store.
@@ -174,12 +174,12 @@ class RoleResolutionTests(unittest.TestCase):
             mp = load_mp(td)
             bundle = mp.materialize_role(mp.resolve_role("engineer", "claude"),
                                          "t/main:eng", "claude")
-            victim = Path(bundle["plugin_path"]) / "skills" / "mypeople-system" / "SKILL.md"
+            victim = Path(bundle["plugin_path"]) / "skills" / "mp-system" / "SKILL.md"
             victim.chmod(0o644)
             victim.unlink()
             healed = mp.materialize_role(mp.resolve_role("engineer", "claude"),
                                          "t/main:eng", "claude")
-            self.assertTrue((Path(healed["plugin_path"]) / "skills" / "mypeople-system"
+            self.assertTrue((Path(healed["plugin_path"]) / "skills" / "mp-system"
                              / "SKILL.md").is_file())
 
 
@@ -224,8 +224,8 @@ class RoleLaunchTests(unittest.TestCase):
             bundle = mp.materialize_role(mp.resolve_role("boss", "grok"), "t/main:Boss", "grok")
             home = Path(bundle["grok_home"])
             self.assertTrue((home / "AGENTS.md").is_file(), "grok personality not mounted")
-            self.assertTrue((home / "skills" / "mypeople-system" / "SKILL.md").is_file())
-            self.assertTrue((home / "skills" / "boss-manager" / "SKILL.md").is_file())
+            self.assertTrue((home / "skills" / "mp-system" / "SKILL.md").is_file())
+            self.assertTrue((home / "skills" / "mp-boss-manager" / "SKILL.md").is_file())
             self.assertFalse((home / "GROK.md").exists(), "GROK.md is not read by grok")
             self.assertEqual(mp.mprole.grok_flags(bundle), [],
                              "grok takes no role flags; it mounts via GROK_HOME")

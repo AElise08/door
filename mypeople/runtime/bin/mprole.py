@@ -107,17 +107,21 @@ def resolve_role(role, backend, role_dir, boss_doc, locked_role_ref=None):
     if not adapter:
         raise RoleError("role %s has no %s adapter (unavailable)" % (role_ref, backend))
 
-    pref = spec.get("personalityRef", "")
+    # `doctrineRef` is the current name; the file it points at is backend-neutral, so calling it a
+    # "personality" (and shipping it as boss-CLAUDE.md) read as Claude-specific when every backend
+    # mounts the same bytes. Profiles pinned by a still-running agent predate the rename, so the old
+    # key stays readable -- dropping it would fail a revive closed on the locked ref.
+    pref = spec.get("doctrineRef") or spec.get("personalityRef", "")
     if pref == BOSS_DOCTRINE_URI:
         if not (boss_doc and os.path.isfile(boss_doc)):
             raise RoleError("Boss doctrine (BOSS_DOC) is unavailable: %s" % boss_doc)
         pers_b = _read_bytes(boss_doc, "Boss doctrine")
         pers_src = BOSS_DOCTRINE_URI
     elif pref:
-        pers_b = _read_bytes(_store_path(role_dir, pref, "personality"), "personality")
+        pers_b = _read_bytes(_store_path(role_dir, pref, "doctrine"), "doctrine")
         pers_src = pref
     else:
-        raise RoleError("profile %s has no personalityRef (unavailable)" % role_ref)
+        raise RoleError("profile %s has no doctrineRef (unavailable)" % role_ref)
     pers_digest = _sha256(pers_b)
 
     skills, seen = [], {}
@@ -130,8 +134,10 @@ def resolve_role(role, backend, role_dir, boss_doc, locked_role_ref=None):
         seen[nm] = ref
         skills.append({"name": nm, "ref": ref, "bytes": sb, "sha256": _sha256(nm, sb),
                        "load": s.get("load", "startup"), "required": bool(s.get("required"))})
-    if "mypeople-system" not in seen:
-        raise RoleError("mandatory skill mypeople-system is unavailable for %s" % role_ref)
+    # Renamed mypeople-system -> mp-system. Profiles pinned by a still-running agent name the old
+    # one, so either satisfies the mandate; a profile carrying neither is still refused.
+    if not seen.keys() & {"mp-system", "mypeople-system"}:
+        raise RoleError("mandatory skill mp-system is unavailable for %s" % role_ref)
 
     hook_refs = spec.get("hookRefs") or []
     hook_digests = []
