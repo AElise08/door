@@ -1356,6 +1356,34 @@ def do_comment(argv):
     return 0
 
 
+def do_owner(argv):
+    """mp owner <assign|replace|reopen> <task_id> <agent_id> — set a card's owner.
+
+    `--owner-task` only records ownership in the ROSTER; the card's assignee is settable solely
+    through /todo/owner. Without this wrapper the Boss had no command for the second half and read
+    mp's own source to find the endpoint -- engineer work its doctrine forbids. The server still
+    owns every eligibility rule; this only carries the request.
+    """
+    if len(argv) < 3:
+        print("usage: mp owner <assign|replace|reopen> <task_id> <agent_id>", file=sys.stderr)
+        return 2
+    action, tid, agent_id = argv[0], argv[1], full_aid(argv[2])
+    by = os.environ.get("AGENT_ID", "").strip()
+    code, res = C.http_json("POST", TODO_URL + "/todo/owner",
+                            {"action": action, "task_id": tid, "agent_id": agent_id,
+                             "by": full_aid(by) if by else by}, HDR, timeout=12)
+    if code != 200 or not (isinstance(res, dict) and res.get("ok")):
+        err = res.get("error") if isinstance(res, dict) else str(res)[:200]
+        # ineligible_owner is the common one and its cause is never obvious from the word alone.
+        hint = ("\nHINT: the agent must be alive, report to you, and have been spawned FOR this "
+                "card (`mp spawn <id> --boss <you> --owner-task %s`)." % tid
+                if err == "ineligible_owner" else "")
+        print("ERROR: owner %s failed (HTTP %s): %s%s" % (action, code, err, hint), file=sys.stderr)
+        return 1
+    print("owner of %s is now %s" % (tid, res.get("assignee", agent_id)))
+    return 0
+
+
 def _local_proof_path(target):
     """Return a local filesystem path if target names one, else None.
 
@@ -1402,7 +1430,7 @@ def do_proof(argv):
 def main():
     if len(sys.argv) < 2:
         print("usage: mp {status|spawn|send|peek|kill|answer|revive|ensure-boss|reconcile|"
-              "stop-recorders|board|card|comment|proof} ...", file=sys.stderr)
+              "stop-recorders|board|card|comment|proof|owner} ...", file=sys.stderr)
         return 2
     verb = sys.argv[1]
     rest = sys.argv[2:]
@@ -1410,7 +1438,8 @@ def main():
             "kill": do_kill, "answer": do_answer, "revive": do_revive,
             "ensure-boss": do_ensure_boss, "reconcile": do_reconcile,
             "stop-recorders": do_stop_recorders,
-            "board": do_board, "card": do_card, "comment": do_comment, "proof": do_proof}.get(
+            "board": do_board, "card": do_card, "comment": do_comment, "proof": do_proof,
+            "owner": do_owner}.get(
         verb, lambda a: (print("unknown verb %s" % verb, file=sys.stderr) or 2))(rest)
 
 
