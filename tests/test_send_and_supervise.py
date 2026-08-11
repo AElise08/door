@@ -8,6 +8,8 @@ import importlib.machinery
 import importlib.util
 import os
 from pathlib import Path
+import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -138,6 +140,54 @@ class SupervisorScriptTests(unittest.TestCase):
         self.assertIn("ulimit -n", text)
         self.assertLess(text.index("ulimit -n"), text.index("ensure "),
                         "ulimit must be raised before any daemon is spawned")
+
+
+class TtydRecycleTests(unittest.TestCase):
+    """ttyd 1.7.7 leaks a pty master fd per child it fails to reap. macOS caps ptys at 511, so a
+    viewer left up for days locks every terminal on the machine out. The recycle guard has to fire
+    on unreaped children ONLY -- keying it on total children would kill a healthy viewer as soon as
+    the fleet outgrew the threshold."""
+
+    FN = re.search(r"^recycle_leaked_ttyd\(\)\{.*?^\}",
+                   (BIN / "supervise.sh").read_text(), re.S | re.M)
+
+    def run_guard(self, ps_output, threshold=20):
+        """Run the real shell function against a fabricated process table. ps/pgrep are PATH stubs;
+        kill is shadowed by a bash function, because a PATH stub would lose to the builtin and the
+        test would signal a real pid 4242 on the machine running it."""
+        self.assertIsNotNone(self.FN, "recycle_leaked_ttyd missing from supervise.sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = Path(tmp)
+            (stub / "pgrep").write_text("#!/bin/sh\necho 4242\n")
+            (stub / "ps").write_text("#!/bin/sh\ncat %s\n" % (stub / "ps.out"))
+            (stub / "ps.out").write_text(ps_output)
+            for name in ("pgrep", "ps"):
+                (stub / name).chmod(0o755)
+            script = 'LOG=%s\nTTYD_MAX_DEAD_CHILDREN=%d\nkill(){ echo "$@" >> %s; }\n%s\nrecycle_leaked_ttyd "ttyd -a -p 7691"\n' % (
+                tmp, threshold, stub / "killed", self.FN.group(0))
+            subprocess.run(["bash", "-c", script], check=True,
+                           env={**os.environ, "PATH": "%s:%s" % (stub, os.environ["PATH"])})
+            killed = stub / "killed"
+            return killed.read_text().split() if killed.exists() else []
+
+    def test_recycles_a_ttyd_drowning_in_unreaped_children(self):
+        dead = "4242 ?Es\n" * 30
+        self.assertEqual(self.run_guard(dead), ["4242"])
+
+    def test_spares_a_busy_viewer_whose_children_are_all_live(self):
+        """40 live tiles is a big fleet, not a leak. Killing here would flap every terminal tile."""
+        live = "4242 Ss+\n" * 40 + "4242 S+\n" * 40
+        self.assertEqual(self.run_guard(live), [])
+
+    def test_ignores_dead_children_of_other_processes(self):
+        self.assertEqual(self.run_guard("9999 ?Es\n" * 30), [])
+
+    def test_the_supervisor_loop_actually_calls_the_guard(self):
+        """A guard that is defined but never called is the bug shipping again."""
+        text = (BIN / "supervise.sh").read_text()
+        loop = text[text.index("while true; do"):]
+        self.assertIn('recycle_leaked_ttyd "ttyd -W -a -p $TTYD_PORT"', loop)
+        self.assertIn('recycle_leaked_ttyd "ttyd -a -p $TTYD_RO_PORT"', loop)
 
 
 class BoardUiTests(unittest.TestCase):
