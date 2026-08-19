@@ -82,12 +82,15 @@ def resolve_role(role, backend, role_dir, boss_doc, locked_role_ref=None):
     Raises ValueError ('unknown role' / '... unavailable') fail-closed before any side effect.
     """
     role = (role or "").strip().lower()
-    if role not in ("boss", "engineer"):
-        raise RoleError("unknown role %r (known: boss, engineer)" % role)
+    # registry.json IS the allowlist. A second hardcoded tuple here only ever went stale: it refused
+    # tags the registry already carried, so an authored role was unspawnable. Still fail-closed --
+    # an unregistered tag raises before any side effect, exactly as the tuple did.
     reg_b, reg = _read_json(os.path.join(role_dir, "registry.json"), "role registry")
     roles = reg.get("roles") if isinstance(reg, dict) else None
-    if not isinstance(roles, dict) or role not in roles:
-        raise RoleError("role %r is unavailable in the registry" % role)
+    if not isinstance(roles, dict):
+        raise RoleError("role registry has no roles map (unavailable)")
+    if role not in roles:
+        raise RoleError("unknown role %r (known: %s)" % (role, ", ".join(sorted(roles))))
     profile_ref = roles[role]
     if locked_role_ref:
         want = "profiles/%s.json" % locked_role_ref.replace("@", "/")

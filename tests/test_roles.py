@@ -80,7 +80,8 @@ def load_mp(home):
 class RoleStoreTests(unittest.TestCase):
     def test_registry_points_at_profiles_that_exist(self):
         reg = json.loads((ROLES / "registry.json").read_text())
-        self.assertEqual(set(reg["roles"]), {"boss", "engineer"})
+        self.assertEqual(set(reg["roles"]),
+                         {"boss", "engineer", "tester", "watchdog", "creator"})
         for role, rel in reg["roles"].items():
             self.assertTrue((ROLES / rel).is_file(), "%s -> missing %s" % (role, rel))
 
@@ -92,9 +93,11 @@ class RoleStoreTests(unittest.TestCase):
             refs = [s["ref"] for s in spec["skills"]]
             refs += spec.get("hookRefs", [])
             refs += [spec.get("toolsetRef"), spec.get("policyRef")]
-            doctrine = spec.get("doctrineRef", "")
-            if doctrine and not doctrine.startswith("mypeople://"):
-                refs.append(doctrine)
+            # `personalityRef` is the current name; `doctrineRef` is the older one. Either can
+            # point at "mypeople://...", which lives in the install, not the store.
+            persona = spec.get("doctrineRef") or spec.get("personalityRef", "")
+            if persona and not persona.startswith("mypeople://"):
+                refs.append(persona)
             for ref in filter(None, refs):
                 self.assertTrue((ROLES / ref).exists(), "%s -> dangling ref %s" % (role, ref))
 
@@ -103,8 +106,10 @@ class RoleStoreTests(unittest.TestCase):
         for role, rel in reg["roles"].items():
             spec = json.loads((ROLES / rel).read_text())["spec"]
             mandatory = [s["ref"] for s in spec["skills"] if s.get("required")]
-            self.assertTrue(any("mp-system/" in r for r in mandatory),
-                            "%s does not require the mp-system skill" % role)
+            # Same pair mprole.py accepts: the skill was renamed, both names are the system one.
+            names = {r.split("/")[1] for r in mandatory if r.startswith("skills/")}
+            self.assertTrue(names & {"mp-system", "mypeople-system"},
+                            "%s does not require the system skill" % role)
 
     def test_no_skill_depends_on_something_the_product_does_not_ship(self):
         """A persona may only reference Skills that ship in this store.
@@ -157,11 +162,15 @@ class RoleResolutionTests(unittest.TestCase):
                 self.assertEqual(skills[1], skills[2], "%s: skill digest drift" % role)
 
     def test_boss_personality_is_the_boss_doc_verbatim(self):
+        """The Boss now mounts a store personality, but `mp spawn --master` still injects the
+        install's mp-boss-doctrine.md as the onboarding prompt. If the two forked, a fresh Boss
+        would be born holding two different doctrines."""
         with tempfile.TemporaryDirectory() as td:
             mp = load_mp(td)
             bundle = mp.materialize_role(mp.resolve_role("boss", "claude"), "t/main:Boss", "claude")
+            shipped_doc = ROOT / "mypeople" / "runtime" / "mp-boss-doctrine.md"
             self.assertEqual(Path(bundle["personality_path"]).read_bytes(),
-                             Path(mp.BOSS_DOC).read_bytes(), "Boss personality forked BOSS_DOC")
+                             shipped_doc.read_bytes(), "Boss personality forked BOSS_DOC")
 
     def test_locked_ref_drift_is_refused(self):
         with tempfile.TemporaryDirectory() as td:
@@ -174,12 +183,12 @@ class RoleResolutionTests(unittest.TestCase):
             mp = load_mp(td)
             bundle = mp.materialize_role(mp.resolve_role("engineer", "claude"),
                                          "t/main:eng", "claude")
-            victim = Path(bundle["plugin_path"]) / "skills" / "mp-system" / "SKILL.md"
+            victim = Path(bundle["plugin_path"]) / "skills" / "mypeople-system" / "SKILL.md"
             victim.chmod(0o644)
             victim.unlink()
             healed = mp.materialize_role(mp.resolve_role("engineer", "claude"),
                                          "t/main:eng", "claude")
-            self.assertTrue((Path(healed["plugin_path"]) / "skills" / "mp-system"
+            self.assertTrue((Path(healed["plugin_path"]) / "skills" / "mypeople-system"
                              / "SKILL.md").is_file())
 
 
@@ -224,8 +233,8 @@ class RoleLaunchTests(unittest.TestCase):
             bundle = mp.materialize_role(mp.resolve_role("boss", "grok"), "t/main:Boss", "grok")
             home = Path(bundle["grok_home"])
             self.assertTrue((home / "AGENTS.md").is_file(), "grok personality not mounted")
-            self.assertTrue((home / "skills" / "mp-system" / "SKILL.md").is_file())
-            self.assertTrue((home / "skills" / "mp-boss-manager" / "SKILL.md").is_file())
+            self.assertTrue((home / "skills" / "mypeople-system" / "SKILL.md").is_file())
+            self.assertTrue((home / "skills" / "boss-manager" / "SKILL.md").is_file())
             self.assertFalse((home / "GROK.md").exists(), "GROK.md is not read by grok")
             self.assertEqual(mp.mprole.grok_flags(bundle), [],
                              "grok takes no role flags; it mounts via GROK_HOME")
