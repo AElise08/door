@@ -3,6 +3,7 @@
 A fresh materialize() only ever writes into an empty dir, so nothing here was exercised until
 0.4.0 was installed over the CEO's live install and died half-way with EACCES.
 """
+import json
 import os
 from pathlib import Path
 import stat
@@ -55,6 +56,28 @@ class MaterializeOverExistingInstallTests(unittest.TestCase):
             f.write("THE BOARD")
         firstrun.materialize(self.install)
         self.assertEqual(open(board).read(), "THE BOARD")
+
+    def test_upgrade_keeps_roles_this_release_does_not_ship(self):
+        """An install can hold roles the creator authored here. Replacing registry.json with the
+        shipped one would leave them on disk but unspawnable -- silent loss of authored work."""
+        firstrun.materialize(self.install)
+        roles = Path(self.install) / "roles"
+        reg = roles / "registry.json"
+        profile = roles / "profiles" / "piada-pirata" / "1.0.0.json"
+        profile.parent.mkdir(parents=True, exist_ok=True)
+        profile.write_text("{}")
+        data = json.loads(reg.read_text())
+        data["roles"]["piada-pirata"] = "profiles/piada-pirata/1.0.0.json"
+        data["roles"]["ghost"] = "profiles/ghost/9.9.9.json"   # profile never existed
+        os.chmod(reg, 0o644)
+        reg.write_text(json.dumps(data))
+
+        firstrun.materialize(self.install)
+
+        after = json.loads(reg.read_text())["roles"]
+        self.assertIn("piada-pirata", after, "upgrade unregistered an authored role")
+        self.assertIn("boss", after, "upgrade dropped a shipped role")
+        self.assertNotIn("ghost", after, "kept an entry whose profile does not exist")
 
     def test_scripts_stay_executable_after_upgrade(self):
         firstrun.materialize(self.install)

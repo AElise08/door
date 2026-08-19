@@ -77,6 +77,16 @@ def _write_file(dst, text):
         f.write(text)
 
 
+def _read_registry_roles(path):
+    """The roles map of an existing install's registry, or {} if there is none to keep."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            roles = json.load(f).get("roles")
+        return roles if isinstance(roles, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def materialize(install):
     """Copy the packaged runtime into a WRITABLE INSTALL_DIR. Idempotent: never overwrite
     existing daemon code differently, and NEVER clobber live state (board/roster/logs)."""
@@ -86,11 +96,29 @@ def materialize(install):
     # "roles" carries the versioned role store (personalities + Skills + profiles). mp resolves
     # every --role spawn against INSTALL_DIR/roles and fails closed if it is absent, so omitting
     # it here would ship a runtime whose Boss cannot be born.
+    # roles/registry.json is the spawn allowlist, and an install can hold roles the product does
+    # not ship -- anything the creator authored here. The copy below would replace that file with
+    # the shipped one, silently unregistering every authored role (they stay on disk but become
+    # unspawnable). So keep the entries this release does not name; shipped names still move
+    # forward to the versions this release carries.
+    kept_roles = _read_registry_roles(os.path.join(install, "roles", "registry.json"))
     for sub in ("bin", "plugins", "plans", "verify", "config", "roles"):
         src = os.path.join(rt, sub)
         if os.path.isdir(src):
             shutil.copytree(src, os.path.join(install, sub), dirs_exist_ok=True,
                             copy_function=_replace_file)
+    if kept_roles:
+        reg_path = os.path.join(install, "roles", "registry.json")
+        with open(reg_path, encoding="utf-8") as f:
+            reg = json.load(f)
+        mode = stat.S_IMODE(os.stat(reg_path).st_mode)
+        merged = dict(kept_roles)
+        merged.update(reg.get("roles") or {})
+        # a kept entry whose profile this release deleted would fail closed at spawn; drop it.
+        reg["roles"] = {r: ref for r, ref in merged.items()
+                        if os.path.isfile(os.path.join(install, "roles", *ref.split("/")))}
+        _write_file(reg_path, json.dumps(reg, indent=1) + "\n")
+        os.chmod(reg_path, mode)   # the store is published read-only; keep it that way
     # Files a previous version shipped and this one does not. copytree(dirs_exist_ok) only ever
     # adds, so a retired page would survive every upgrade forever as a file the product no longer
     # serves. Removing it here is what makes "removed" true on an upgraded install, not just a
