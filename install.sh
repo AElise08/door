@@ -160,7 +160,7 @@ if [ -n "$AUTH_PENDING" ]; then
   # missing, so report what is left to do instead of dying on its exit status.
   mypeople "${UP_ARGS[@]}" || true
   echo "[mypeople] ============================================================" >&2
-  echo "[mypeople] MyPeople is INSTALLED, but '$BACKEND' is NOT authenticated." >&2
+  echo "[mypeople] MyPlow is INSTALLED, but '$BACKEND' is NOT authenticated." >&2
   echo "[mypeople] Nothing is running yet. From a terminal with a TTY, run:" >&2
   echo "[mypeople]     $AUTH_PENDING" >&2
   echo "[mypeople]     mypeople up --backend $BACKEND" >&2

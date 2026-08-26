@@ -10,7 +10,7 @@ both values garbage):
     $ claude -p 'reply with PONG'
     Failed to authenticate. API Error: 401 OAuth access token is invalid.
 
-So the gate in firstrun.resolve_auth() reported `this node's claude login is active`, MyPeople
+So the gate in firstrun.resolve_auth() reported `this node's claude login is active`, MyPlow
 brought the Boss up, the HUD painted ALIVE/WORKING, the board delivered pings -- and the agent
 sat at "Not logged in · Please run /login". The product asserted a state that did not exist, and
 every surface downstream repeated the lie. That is worse than failing.

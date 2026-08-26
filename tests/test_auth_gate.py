@@ -2,7 +2,7 @@
 
 Proven failure this pins shut: with an OAuth credential whose access AND refresh tokens had both
 expired, `claude auth status` still answered `{"loggedIn": true}` with exit 0, so
-firstrun.resolve_auth() announced `this node's claude login is active`, MyPeople started the Boss,
+firstrun.resolve_auth() announced `this node's claude login is active`, MyPlow started the Boss,
 the HUD painted ALIVE/WORKING and the board delivered pings -- while the agent sat at
 "Not logged in · Please run /login" and `claude -p` returned
 `Failed to authenticate. API Error: 401 OAuth access token is invalid.`

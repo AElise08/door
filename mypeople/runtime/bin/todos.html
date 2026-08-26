@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MyPeople - Priorities</title>
+<title>MyPlow - Priorities</title>
 <style>
 :root{
   --midnight:#01000A; --volt:#D5EF8A; --grove:#5e7a5e; --iris:#C4BFFF;
@@ -29,12 +29,7 @@ h1{font-family:var(--serif);font-size:34px;font-weight:400;margin:0;color:var(--
 .subt{font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted-dark);margin-top:4px;}
 .navlink{color:var(--volt);text-decoration:none;text-transform:uppercase;}
 .navlink:focus-visible{outline:2px solid var(--volt);outline-offset:3px;border-radius:2px;}
-.counts{display:flex;align-items:center;gap:10px;margin:20px 0 14px;font-family:var(--mono);font-size:12px;flex-wrap:wrap;}
-.pill{border-radius:100px;padding:5px 12px;color:var(--muted-dark);background:rgba(255,255,255,0.03);border:1px solid var(--dark-border);}
-.live-pill{border-radius:100px;padding:5px 12px;background:rgba(213,239,138,0.1);color:var(--volt);text-transform:uppercase;font-weight:700;display:flex;align-items:center;gap:7px;}
-.live-dot{width:8px;height:8px;border-radius:50%;background:var(--volt);display:inline-block;}
-.clock{color:var(--text-dark);}
-.addbar{display:flex;gap:10px;margin:8px 0 16px;}
+.addbar{display:flex;gap:10px;margin:20px 0 16px;}
 #addInput{flex:1;font-family:var(--sans);font-size:18px;background:var(--surface);border:1px solid var(--dark-border);border-radius:14px;padding:16px 20px;color:var(--text-dark);}
 #addInput::placeholder{color:var(--muted-dark);}
 .btn-volt{background:var(--volt);color:var(--midnight);border:none;border-radius:14px;font-family:var(--sans);font-size:17px;font-weight:700;padding:0 22px;cursor:pointer;}
@@ -43,7 +38,6 @@ h1{font-family:var(--serif);font-size:34px;font-weight:400;margin:0;color:var(--
 .vb-label{font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--muted-dark);}
 .chip{font-family:var(--mono);font-size:11px;border-radius:100px;text-transform:uppercase;font-weight:500;padding:4px 11px;cursor:pointer;border:1px solid transparent;user-select:none;}
 .chip[aria-pressed="false"]{opacity:.34;text-decoration:line-through;}
-.st-needs_brainstorm{color:rgb(196,191,255);background:rgba(196,191,255,0.18);}
 .st-working{color:rgb(254,188,46);background:rgba(254,188,46,0.18);}
 .st-review{color:rgb(90,200,250);background:rgba(90,200,250,0.16);}
 .st-blocked{color:rgb(255,59,48);background:rgba(255,59,48,0.16);}
@@ -139,15 +133,8 @@ body.modal-open #modalbg{display:flex;}
     <div class="mark"><span>P</span></div>
     <div>
       <h1>Priorities</h1>
-      <div class="subt">Boss source-of-truth · MyPeople</div>
+      <div class="subt">Boss source-of-truth · MyPlow</div>
     </div>
-  </div>
-  <div class="counts">
-    <span class="pill" id="cDone">0 done</span>
-    <span class="pill" id="cOpen">0 open</span>
-    <span class="pill" id="cTotal">0 total</span>
-    <span class="live-pill"><span class="live-dot"></span>live</span>
-    <span class="clock subt" id="clock"></span>
   </div>
   <div class="addbar">
     <input id="addInput" placeholder="Add a priority and hit Enter…" autocomplete="off">
@@ -168,7 +155,6 @@ body.modal-open #modalbg{display:flex;}
   </div>
   <div class="viewbar" id="viewbar">
     <span class="vb-label">show</span>
-    <span class="chip st-needs_brainstorm" data-state="needs_brainstorm" aria-pressed="true">needs brainstorm</span>
     <span class="chip st-working" data-state="working" aria-pressed="true">working</span>
     <span class="chip st-review" data-state="review" aria-pressed="true">review (CEO)</span>
     <span class="chip st-blocked" data-state="blocked" aria-pressed="true">blocked</span>
@@ -202,7 +188,7 @@ const READ_KEY="mp_read_tasks";
 let readTasks=JSON.parse(localStorage.getItem(READ_KEY)||"{}");
 
 // filters (persisted)
-const ALL_STATES = ["needs_brainstorm","working","review","blocked","done","cancelled"];
+const ALL_STATES = ["working","review","blocked","done","cancelled"];
 let enabledStates = new Set(JSON.parse(localStorage.getItem("mp_states")||"null") || ALL_STATES);
 let view = localStorage.getItem("mp_view") || "all";
 
@@ -356,13 +342,6 @@ function render(){
     vpins.forEach(t=>list.appendChild(cardEl(t)));
   }
   vnorm.forEach(t=>list.appendChild(cardEl(t)));
-  // counts (recurring excluded from working stats)
-  const tasks=Object.values(BOARD.tasks).filter(t=>t.state!=="recurring");
-  const done=tasks.filter(t=>t.state==="done").length;
-  const total=tasks.length;
-  $("#cDone").textContent=done+" done";
-  $("#cOpen").textContent=(total-done)+" open";
-  $("#cTotal").textContent=total+" total";
   $("#unreadN").textContent=Object.values(BOARD.tasks).filter(hasUnread).length;
   $("#recurN").textContent=Object.values(BOARD.tasks).filter(t=>t.state==="recurring").length;
   document.querySelectorAll(".vbtn").forEach(b=>b.classList.toggle("active", b.dataset.view===view));
@@ -443,7 +422,7 @@ function renderModal(task, forceBottom){
   const owner=document.createElement("span"); appendAgentLink(owner,task.assignee); row.appendChild(owner);
   row.appendChild(document.createTextNode("  ·  "));
   const sel=document.createElement("select");
-  ["needs_brainstorm","working","review","done","blocked","cancelled","recurring"].forEach(s=>{
+  ["working","review","done","blocked","cancelled","recurring"].forEach(s=>{
     const o=document.createElement("option"); o.value=s; o.textContent=stateLabel(s); if(task.state===s)o.selected=true; sel.appendChild(o);});
   sel.onchange=async ()=>{ await api("/todo/status",{method:"POST",body:JSON.stringify({task_id:task.id,state:sel.value})}); fetchBoard(true); };
   row.appendChild(sel);
@@ -595,8 +574,6 @@ document.querySelectorAll(".vbtn").forEach(b=>b.addEventListener("click",()=>{
   view=b.dataset.view; saveFilters(); render();
 }));
 
-function tick(){ const d=new Date(); $("#clock").textContent=d.toLocaleTimeString(); }
-setInterval(tick,1000); tick();
 
 // track the visual viewport so the mobile task modal (height:var(--vvh)) shrinks when the
 // soft keyboard opens, keeping the composer above it instead of hidden behind it

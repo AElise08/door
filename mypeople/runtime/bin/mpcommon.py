@@ -108,7 +108,7 @@ _VERSION_BADGE = """
  backdrop-filter:blur(4px);opacity:.75}
 @media print{#mp-version-badge{display:none}}
 </style>
-<div id="mp-version-badge" title="MyPeople version serving this page">__MP_VERSION__</div>
+<div id="mp-version-badge" title="MyPlow version serving this page">__MP_VERSION__</div>
 """
 
 # Every first-class surface, reachable from every other one. Injected at this seam for the same
@@ -138,7 +138,7 @@ _NAV = """
 @media(max-width:700px){#mp-nav{right:12px;top:12px;gap:6px}#mp-nav a{padding:5px 11px}}
 @media print{#mp-nav{display:none}}
 </style>
-<nav id="mp-nav" aria-label="MyPeople surfaces">
+<nav id="mp-nav" aria-label="MyPlow surfaces">
  <a href="/" data-mp-path="/">Board</a>
  <a href="/terminal-graph" data-mp-path="/terminal-graph">Graph</a>
  <a href="/dashboard" data-mp-path="/dashboard">HUD</a>

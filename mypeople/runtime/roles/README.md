@@ -1,4 +1,4 @@
-# MyPeople role bundles
+# MyPlow role bundles
 
 `mp spawn ... --role <tag>` resolves tags from `registry.json`. A role manifest composes a
 backend-neutral personality, mandatory and role-specific Agent Skills, the existing lifecycle

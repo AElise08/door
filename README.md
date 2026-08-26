@@ -1,10 +1,10 @@
-# MyPeople
+# MyPlow
 
 Self-hosted Claude Code, Codex and Grok teams: a priorities board, live HUD, browser terminal,
 Terminal Graph, persistent Boss, engineers, and board backups. This repository contains the
 implemented runtime; installing it does not hydrate or generate code from the SEED.
 
-Each machine authenticates its selected agent backend independently. MyPeople never copies,
+Each machine authenticates its selected agent backend independently. MyPlow never copies,
 mounts, or reuses another node's credential store.
 
 ## Docker (recommended)
@@ -61,7 +61,7 @@ To build the same image from this source, run `make image`.
 ## Native installer
 
 The installer installs both CLIs and host dependencies, authenticates only the selected backend,
-builds the wheel, preserves existing MyPeople data, and starts the stack.
+builds the wheel, preserves existing MyPlow data, and starts the stack.
 
 Claude Code:
 

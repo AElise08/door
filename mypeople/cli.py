@@ -127,7 +127,7 @@ def urls(cfg):
 
 def print_login_required(cfg):
     print("\n  " + "=" * 66)
-    print("  MyPeople is UP but this node has no AI login yet.")
+    print("  MyPlow is UP but this node has no AI login yet.")
     print("  The board and the HUD below work; no agent can run until you log in.\n")
     for line in firstrun.login_howto():
         print("    %s" % line)

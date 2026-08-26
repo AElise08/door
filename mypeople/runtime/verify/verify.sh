@@ -174,7 +174,7 @@ $CURL "$TODO/" | grep -q 'href="/dashboard"' && $CURL "$HUD/dashboard" | grep -q
 python3 "$ID/verify/proxy.py" 38080 "${TODO_PORT:-9933}" >/dev/null 2>&1 &
 PXP=$!; sleep 1
 p1=$($CURL "http://127.0.0.1:38080/" | grep -c "Priorities")
-p2=$($CURL "http://127.0.0.1:38080/dashboard" | grep -c "MyPeople - HUD")
+p2=$($CURL "http://127.0.0.1:38080/dashboard" | grep -c "MyPlow - HUD")
 kill $PXP 2>/dev/null
 [ "$p1" -ge 1 ] && [ "$p2" -ge 1 ] && pass "J6b port-shift-proxy" || fail "J6b port-shift-proxy p1=$p1 p2=$p2"
 
@@ -199,9 +199,16 @@ if echo "$TB$HB" | grep -Eq "@keyframes|animation:"; then fail "J29 no-animation
 echo "$TB" | grep -q "op:'reorder'" && fail "J14 no-reorder" || pass "J14 generative-no-reorder"
 
 # ---------- J9a titles ----------
-echo "$TB" | grep -q "<title>MyPeople - Priorities</title>" && echo "$TB" | grep -q "<h1>Priorities</h1>" \
-  && echo "$HB" | grep -q "MyPeople - HUD" && ! echo "$TB" | grep -q "<h1>MyPeople - Priorities" \
+echo "$TB" | grep -q "<title>MyPlow - Priorities</title>" && echo "$TB" | grep -q "<h1>Priorities</h1>" \
+  && echo "$HB" | grep -q "MyPlow - HUD" && ! echo "$TB" | grep -q "<h1>MyPlow - Priorities" \
   && pass "J9a titles" || fail "J9a titles"
+
+# ---------- J9f no counters/clock in the header ----------
+if echo "$TB" | grep -Eq 'id="cDone"|id="cOpen"|id="cTotal"|live-pill|id="clock"|setInterval\(tick'; then
+  fail "J9f no-header-counters"
+else
+  pass "J9f no-header-counters"
+fi
 
 # ---------- J9d no proof-attach UI ----------
 if echo "$TB" | grep -Eqi '<input[^>]*type="file"|add proof|choose file'; then fail "J9d no-proof-ui"; else pass "J9d no-proof-ui"; fi
@@ -226,7 +233,7 @@ $CURL -X POST -H "$QS" -d "{\"op\":\"set\",\"id\":\"$E\",\"text\":\"edited\",\"d
 $CURL -H "$QS" "$TODO/todo/board" | python3 -c "import sys,json;t=json.load(sys.stdin)['tasks']['$E'];exit(0 if t['text']=='edited' and t['doneCondition']=='cond1' and t['assignee']=='$BOSS' else 1)" && pass "J16 inline-edit" || fail "J16 inline-edit"
 
 # ---------- J17 state enum + idle rejected ----------
-for st in needs_brainstorm working review done blocked cancelled; do
+for st in working review done blocked cancelled; do
   $CURL -X POST -H "$QS" -d "{\"op\":\"set\",\"id\":\"$E\",\"state\":\"$st\"}" "$TODO/todo/update" >/dev/null
   got=$($CURL -H "$QS" "$TODO/todo/board" | python3 -c "import sys,json;print(json.load(sys.stdin)['tasks']['$E']['state'])")
   [ "$got" = "$st" ] || { fail "J17 state $st -> $got"; ENUMBAD=1; }
@@ -238,13 +245,12 @@ idlec=$($CURL -o /dev/null -w '%{http_code}' -X POST -H "$QS" -d "{\"op\":\"set\
 $CURL -X POST -H "$QS" -d "{\"op\":\"set\",\"id\":\"$E\",\"done\":true}" "$TODO/todo/update" >/dev/null
 [ "$($CURL -H "$QS" "$TODO/todo/board" | python3 -c "import sys,json;print(json.load(sys.stdin)['tasks']['$E']['state'])")" = "done" ] && pass "J18 done-toggle" || fail "J18 done-toggle"
 
-# ---------- J19 needs_brainstorm -> working no gate ----------
-NB=$($CURL -X POST -H "$QS" -d '{"op":"add","text":"nb task"}' "$TODO/todo/update" | jqget "d['id']")
+# ---------- J19 cards are born working, needs_brainstorm is not a state ----------
+NB=$($CURL -X POST -H "$QS" -d '{"op":"add","text":"born working"}' "$TODO/todo/update" | jqget "d['id']")
 CREATED+=("$NB")
 s0=$($CURL -H "$QS" "$TODO/todo/board" | python3 -c "import sys,json;print(json.load(sys.stdin)['tasks']['$NB']['state'])")
-$CURL -X POST -H "$QS" -d "{\"op\":\"set\",\"id\":\"$NB\",\"state\":\"working\"}" "$TODO/todo/update" >/dev/null
-s1=$($CURL -H "$QS" "$TODO/todo/board" | python3 -c "import sys,json;print(json.load(sys.stdin)['tasks']['$NB']['state'])")
-[ "$s0" = "needs_brainstorm" ] && [ "$s1" = "working" ] && pass "J19 nb->working-no-gate" || fail "J19 nb->working ($s0->$s1)"
+nbc=$($CURL -o /dev/null -w '%{http_code}' -X POST -H "$QS" -d "{\"op\":\"set\",\"id\":\"$NB\",\"state\":\"needs_brainstorm\"}" "$TODO/todo/update")
+[ "$s0" = "working" ] && [ "$nbc" = "400" ] && pass "J19 born-working nb-rejected" || fail "J19 born-working ($s0) nb-code=$nbc"
 
 # ---------- J20 brainstorm gate gone ----------
 bc=$($CURL -o /dev/null -w '%{http_code}' -X POST -H "$QS" -d '{}' "$TODO/todo/brainstorm")

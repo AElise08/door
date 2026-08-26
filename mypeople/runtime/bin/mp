@@ -127,7 +127,7 @@ def claude_consent_settings():
 
 
 def codex_trust_override(cwd):
-    """Trust only an exact cwd inside MyPeople's managed agent run roots for this launch."""
+    """Trust only an exact cwd inside MyPlow's managed agent run roots for this launch."""
     resolved = os.path.realpath(os.path.abspath(os.path.expanduser(cwd)))
     managed_roots = (
         os.path.realpath(os.path.join(INSTALL_DIR, "run", "eng")),
@@ -319,7 +319,7 @@ def window_exists(sess, tab):
 
 
 # The permission-bypass flag each backend MUST be launched with. An agent without it stops on the
-# first tool prompt and looks hung to whoever installed MyPeople -- the exact symptom reported for
+# first tool prompt and looks hung to whoever installed MyPlow -- the exact symptom reported for
 # a first-run Boss (card 5211716904, items 6+7).
 BYPASS_MARKERS = {
     "claude": ["--dangerously-skip-permissions"],

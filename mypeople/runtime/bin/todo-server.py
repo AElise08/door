@@ -27,7 +27,7 @@ TODOS_HTML = os.path.join(HTML_DIR, "todos.html")
 TERMINAL_GRAPH_HTML = os.path.join(HTML_DIR, "terminal-graph.html")
 STATUS_DIR = os.path.join(INSTALL_DIR, "status")
 
-VALID_STATES = {"needs_brainstorm", "working", "review", "done", "blocked", "cancelled", "recurring"}
+VALID_STATES = {"working", "review", "done", "blocked", "cancelled", "recurring"}
 # A card in a terminal state has no work left, so it must have no living owner.
 TERMINAL_STATES = {"done", "cancelled"}
 FULL_AGENT_ID = re.compile(r"^[^/\s]+/[^/:\s]+:[^/:\s]+$")
@@ -793,7 +793,7 @@ class Handler(BaseHTTPRequestHandler):
         with LOCK: board = load_board()
         tasks = []
         for task in board.get("tasks", {}).values():
-            assignee = task.get("assignee") or ""; state = task.get("state") or "needs_brainstorm"
+            assignee = task.get("assignee") or ""; state = task.get("state") or "working"
             tid = task.get("id", "")
             if not tid: continue
             tasks.append({"id": tid, "title": task.get("text", ""), "state": state,
@@ -825,7 +825,7 @@ class Handler(BaseHTTPRequestHandler):
                 tid = uuid.uuid4().hex[:10]
                 # assignee is NOT settable here: /todo/owner is the only door, and it is the one
                 # that checks the agent is alive, unretired, this Boss's, and born for this card.
-                task = {"id": tid, "text": body.get("text", ""), "state": "needs_brainstorm",
+                task = {"id": tid, "text": body.get("text", ""), "state": "working",
                         "assignee": "", "ownerHistory": [], "ownerNeedsReplacement": False,
                         "pinned": False, "pinRank": None,
                         "doneCondition": "", "workToDone": "", "done": False, "verified": False,

@@ -67,7 +67,7 @@ class EnsureWithoutLoginTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.install = os.path.join(self.tmp.name, "install")
         config = os.path.join(self.install, "config", "queue.env")
-        # A MyPeople agent runs with MYPEOPLE_BACKEND/DEFAULT_BACKEND exported, and ensure()
+        # A MyPlow agent runs with MYPEOPLE_BACKEND/DEFAULT_BACKEND exported, and ensure()
         # honours those as an explicit request. Left in place, every test below would silently
         # be testing "claude was demanded" rather than "nothing was demanded".
         for key in ("MYPEOPLE_BACKEND", "DEFAULT_BACKEND", "MYPEOPLE_CONTAINER"):

@@ -176,7 +176,7 @@ def _claude_authenticated():
 
     `claude auth status` returns `loggedIn: true` for a credential whose access AND refresh tokens
     both expired -- proven against a hand-built dead credential, where the very next `claude -p`
-    answered `Failed to authenticate. API Error: 401`. Trusting that flag is what made MyPeople
+    answered `Failed to authenticate. API Error: 401`. Trusting that flag is what made MyPlow
     announce `this node's claude login is active`, start the Boss, and paint the HUD ALIVE while
     the agent sat at "Not logged in". So the flag is now only the FIRST hurdle: the credential
     still has to survive authcheck (expiry stamps, then a real one-word probe).
@@ -277,7 +277,7 @@ def resolve_auth(preferred=None, chooser=None):
     requested = preferred or "claude, codex or grok"
     return (False, preferred or "none",
             "This node is not authenticated for %s. Run `claude auth login`, `codex login` or "
-            "`grok login` inside THIS node, then re-run MyPeople. Never copy or mount credentials "
+            "`grok login` inside THIS node, then re-run MyPlow. Never copy or mount credentials "
             "from another node." % requested)
 
 
@@ -338,7 +338,7 @@ def _prompt_backend(available):
     for i, b in enumerate(available, 1):
         _echo("  %d) %s" % (i, b))
     try:
-        raw = input("[mypeople] Which should MyPeople use? [1-%d, default %s]: "
+        raw = input("[mypeople] Which should MyPlow use? [1-%d, default %s]: "
                     % (len(available), available[0])).strip()
     except (EOFError, KeyboardInterrupt):
         return ""
@@ -442,7 +442,7 @@ def _mypeople_hook_group(group):
 
 
 def _replace_mypeople_hooks(hooks, hook):
-    """Remove every prior MyPeople hook, including retired events, then install current ones."""
+    """Remove every prior MyPlow hook, including retired events, then install current ones."""
     if not isinstance(hooks, dict):
         hooks = {}
     for event in list(hooks):
@@ -532,7 +532,7 @@ def _atomic_json(path, obj):
 
 # ---------------------------------------------------------------- step 5: tmux.conf
 def install_tmux_conf(install):
-    """Install MyPeople's tmux settings as an include while preserving the user's config."""
+    """Install MyPlow's tmux settings as an include while preserving the user's config."""
     dst = os.path.expanduser("~/.tmux.conf")
     src = os.path.join(install, "config", "tmux.conf")
     include = os.path.join(CONFIG_DIR, "tmux.runtime.conf")
@@ -551,7 +551,7 @@ def install_tmux_conf(install):
         with open(dst, "a") as f:
             if existing and not existing.endswith("\n"):
                 f.write("\n")
-            f.write("\n# MyPeople runtime settings\n%s\n" % directive)
+            f.write("\n# MyPlow runtime settings\n%s\n" % directive)
     tpm = os.path.expanduser("~/.tmux/plugins/tpm")
     if not os.path.isdir(tpm) and shutil.which("git"):
         subprocess.run(["git", "clone", "--depth", "1", "https://github.com/tmux-plugins/tpm", tpm],

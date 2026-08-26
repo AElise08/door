@@ -231,7 +231,7 @@ class Handler(BaseHTTPRequestHandler):
                 with open(DASHBOARD_HTML, "rb") as f:
                     html = C.render_page(f.read().decode("utf-8"))
             except Exception:
-                html = C.render_page("<h1>MyPeople - HUD</h1>")
+                html = C.render_page("<h1>MyPlow - HUD</h1>")
             return self._send(200, raw=html, ctype="text/html; charset=utf-8",
                               extra_headers=self._page_headers())
         # TODO routes -> proxy to todo-server (symmetric front doors)

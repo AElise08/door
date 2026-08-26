@@ -248,7 +248,7 @@ def _link_grok_home_entry(grok_home, name):
     if not os.path.exists(src):
         if name == "auth.json":
             raise RoleError(
-                "operator ~/.grok/auth.json missing — run `grok` once outside MyPeople and "
+                "operator ~/.grok/auth.json missing — run `grok` once outside MyPlow and "
                 "complete login, then re-spawn the Grok Boss")
         return
     try:
@@ -273,7 +273,7 @@ def _write_ro(path, data):
 
 def _startup_doc(item):
     buf = io.StringIO()
-    buf.write("# MyPeople locked role\n\n")
+    buf.write("# MyPlow locked role\n\n")
     buf.write("Role: `%s`\n" % item["role_ref"])
     buf.write("Role digest: `%s`\n" % item["digest"])
     buf.write("Personality: `%s` (sha256 `%s`)\n\n" % (item["personality_source"], item["personality_digest"]))
@@ -323,7 +323,7 @@ def materialize_role(item, aid, backend, bundle_root):
     if backend == "claude":
         _write_ro(os.path.join(plugin_path, ".claude-plugin", "plugin.json"),
                   json.dumps({"name": "mypeople-role-%s" % item["role"], "version": "1.0.0",
-                              "description": "MyPeople %s role skills (locked %s)"
+                              "description": "MyPlow %s role skills (locked %s)"
                               % (item["role"], item["digest"][:12])}, indent=2))
         for s in item["skills"]:
             _write_ro(os.path.join(plugin_path, "skills", s["name"], "SKILL.md"), s["bytes"])
