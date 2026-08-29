@@ -200,7 +200,7 @@ echo "$TB" | grep -q "op:'reorder'" && fail "J14 no-reorder" || pass "J14 genera
 
 # ---------- J9a titles ----------
 echo "$TB" | grep -q "<title>MyPlow - Priorities</title>" && echo "$TB" | grep -q "<h1>MyPlow</h1>" \
-  && ! echo "$TB" | grep -q "source-of-truth" \
+  && ! echo "$TB" | grep -q "source-of-truth" && ! echo "$TB" | grep -q 'class="mark"' \
   && echo "$HB" | grep -q "MyPlow - HUD" && ! echo "$TB" | grep -q "<h1>MyPlow - Priorities" \
   && pass "J9a titles" || fail "J9a titles"
 
