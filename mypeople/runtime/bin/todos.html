@@ -321,7 +321,7 @@ function render(){
   const list=$("#list"); list.innerHTML="";
   const {pins, normal}=orderedTasks();
   const vpins=pins.filter(visible), vnorm=normal.filter(visible);
-  if(lens!=="recurring" && vpins.length){
+  if(vpins.length){
     const h=document.createElement("div"); h.className="pin-head"; h.textContent="★ Pinned"; list.appendChild(h);
     vpins.forEach(t=>list.appendChild(cardEl(t)));
   }
