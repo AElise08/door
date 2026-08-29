@@ -204,6 +204,17 @@ echo "$TB" | grep -q "<title>MyPlow - Priorities</title>" && echo "$TB" | grep -
   && echo "$HB" | grep -q "MyPlow - HUD" && ! echo "$TB" | grep -q "<h1>MyPlow - Priorities" \
   && pass "J9a titles" || fail "J9a titles"
 
+# ---------- J9g the filter bar is 3 controls, done+cancelled hidden by default ----------
+VB=$(echo "$TB" | sed -n '/id="viewbar"/,/<\/div>/p')
+nvb=$(echo "$VB" | grep -c 'data-toggle=\|data-lens=')
+if [ "$nvb" = "3" ] && ! echo "$VB" | grep -q 'class="chip' \
+   && ! echo "$TB" | grep -Eq 'data-view="all"|data-view="hide_done"|data-view="only_done"|enabledStates|ALL_STATES' \
+   && echo "$TB" | grep -q 'let showDone = localStorage.getItem("mp_show_done")==="1"'; then
+  pass "J9g filter-bar-3-controls"
+else
+  fail "J9g filter-bar-3-controls (n=$nvb)"
+fi
+
 # ---------- J9f no counters/clock in the header ----------
 if echo "$TB" | grep -Eq 'id="cDone"|id="cOpen"|id="cTotal"|live-pill|id="clock"|setInterval\(tick'; then
   fail "J9f no-header-counters"

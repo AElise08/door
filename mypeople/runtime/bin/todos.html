@@ -34,8 +34,6 @@ h1{font-family:var(--serif);font-size:34px;font-weight:400;margin:0;color:var(--
 .btn-volt:hover{box-shadow:0 0 0 3px var(--volt-glow);}
 .viewbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:18px;}
 .vb-label{font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--muted-dark);}
-.chip{font-family:var(--mono);font-size:11px;border-radius:100px;text-transform:uppercase;font-weight:500;padding:4px 11px;cursor:pointer;border:1px solid transparent;user-select:none;}
-.chip[aria-pressed="false"]{opacity:.34;text-decoration:line-through;}
 .st-working{color:rgb(254,188,46);background:rgba(254,188,46,0.18);}
 .st-review{color:rgb(90,200,250);background:rgba(90,200,250,0.16);}
 .st-blocked{color:rgb(255,59,48);background:rgba(255,59,48,0.16);}
@@ -148,18 +146,10 @@ body.modal-open #modalbg{display:flex;}
     <span class="boss-msg subt" id="bossMsg"></span>
   </div>
   <div class="viewbar" id="viewbar">
-    <span class="vb-label">show</span>
-    <span class="chip st-working" data-state="working" aria-pressed="true">working</span>
-    <span class="chip st-review" data-state="review" aria-pressed="true">review (CEO)</span>
-    <span class="chip st-blocked" data-state="blocked" aria-pressed="true">blocked</span>
-    <span class="chip st-done" data-state="done" aria-pressed="true">done</span>
-    <span class="chip st-cancelled" data-state="cancelled" aria-pressed="true">cancelled</span>
+    <button class="vbtn" data-toggle="done">show done</button>
+    <button class="vbtn" data-toggle="cancelled">show cancelled</button>
     <span class="vb-sep"></span>
-    <button class="vbtn" data-view="all">all</button>
-    <button class="vbtn" data-view="hide_done">hide done</button>
-    <button class="vbtn" data-view="only_done">only done</button>
-    <button class="vbtn" data-view="unread">unread only · <span id="unreadN">0</span></button>
-    <button class="vbtn" data-view="recurring">recurring · <span id="recurN">0</span></button>
+    <button class="vbtn" data-lens="recurring">recurring · <span id="recurN">0</span></button>
   </div>
   <ul id="list"></ul>
 </div>
@@ -182,12 +172,14 @@ const READ_KEY="mp_read_tasks";
 let readTasks=JSON.parse(localStorage.getItem(READ_KEY)||"{}");
 
 // filters (persisted)
-const ALL_STATES = ["working","review","blocked","done","cancelled"];
-let enabledStates = new Set(JSON.parse(localStorage.getItem("mp_states")||"null") || ALL_STATES);
-let view = localStorage.getItem("mp_view") || "all";
+// working/review/blocked are always on — that IS the board. Done and cancelled are opt-in.
+let showDone = localStorage.getItem("mp_show_done")==="1";
+let showCancelled = localStorage.getItem("mp_show_cancelled")==="1";
+let lens = localStorage.getItem("mp_lens") || "";   // "" | "recurring"
 
-function saveFilters(){ localStorage.setItem("mp_states", JSON.stringify([...enabledStates]));
-  localStorage.setItem("mp_view", view); }
+function saveFilters(){ localStorage.setItem("mp_show_done", showDone?"1":"0");
+  localStorage.setItem("mp_show_cancelled", showCancelled?"1":"0");
+  localStorage.setItem("mp_lens", lens); }
 
 async function api(path, opts){ opts=opts||{}; opts.credentials="same-origin";
   opts.headers=Object.assign({"Content-Type":"application/json"}, opts.headers||{});
@@ -273,12 +265,10 @@ function orderedTasks(){
   return {pins, normal};
 }
 function visible(task){
-  if(view==="recurring") return task.state==="recurring";
+  if(lens==="recurring") return task.state==="recurring";
   if(task.state==="recurring") return false;           // recurring never on working board
-  if(view==="hide_done" && task.state==="done") return false;
-  if(view==="only_done" && task.state!=="done") return false;
-  if(view==="unread" && !hasUnread(task)) return false;
-  if(!enabledStates.has(task.state) && task.state!=="recurring") return false;
+  if(task.state==="done" && !showDone) return false;
+  if(task.state==="cancelled" && !showCancelled) return false;
   return true;
 }
 
@@ -336,10 +326,10 @@ function render(){
     vpins.forEach(t=>list.appendChild(cardEl(t)));
   }
   vnorm.forEach(t=>list.appendChild(cardEl(t)));
-  $("#unreadN").textContent=Object.values(BOARD.tasks).filter(hasUnread).length;
   $("#recurN").textContent=Object.values(BOARD.tasks).filter(t=>t.state==="recurring").length;
-  document.querySelectorAll(".vbtn").forEach(b=>b.classList.toggle("active", b.dataset.view===view));
-  document.querySelectorAll(".chip").forEach(c=>c.setAttribute("aria-pressed", enabledStates.has(c.dataset.state)?"true":"false"));
+  $("#viewbar [data-toggle='done']").classList.toggle("active", showDone);
+  $("#viewbar [data-toggle='cancelled']").classList.toggle("active", showCancelled);
+  document.querySelectorAll("#viewbar [data-lens]").forEach(b=>b.classList.toggle("active", b.dataset.lens===lens));
 }
 
 // ---- modal ----
@@ -559,13 +549,13 @@ async function addTask(){
 }
 $("#addBtn").addEventListener("click", addTask);
 $("#addInput").addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); addTask(); }});
-document.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>{
-  const s=c.dataset.state;
-  if(enabledStates.has(s)) enabledStates.delete(s); else enabledStates.add(s);
+document.querySelectorAll("#viewbar [data-toggle]").forEach(b=>b.addEventListener("click",()=>{
+  if(b.dataset.toggle==="done") showDone=!showDone; else showCancelled=!showCancelled;
   saveFilters(); render();
 }));
-document.querySelectorAll(".vbtn").forEach(b=>b.addEventListener("click",()=>{
-  view=b.dataset.view; saveFilters(); render();
+document.querySelectorAll("#viewbar [data-lens]").forEach(b=>b.addEventListener("click",()=>{
+  lens = (lens===b.dataset.lens) ? "" : b.dataset.lens;   // click it again to drop the lens
+  saveFilters(); render();
 }));
 
 
