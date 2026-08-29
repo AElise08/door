@@ -22,7 +22,10 @@ for (const [engine, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
     let taskId = null;
     try {
       await page.goto(origin + "/", { waitUntil: "networkidle" });
-      await page.locator("h1", { hasText: "Priorities" }).waitFor();
+      await page.locator("h1", { hasText: "MyPlow" }).first().waitFor();
+      // the board must actually paint the cards it already has: a throw inside
+      // render() leaves an empty #list while every assertion below still passes
+      await page.locator("#list li.task").first().waitFor();
       await page.locator("#addInput").fill(marker);
       await page.locator("#addInput").press("Enter");
       const row = page.locator("li.task", { hasText: marker });
