@@ -44,6 +44,11 @@ TTYD_PORT="${TTYD_PORT:-7681}"
 # The Terminal Graph tiles onto a READ-ONLY ttyd: a tile is a view, and a stray click must never
 # type into a live agent. Stock ttyd is readonly unless -W, so this is the same binary, no flag.
 TTYD_RO_PORT="${TTYD_RO_PORT:-$((TTYD_PORT + 1))}"
+# The OBS overlay (/terminal-graph?stream=1) needs a transparent xterm, which is a ttyd launch
+# flag and therefore server-wide. Keeping it on its own port leaves the fleet's own viewer on the
+# default opaque theme and its faster renderer.
+TTYD_STREAM_PORT="${TTYD_STREAM_PORT:-$((TTYD_PORT + 2))}"
+TTYD_STREAM_OPTS="-t disableLeaveAlert=true -t 'theme={\"background\":\"rgba(0,0,0,0)\",\"foreground\":\"#ffffff\"}' -t allowTransparency=true"
 HUD_PORT="${HUD_PORT:-9900}"
 TODO_PORT="${TODO_PORT:-9933}"
 # Closing a browser TTY tab must never prompt "Are you sure you want to leave this page?" — a tile
@@ -80,6 +85,7 @@ while true; do
   ensure "$BIN/board-exporter.py"          "exec python3 '$BIN/board-exporter.py'"
   ensure "ttyd -W -a -p $TTYD_PORT"        "exec ttyd -W -a -p $TTYD_PORT $TTYD_CLIENT_OPTS '$BIN/ttyd-attach.sh'"
   ensure "ttyd -a -p $TTYD_RO_PORT"        "exec ttyd -a -p $TTYD_RO_PORT $TTYD_CLIENT_OPTS '$BIN/ttyd-attach.sh'"
+  ensure "ttyd -a -p $TTYD_STREAM_PORT"    "exec ttyd -a -p $TTYD_STREAM_PORT $TTYD_STREAM_OPTS '$BIN/ttyd-attach.sh'"
   ensure "$BIN/boss-supervisor.sh"         "exec bash '$BIN/boss-supervisor.sh'"
   recycle_leaked_ttyd "ttyd -W -a -p $TTYD_PORT"
   recycle_leaked_ttyd "ttyd -a -p $TTYD_RO_PORT"

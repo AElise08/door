@@ -38,7 +38,7 @@ def load_env():
     # Live env overrides the file, including fleet/client-only keys not present in old configs.
     known = set(cfg) | {
         "INSTALL_DIR", "HOST_ID", "HUD_PORT", "TODO_PORT", "TTYD_PORT",
-        "TTYD_BROWSER_PORT", "TTYD_RO_PORT", "BIND_ADDR",
+        "TTYD_BROWSER_PORT", "TTYD_RO_PORT", "TTYD_STREAM_PORT", "BIND_ADDR",
         "QUEUE_URL", "QUEUE_SECRET", "TTYD_PUBLIC_URL", "DEFAULT_ENG_MODEL",
         "DEFAULT_BACKEND", "DEFAULT_CLAUDE_MODEL", "DEFAULT_CODEX_MODEL", "DEFAULT_GROK_MODEL",
         "MYPEOPLE_RECORD",
@@ -58,6 +58,9 @@ def load_env():
     # Read-only ttyd: the Terminal Graph's tiles are views, not consoles. Stock ttyd is readonly
     # unless -W, so this is a second plain ttyd rather than a special build.
     cfg.setdefault("TTYD_RO_PORT", str(int(cfg["TTYD_PORT"]) + 1))
+    # the OBS overlay gets its OWN ttyd: its terminals must be transparent, and a transparent
+    # xterm is a server-wide launch flag, so it must not be set on the viewer the fleet uses
+    cfg.setdefault("TTYD_STREAM_PORT", str(int(cfg["TTYD_PORT"]) + 2))
     cfg.setdefault("BIND_ADDR", "0.0.0.0")
     cfg.setdefault("QUEUE_URL", "http://127.0.0.1:%s" % cfg["HUD_PORT"])
     cfg.setdefault("DEFAULT_ENG_MODEL", "claude-opus-4-8")
