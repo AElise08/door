@@ -50,7 +50,13 @@ TODO_PORT="${TODO_PORT:-9933}"
 # or attach view is disposable, and the xterm.js beforeunload guard is pure friction here. Client
 # options go AFTER -p so the pgrep liveness patterns above stay an exact prefix of the live argv.
 # ttyd 1.7.x rewrites argv for ps (`-t key=value` shows as `key value`), so never grep key=value.
-TTYD_CLIENT_OPTS="-t disableLeaveAlert=true"
+# A transparent xterm background lets /terminal-graph?stream=1 composite over live video in OBS.
+# It is a ttyd launch flag because the tile iframe is a different origin than the graph, so the
+# page cannot style it. Naming a theme REPLACES the default one, so foreground must be restated
+# or every terminal paints black text. Over the normal graph this is invisible: the tile well is
+# already #050605. Single quotes keep the JSON intact through ensure's `bash -c "$*"`.
+# allowTransparency is what actually does it: without it xterm composites onto opaque black.
+TTYD_CLIENT_OPTS="-t disableLeaveAlert=true -t 'theme={\"background\":\"rgba(0,0,0,0)\",\"foreground\":\"#ffffff\"}' -t allowTransparency=true"
 
 # ttyd 1.7.7 does not reap every ttyd-attach.sh child it forks: a disconnected tile can leave a
 # terminated child un-waited, and ttyd keeps that child's pty MASTER fd open forever. macOS caps
