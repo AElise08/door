@@ -31,7 +31,10 @@
 if(window.visualViewport){const vv=window.visualViewport,root=document.documentElement.style;const fit=()=>{root.setProperty("--vvh",vv.height+"px");root.setProperty("--vvtop",vv.offsetTop+"px")};vv.addEventListener("resize",fit);vv.addEventListener("scroll",fit);fit()}
 const viewport=document.getElementById("viewport"),world=document.getElementById("world"),nodesEl=document.getElementById("nodes"),edgesEl=document.getElementById("edges");
 const LAYOUT_KEY="mp_terminal_graph_layout",LAYOUT_MODES=["row","grid","column"];
-let layoutMode=LAYOUT_MODES.includes(localStorage.getItem(LAYOUT_KEY))?localStorage.getItem(LAYOUT_KEY):"row";
+// ?layout=grid pins the arrangement from the URL: an OBS browser source has its own profile,
+// so the button click that would normally be remembered never reaches it.
+const LAYOUT_PARAM=new URLSearchParams(location.search).get("layout");
+let layoutMode=LAYOUT_MODES.includes(LAYOUT_PARAM)?LAYOUT_PARAM:(LAYOUT_MODES.includes(localStorage.getItem(LAYOUT_KEY))?localStorage.getItem(LAYOUT_KEY):"row");
 function layoutCols(n){return layoutMode==="column"?1:layoutMode==="grid"?Math.max(1,Math.ceil(Math.sqrt(n*1.4))):n}
 const POSITION_KEY="mp_terminal_graph_positions_v2",FILTER_KEY="mp_terminal_graph_task_filters",TERMINAL_SCALE=.36,nodeEls=new Map(),taskEls=new Map(),positions=JSON.parse(localStorage.getItem(POSITION_KEY)||"{}");let graph={nodes:[],edges:[],tasks:[],task_edges:[],layoutItems:[]},board={tasks:{},order:[]},view={x:(innerWidth-360)/2,y:135,scale:.72},drag=null,pan=null,roPort=7682,rwPort=7681,uniformScale=TERMINAL_SCALE,openTaskId="",search="";const DEFAULT_STATES=["working","review","blocked","recurring"],enabledStates=new Set(JSON.parse(localStorage.getItem(FILTER_KEY)||"null")||DEFAULT_STATES);
 const esc=s=>String(s).replace(/[&<>\"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
