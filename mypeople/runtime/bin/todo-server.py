@@ -809,7 +809,6 @@ class Handler(BaseHTTPRequestHandler):
         # ttyd, and a hardcoded port silently renders every tile dead wherever ttyd was moved.
         return {"nodes": nodes, "edges": edges, "tasks": tasks, "task_edges": task_edges,
                 "readonly_port": int(CFG["TTYD_RO_PORT"]),
-                "stream_port": int(CFG["TTYD_STREAM_PORT"]),
                 "interactive_port": int(CFG["TTYD_BROWSER_PORT"]), "ts": now()}
 
     def _board_view(self):
