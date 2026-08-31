@@ -32,7 +32,6 @@ h1{font-family:var(--serif);font-size:34px;font-weight:400;margin:0;color:var(--
 #addInput::placeholder{color:var(--muted-dark);}
 .btn-volt{background:var(--volt);color:var(--midnight);border:none;border-radius:14px;font-family:var(--sans);font-size:17px;font-weight:700;padding:0 22px;cursor:pointer;}
 .btn-volt:hover{box-shadow:0 0 0 3px var(--volt-glow);}
-.viewbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:18px;}
 .vb-label{font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--muted-dark);}
 .st-working{color:rgb(254,188,46);background:rgba(254,188,46,0.18);}
 .st-review{color:rgb(90,200,250);background:rgba(90,200,250,0.16);}
@@ -44,7 +43,7 @@ h1{font-family:var(--serif);font-size:34px;font-weight:400;margin:0;color:var(--
 .vbtn{font-family:var(--mono);font-size:11px;border-radius:9px;background:rgba(255,255,255,0.05);border:1px solid var(--dark-border);color:var(--muted-dark);text-transform:uppercase;padding:5px 10px;cursor:pointer;}
 .vbtn.active{color:var(--midnight);background:var(--volt);border-color:var(--volt);}
 .vbtn:disabled{opacity:.3;cursor:not-allowed;}
-.bossbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:14px;}
+.bossbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:18px;}
 .boss-state{font-family:var(--mono);font-size:11px;border-radius:100px;text-transform:uppercase;font-weight:500;padding:4px 11px;}
 .boss-state.up{color:rgb(82,216,115);background:rgba(52,199,89,0.16);}
 .boss-state.down{color:rgb(255,59,48);background:rgba(255,59,48,0.16);}
@@ -142,13 +141,11 @@ body.modal-open #modalbg{display:flex;}
     <button class="vbtn" id="bossSpawnClaude">Claude</button>
     <button class="vbtn" id="bossSpawnCodex">Codex</button>
     <button class="vbtn" id="bossSpawnGrok">Grok</button>
-    <span class="boss-msg subt" id="bossMsg"></span>
-  </div>
-  <div class="viewbar" id="viewbar">
+    <span class="vb-sep"></span>
     <button class="vbtn" data-toggle="done">show done</button>
     <button class="vbtn" data-toggle="cancelled">show cancelled</button>
-    <span class="vb-sep"></span>
     <button class="vbtn" data-lens="recurring">recurring · <span id="recurN">0</span></button>
+    <span class="boss-msg subt" id="bossMsg"></span>
   </div>
   <ul id="list"></ul>
 </div>
@@ -323,9 +320,9 @@ function render(){
   vpins.forEach(t=>list.appendChild(cardEl(t)));
   vnorm.forEach(t=>list.appendChild(cardEl(t)));
   $("#recurN").textContent=Object.values(BOARD.tasks).filter(t=>t.state==="recurring").length;
-  $("#viewbar [data-toggle='done']").classList.toggle("active", showDone);
-  $("#viewbar [data-toggle='cancelled']").classList.toggle("active", showCancelled);
-  document.querySelectorAll("#viewbar [data-lens]").forEach(b=>b.classList.toggle("active", b.dataset.lens===lens));
+  $("[data-toggle='done']").classList.toggle("active", showDone);
+  $("[data-toggle='cancelled']").classList.toggle("active", showCancelled);
+  document.querySelectorAll("[data-lens]").forEach(b=>b.classList.toggle("active", b.dataset.lens===lens));
 }
 
 // ---- modal ----
@@ -545,11 +542,11 @@ async function addTask(){
 }
 $("#addBtn").addEventListener("click", addTask);
 $("#addInput").addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); addTask(); }});
-document.querySelectorAll("#viewbar [data-toggle]").forEach(b=>b.addEventListener("click",()=>{
+document.querySelectorAll("[data-toggle]").forEach(b=>b.addEventListener("click",()=>{
   if(b.dataset.toggle==="done") showDone=!showDone; else showCancelled=!showCancelled;
   saveFilters(); render();
 }));
-document.querySelectorAll("#viewbar [data-lens]").forEach(b=>b.addEventListener("click",()=>{
+document.querySelectorAll("[data-lens]").forEach(b=>b.addEventListener("click",()=>{
   lens = (lens===b.dataset.lens) ? "" : b.dataset.lens;   // click it again to drop the lens
   saveFilters(); render();
 }));
