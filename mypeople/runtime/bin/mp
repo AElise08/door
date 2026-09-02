@@ -1379,6 +1379,24 @@ def do_comment(argv):
         by = (rest[i + 1] if i + 1 < len(rest) else by)
         rest = rest[:i] + rest[i + 2:]
     by = full_aid(by) if by else "CEO"
+    # --by is the ONLY flag and it was just consumed. Anything flag-shaped left over is a
+    # command someone expected mp to parse, and it used to be POSTED as the comment instead
+    # (card e949527956): a bare "-" went up as a one-character comment, and `--stdin` with a
+    # heredoc posted the literal string "--stdin" while the real deliverable stayed on unread
+    # stdin. There is no --stdin and no --file. A genuine body is ONE quoted argument, so it
+    # is never a bare flag-shaped token; "- item one" has whitespace and passes.
+    stray = [a for a in rest if a.startswith("-") and not any(c.isspace() for c in a)]
+    if stray:
+        print("ERROR: mp comment takes the body as ONE quoted argument, or on stdin with no "
+              "body arguments — there is no --stdin and no --file flag, and a flag-looking "
+              "token is POSTED as the comment.\n"
+              "  got:     mp comment %s %s\n"
+              "  correct: mp comment %s \"your comment text\"\n"
+              "           mp comment %s < body.md     (or a heredoc, with no body arguments)\n"
+              "           add --by <agent_id> to attribute it\n"
+              "  if the body really begins with %s, quote the whole body as one argument."
+              % (tid, " ".join(rest), tid, tid, stray[0]), file=sys.stderr)
+        return 2
     body = " ".join(rest).strip()
     if not body and not sys.stdin.isatty():
         body = sys.stdin.read().strip()
