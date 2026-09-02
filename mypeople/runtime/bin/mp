@@ -833,11 +833,45 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
     return 0
 
 
+SEND_USAGE = "usage: mp send <agent_id> <msg...>   (message may come from stdin)"
+
+
 def do_send(argv):
-    if len(argv) < 2:
-        print("usage: mp send <agent_id> <msg>", file=sys.stderr); return 2
+    """mp send <agent_id> <msg...> — deliver a message into an agent's composer.
+
+    The message is ARGV. Two guards below exist because the silent version of getting that
+    wrong cost several agents most of a day (card 5676f76673): `mp send X --by Y <<EOF`
+    delivered the literal string "--by Y", discarded the real body on stdin that nothing
+    read, and printed "sent". The recipient got the same string every time, which is the
+    tell — real truncation varies with the text, operator error repeats verbatim.
+    """
+    if not argv:
+        print(SEND_USAGE, file=sys.stderr); return 2
     aid = full_aid(argv[0])
-    msg = " ".join(argv[1:])
+    rest = argv[1:]
+    # mp send has NO options, so a flag standing alone as its own argv token is never part
+    # of a message someone meant to send. Checked at EVERY position, not just the first:
+    # the two habits in the wild were `mp send X --by Y <<EOF` (body discarded on unread
+    # stdin) and `mp send X "body" --by Y` (body delivered with a literal " --by Y" glued
+    # on) -- a leading-token check would have caught only the first and left the commoner
+    # one silently corrupting. A real message that merely mentions --by is a single quoted
+    # argument, so it never appears as a standalone token and is not caught.
+    stray = [a for a in rest if a.startswith("--")]
+    if stray:
+        print("ERROR: mp send takes the message as ARGUMENTS, not flags — there is no --by "
+              "flag; reply_to comes from $AGENT_ID.\n"
+              "  got:     mp send %s %s\n"
+              "  correct: mp send %s \"your message here\"   (or pipe the body on stdin)\n"
+              "  if the message really contains %s, quote the whole message as one argument."
+              % (argv[0], " ".join(rest), argv[0], stray[0]), file=sys.stderr)
+        return 2
+    msg = " ".join(rest).strip()
+    # Gated on isatty exactly as do_comment is: an interactive `mp send <agent>` must print
+    # usage, not block forever reading an empty terminal.
+    if not msg and not sys.stdin.isatty():
+        msg = sys.stdin.read().strip()
+    if not msg:
+        print(SEND_USAGE, file=sys.stderr); return 2
     reply_to = os.environ.get("AGENT_ID", "").strip()
     if reply_to:
         reply_to = full_aid(reply_to)
