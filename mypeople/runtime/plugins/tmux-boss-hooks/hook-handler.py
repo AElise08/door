@@ -123,11 +123,23 @@ def content_text(content):
     return text
 
 
+def _flatten(text):
+    """One line, whole thing. The 280-char cap that used to be here cut the summary
+    mid-sentence -- eng-550 received a completion notice ending "...would report their
+    sibling" (271 chars of a 280 cap) and had to ask for the rest (card 5676f76673).
+
+    Newlines are still collapsed to spaces, deliberately: the notification is consumed
+    line-wise (verify.sh greps "AGENT NOTIFICATION.*<agent>" on one captured line), so a
+    multi-line summary would break that grep. Flattening loses no content; the cap did.
+    """
+    return " ".join(text.strip().split())
+
+
 def last_assistant_summary():
     """Read the transcript, return the last assistant text (retry ~4x/0.5s for the flush race)."""
     last = DATA.get("last_assistant_message")
     if isinstance(last, str) and last.strip():
-        return last.strip().replace("\n", " ")[:280]
+        return _flatten(last)
     for _ in range(4):
         tp = find_transcript()
         if tp:
@@ -148,7 +160,7 @@ def last_assistant_summary():
                         elif ev.get("role") == "assistant" and isinstance(ev.get("content"), str):
                             text = ev["content"] or text
                 if text:
-                    return text.strip().replace("\n", " ")[:280]
+                    return _flatten(text)
             except Exception:
                 pass
         time.sleep(0.5)

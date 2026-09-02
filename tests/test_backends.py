@@ -272,6 +272,39 @@ class HookHandlerTests(unittest.TestCase):
             self.assertEqual("codex-session", status["session_id"])
             self.assertEqual("Finished from Codex", status["summary"])
 
+    def test_a_long_completion_summary_is_not_truncated(self):
+        """card 5676f76673. The summary was capped at 280 chars, so a completion notice
+        arrived cut mid-sentence and the receiving agent had to ask for the rest -- eng-550
+        got one ending "...would report their sibling", 271 chars against the cap."""
+        with tempfile.TemporaryDirectory() as td:
+            long_summary = ("Sentence %d of the completion summary. " % 1) * 40  # ~1500 chars
+            env = dict(os.environ)
+            env.update({"INSTALL_DIR": td, "AGENT_ID": "node/main:eng",
+                        "MYPEOPLE_BACKEND": "codex", "BOSS_ID": ""})
+            subprocess.run([sys.executable, str(HANDLER), "Stop"],
+                           input=json.dumps({"hook_event_name": "Stop",
+                                             "session_id": "s", 
+                                             "last_assistant_message": long_summary}),
+                           text=True, env=env, check=True)
+            status = json.loads((Path(td) / "status" / "mc-main" / "eng.json").read_text())
+            self.assertEqual(status["summary"], long_summary.strip())
+            self.assertGreater(len(status["summary"]), 280)
+
+    def test_a_summary_stays_on_one_line(self):
+        """verify.sh greps "AGENT NOTIFICATION.*<agent>" on ONE captured line, so newlines
+        must still collapse -- lifting the cap must not turn the notice multi-line."""
+        with tempfile.TemporaryDirectory() as td:
+            env = dict(os.environ)
+            env.update({"INSTALL_DIR": td, "AGENT_ID": "node/main:eng",
+                        "MYPEOPLE_BACKEND": "codex", "BOSS_ID": ""})
+            subprocess.run([sys.executable, str(HANDLER), "Stop"],
+                           input=json.dumps({"hook_event_name": "Stop", "session_id": "s",
+                                             "last_assistant_message": "para one\n\npara two"}),
+                           text=True, env=env, check=True)
+            status = json.loads((Path(td) / "status" / "mc-main" / "eng.json").read_text())
+            self.assertNotIn("\n", status["summary"])
+            self.assertEqual(status["summary"], "para one para two")
+
     def _run(self, td, event, payload, backend="claude"):
         env = dict(os.environ)
         env.update({"INSTALL_DIR": td, "AGENT_ID": "node/main:eng",
