@@ -155,15 +155,15 @@ def wd_incident_text(job, task):
                 quoted = c.get("body", ""); break
         if not quoted and task.get("comments"):
             quoted = task["comments"][-1].get("body", "")
-        return "[watchdog incident] card=%s unanswered by=%s: %s" % (job["card"], job["by"], quoted[:400])
+        return "[watchdog incident] card=%s unanswered by=%s: %s" % (job["card"], job["by"], quoted)
     # Two distinct failures reach here. The "new task unowned" wording is verbatim on purpose:
     # the Watchdog persona keys its nudge off that exact phrase.
     owner = task.get("assignee") or ""
     if owner:
         return ("[watchdog incident] card=%s owner assigned but silent: %s has owned this card and has "
                 "not posted a first message. Tell them to REPLY ON THIS CARD now: %s"
-                % (job["card"], owner, (task.get("text", "") or "")[:400]))
-    return "[watchdog incident] card=%s new task unowned: %s" % (job["card"], (task.get("text", "") or "")[:400])
+                % (job["card"], owner, (task.get("text", "") or "")))
+    return "[watchdog incident] card=%s new task unowned: %s" % (job["card"], (task.get("text", "") or ""))
 
 
 def wd_resolve_due(store, board, now_ts):
@@ -429,7 +429,11 @@ def apply_owner_state_transition(task, previous, state, actor):
 
 
 def title_of(task):
-    return (task.get("text", "") or "")[:60]
+    # Verbatim on purpose (CEO, card 5676f76673). This used to cut at 60 and the comment
+    # body below at 120 -- silently, with no ellipsis -- so a Boss ping carried a reason it
+    # never fully received: a 1932-char comment reached it as 120 chars, 93.8% dropped.
+    # A notification that omits the ask is worse than a long one. Do not re-cap these.
+    return task.get("text", "") or ""
 
 
 def emit_task_event(board, task, reason, by=None):
@@ -448,7 +452,7 @@ def emit_comment_event(board, task, by, bodytext):
     # Boss ping: exempt only the Boss's own comment
     if by != BOSS_AGENT:
         task["pingsToBoss"] = task.get("pingsToBoss", 0) + 1
-        ping_boss('[todo] comment on %s "%s" by %s: %s' % (tid, title_of(task), by, bodytext[:120]))
+        ping_boss('[todo] comment on %s "%s" by %s: %s' % (tid, title_of(task), by, bodytext))
 
 
 # ---------------- proof kind classification ----------------
