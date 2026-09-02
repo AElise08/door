@@ -86,11 +86,13 @@ def envq(**kw):
 
 
 def load_roster():
-    return C.read_json(ROSTER_PATH, {}) or {}
+    # Tracked read: pairs with save_roster's locked merge so a concurrent writer cannot
+    # erase what we change (card e949527956).
+    return C.read_json_tracked(ROSTER_PATH, {}) or {}
 
 
 def save_roster(r):
-    C.write_json(ROSTER_PATH, r)
+    C.write_json_merged(ROSTER_PATH, r)
 
 
 def pretrust(cwd):

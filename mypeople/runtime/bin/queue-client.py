@@ -64,7 +64,7 @@ def auth_health():
 def live_agents():
     """Re-announce every live agent from the durable roster. Robust to a session/tab-less roster:
     derive session/tab from the agent_id itself when the roster fields are missing (§3)."""
-    roster = C.read_json(ROSTER_PATH, {}) or {}
+    roster = C.read_json_tracked(ROSTER_PATH, {}) or {}
     health = auth_health()
     node_unauthenticated = health.get("state") == authcheck.DEAD
     out = []
@@ -108,7 +108,8 @@ def live_agents():
             "model": rr.get("model", ""), "tmux_target": "mc-%s:%s" % (sess, tab),
         })
     if changed:
-        C.write_json(ROSTER_PATH, roster)
+        # The heartbeat is the writer that used to clobber `mp kill` and `mp spawn`.
+        C.write_json_merged(ROSTER_PATH, roster)
     return out
 
 
