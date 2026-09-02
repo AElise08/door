@@ -49,10 +49,12 @@ class FakeTmux:
 
     def __init__(self, pane_text=""):
         self.calls = []
+        self.stdin = []
         self.pane_text = pane_text
 
     def __call__(self, argv, **kw):
         self.calls.append(list(argv))
+        self.stdin.append(kw.get("input"))
         rc, out = 0, ""
         if "capture-pane" in argv:
             out = self.pane_text
@@ -66,6 +68,15 @@ class FakeTmux:
 
     def literals(self):
         return [c[-1] for c in self.sent() if "-l" in c]
+
+    def buffered(self):
+        """Message bodies handed to `load-buffer` on stdin -- the delivery path."""
+        return [self.stdin[i].decode("utf-8")
+                for i, c in enumerate(self.calls)
+                if c[:2] == ["tmux", "load-buffer"] and self.stdin[i] is not None]
+
+    def pastes(self):
+        return [c for c in self.calls if c[:2] == ["tmux", "paste-buffer"]]
 
 
 class TmuxSendMessageTests(unittest.TestCase):
@@ -94,8 +105,22 @@ class TmuxSendMessageTests(unittest.TestCase):
         agent receives a spurious empty prompt after every single-line message."""
         ok, fake = self.send("status please")
         self.assertTrue(ok)
-        self.assertEqual(fake.literals(), ["status please"])
+        self.assertEqual(fake.buffered(), ["status please"])
         self.assertEqual(len(fake.enters()), 1)
+
+    def test_the_message_never_rides_in_as_a_send_keys_argument(self):
+        """card 5676f76673. `send-keys -l` carried no bracketed-paste framing, so a composer
+        read every newline as Enter and submitted one message as fragments -- the agent kept
+        only the tail. It also passed the body as a command ARGUMENT, which tmux refuses past
+        ~17KB ("command too long"), dropping the message whole. Delivery must go through the
+        buffer, and the paste must be bracketed (-p)."""
+        msg = "para one\n\npara two\n\npara three"
+        ok, fake = self.send(msg)
+        self.assertTrue(ok)
+        self.assertEqual(fake.buffered(), [msg])
+        self.assertEqual(fake.literals(), [])
+        self.assertEqual(len(fake.pastes()), 1)
+        self.assertIn("-p", fake.pastes()[0])
 
     def test_single_line_ignores_a_stale_paste_marker(self):
         """capture-pane reads 30 lines of scrollback, so a marker from an earlier multi-line

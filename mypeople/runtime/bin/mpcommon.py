@@ -539,37 +539,64 @@ def export_repo_path(cfg=None):
     disc = hashlib.sha1(cfg.get("INSTALL_DIR", "").encode()).hexdigest()[:8]
     return os.path.expanduser("~/.mypeople/board-backup/%s-%s-%s" % (host, port, disc))
 
-# ---------- tmux message delivery (bracketed paste + double Enter, with retry) ----------
+# ---------- tmux message delivery (bracketed paste via buffer, with retry) ----------
 def tmux_send_message(target, message):
     """Deliver a message into a tmux pane's composer and submit it.
-    target = mc-<sess>:<tab>. Returns True on success."""
+    target = mc-<sess>:<tab>. Returns True on success.
+
+    Delivery is `load-buffer` + `paste-buffer -p`, never `send-keys -l`. send-keys was wrong
+    in three ways at once (card 5676f76673):
+
+      * It carries no bracketed-paste framing, so a composer reads every newline as Enter.
+        One multi-paragraph message was submitted as N fragments; the ones landing while the
+        agent was mid-turn were discarded, and it saw only the TAIL. Measured: one send ->
+        three submissions. The TUIs' own burst heuristic hid this most of the time, which is
+        why it surfaced as rare unexplained "lost during init" messages rather than a
+        reproducible break -- correctness was a race.
+      * It passes the message as a command ARGUMENT, and tmux refuses past a limit with
+        "command too long". Bisected: 16000 chars delivered, 18000 chars dropped WHOLE.
+      * Its result was never checked, so both failures returned True and printed "sent".
+
+    load-buffer takes the message on stdin (no argument limit) and `paste-buffer -p` wraps it
+    in ESC[200~ / ESC[201~ so the composer takes it as one atomic paste. Every tmux call is
+    now checked, and the target is validated as a PANE -- `has-session` only checked the
+    session name, so a wrong window reported success while every keystroke was discarded.
+    """
     if message is None or not str(message).strip():
         return False
     message = str(message)
     env = dict(os.environ)
     env.pop("TMUX", None)  # never target the caller's pane
-    ok = False
+    buf = "mp-" + base64.urlsafe_b64encode(os.urandom(9)).decode("ascii").rstrip("=")
+
+    def tmux(*args, **kw):
+        return subprocess.run(["tmux"] + list(args), env=env, capture_output=True, **kw)
+
     for attempt in range(3):
-        r = subprocess.run(["tmux", "has-session", "-t", target.split(":")[0]],
-                           env=env, capture_output=True)
-        if r.returncode != 0:
+        if tmux("list-panes", "-t", target).returncode != 0:
             time.sleep(0.3)
             continue
-        # Literal paste + one submit. Multi-line composers get a conditional retry only when
-        # the backend still shows the bracketed-paste marker after the first Enter.
-        subprocess.run(["tmux", "send-keys", "-t", target, "-l", message], env=env, capture_output=True)
+        if tmux("load-buffer", "-b", buf, "-", input=message.encode("utf-8")).returncode != 0:
+            time.sleep(0.3)
+            continue
+        # -p = bracketed paste markers, -d = drop the buffer once pasted.
+        if tmux("paste-buffer", "-p", "-d", "-b", buf, "-t", target).returncode != 0:
+            tmux("delete-buffer", "-b", buf)
+            time.sleep(0.3)
+            continue
         time.sleep(0.15)
-        subprocess.run(["tmux", "send-keys", "-t", target, "Enter"], env=env, capture_output=True)
+        if tmux("send-keys", "-t", target, "Enter").returncode != 0:
+            time.sleep(0.3)
+            continue
+        # A composer that holds the paste as a chip needs a second Enter. Guarded by the
+        # marker so we never submit an empty line into a pane that already accepted it.
         if "\n" in message:
             time.sleep(0.4)
-            pane = subprocess.run(["tmux", "capture-pane", "-p", "-t", target, "-S", "-30"],
-                                  env=env, capture_output=True, text=True)
+            pane = tmux("capture-pane", "-p", "-t", target, "-S", "-30", text=True)
             if "[Pasted text" in (pane.stdout or ""):
-                subprocess.run(["tmux", "send-keys", "-t", target, "Enter"],
-                               env=env, capture_output=True)
-        ok = True
-        break
-    return ok
+                tmux("send-keys", "-t", target, "Enter")
+        return True
+    return False
 
 def tmux_capture(target, lines=200):
     env = dict(os.environ)
