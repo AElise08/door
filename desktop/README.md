@@ -51,5 +51,5 @@ notarizes the app.
 
 - **arm64 only.** The binaries are copied from the build machine. An Intel/universal DMG would need
   x86_64 copies of each one, fused with `lipo`.
-- **Version** lives in both `tauri.conf.json` and `Cargo.toml` (currently 5.8.0). Bump them with the
+- **Version** lives in both `tauri.conf.json` and `Cargo.toml` (currently 5.9.0). Bump them with the
   product release.
