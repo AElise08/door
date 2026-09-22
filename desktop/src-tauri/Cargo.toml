@@ -1,6 +1,6 @@
 [package]
 name = "myplow-desktop"
-version = "5.10.0"
+version = "5.11.0"
 description = "MyPlow desktop shell"
 edition = "2021"
 rust-version = "1.77"
