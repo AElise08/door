@@ -9,6 +9,7 @@ Usage:
   plow-chat.py serve                  run the bridge (supervise.sh entry point)
   plow-chat.py reply "text"           reply in the owner's own chat
   plow-chat.py reply cht_x "text"     reply in that chat (groups)
+  plow-chat.py reply cht_x --file a.jpg "text"   send photos/files too (up to 4)
   plow-chat.py status                 print activation/bridge state
 
 One account covers every chat: the owner can add the Plow line to group
@@ -21,6 +22,7 @@ activate: the VM's own line is the chat, the token comes from the environment
 the chats come from GET /v1/agents/cloud/me.
 """
 import json
+import mimetypes
 import os
 import subprocess
 import sys
@@ -38,6 +40,7 @@ INSTALL = Path(os.environ.get("INSTALL_DIR") or os.environ.get("MYPEOPLE_HOME")
 STATE_DIR = Path(os.environ.get("PLOW_CHAT_STATE_DIR") or INSTALL / "state" / "plow-chat")
 CREDS = STATE_DIR / "creds.json"          # {"token": ..., "chat_uid": ...}
 ACTIVATION = STATE_DIR / "activation.json"
+ATTACHMENTS = STATE_DIR / "attachments"   # inbound photos/files, for the Boss to open
 STATE = STATE_DIR / "state.json"          # {"seen_ids": [...], "seeded_chats": [...]}
 HOST_ID = os.environ.get("HOST_ID") or os.uname().nodename.split(".")[0]
 BOSS_AGENT = os.environ.get("BOSS_AGENT") or f"{HOST_ID}/main:Boss"
@@ -97,15 +100,17 @@ def listing(data) -> list:
 
 # --- Boss ---
 
-def envelope(who: str, text: str, chat_uid: str) -> str:
+def envelope(who: str, text: str, chat_uid: str, files=()) -> str:
     # Plow seats whoever the carrier reports in the thread, so the Boss is told
     # who actually spoke and which thread — in a group these differ per message.
+    sent = "".join(f"\n[attached, open it: {f}]" for f in files)
     return (
-        f"[plowchat] from {who} in {chat_uid}: {text}\n"
+        f"[plowchat] from {who} in {chat_uid}: {text}{sent}\n"
         f"(This is the owner's Plow messages line. The owner texts here, and so "
         f"does anyone they added to this thread. To answer, run: "
         f"python3 {SELF} reply {chat_uid} \"your reply\" — it goes back to that "
-        f"same thread, which may be a group. Plain text only, no markdown.)"
+        f"same thread, which may be a group. Plain text only, no markdown. To send "
+        f"photos or files, add --file PATH before the text, up to 4.)"
     )
 
 
@@ -128,7 +133,10 @@ def route_message(message: dict) -> str:
         return "skip: outbound"
     mid = message.get("uid") or ""
     text = (message.get("body") or "").strip()
-    if not mid or not text:
+    atts = message.get("attachments") or []
+    # A photo with no caption is a message too: skipping it silently read as the
+    # Boss ignoring the owner.
+    if not mid or not (text or atts):
         return "skip: empty"
 
     # Claim before sending, so an overlapping pass cannot wake the Boss twice.
@@ -143,7 +151,14 @@ def route_message(message: dict) -> str:
     sender = message.get("sender") or {}
     who = sender.get("display_name") or sender.get("provider_key") or "chat member"
     chat_uid = message.get("chat_uid") or ""
-    if send_to_boss(envelope(who, text, chat_uid)):
+    files = []
+    for a in atts:
+        try:
+            files.append(download(a))
+        except (OSError, ValueError) as e:
+            log(f"attachment {a.get('uid')} not saved: {e}")
+            files.append(f"(could not download {a.get('filename') or 'attachment'}: {e})")
+    if send_to_boss(envelope(who, text, chat_uid, files)):
         return f"ROUTE {chat_uid} {who}: {text[:60]}"
     with STATE_LOCK:  # release the claim so the next pass retries it
         st = read_json(STATE, {})
@@ -168,17 +183,52 @@ def load_creds() -> dict:
     return creds
 
 
+def download(att: dict) -> str:
+    """Save one inbound attachment where the Boss can open it; return its path."""
+    uid = att.get("uid") or "att"
+    name = os.path.basename(att.get("filename") or "file")
+    dest = ATTACHMENTS / f"{uid}-{name}"
+    if dest.exists():
+        return str(dest)
+    req = urllib.request.Request(BASE + att["url"])  # a signed, short-lived path on the chat
+    token = load_creds().get("token")
+    if token:
+        # Not forwarded on a redirect: a signed storage URL refuses a second credential.
+        req.add_unredirected_header("Authorization", f"Bearer {token}")
+    ATTACHMENTS.mkdir(parents=True, exist_ok=True)
+    with urllib.request.urlopen(req, timeout=60) as r:
+        dest.write_bytes(r.read())
+    return str(dest)
+
+
+def upload(path: str, chat_uid: str, creds: dict) -> str:
+    """Declare one outbound file on the chat, PUT its bytes, return its attachment uid."""
+    data = Path(path).read_bytes()
+    ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    status, a = api("POST", f"/v1/chats/{chat_uid}/attachments",
+                    {"filename": os.path.basename(path), "content_type": ctype,
+                     "size_bytes": len(data)}, token=creds["token"])
+    if status >= 400:
+        raise SystemExit(f"attachment refused {status}: {json.dumps(a)[:200]}")
+    req = urllib.request.Request(a["upload_url"], data=data, method="PUT",
+                                 headers=a.get("upload_headers") or {})
+    urllib.request.urlopen(req, timeout=300).close()
+    return a["uid"]
+
+
 # --- Outbound ---
 
-def send_message(text: str, chat_uid: str = "", creds=None) -> dict:
+def send_message(text: str, chat_uid: str = "", creds=None, files=()) -> dict:
     creds = creds or load_creds()
     if not creds.get("token"):
         raise SystemExit("no Plow Chat credentials yet: activation is not done")
     # No thread named = the owner's own 1:1: the chat activation resolved, or
     # in the cloud the first chat on this agent's line.
     chat_uid = chat_uid or creds["chat_uid"] or next(iter(list_chats(creds)), "")
-    status, data = api("POST", f"/v1/chats/{chat_uid}/messages",
-                       {"body": text}, token=creds["token"])
+    body = {"body": text}
+    if files:
+        body["attachment_uids"] = [upload(f, chat_uid, creds) for f in files]
+    status, data = api("POST", f"/v1/chats/{chat_uid}/messages", body, token=creds["token"])
     if status >= 400:
         raise SystemExit(f"send failed {status}: {json.dumps(data)[:200]}")
     return data
@@ -321,9 +371,13 @@ def main():
     if cmd == "reply":
         args = sys.argv[2:]
         chat_uid = args.pop(0) if args and args[0].startswith("cht_") else ""
-        if not args:
-            raise SystemExit(f"usage: {SELF} reply [cht_x] \"text\"")
-        print(json.dumps(send_message(" ".join(args), chat_uid)))
+        files = []
+        while len(args) >= 2 and args[0] == "--file":
+            files.append(args[1])
+            args = args[2:]
+        if not args and not files:
+            raise SystemExit(f"usage: {SELF} reply [cht_x] [--file PATH ...] \"text\"")
+        print(json.dumps(send_message(" ".join(args), chat_uid, files=files)))
     elif cmd == "status":
         creds, act = load_creds(), read_json(ACTIVATION, {})
         print(json.dumps({

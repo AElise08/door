@@ -57,6 +57,36 @@ class PlowChatTest(unittest.TestCase):
         self.assertEqual(self.pc.poll_chat(self.creds, "cht_a", seed=False), 1)
         self.assertIn("[plowchat]", self.sent[0])
 
+    def test_photo_without_text_reaches_the_boss_with_its_path(self):
+        self.pc.poll_chat(self.creds, "cht_a")
+        self.msgs.append({"uid": "m2", "direction": "inbound", "body": "", "chat_uid": "cht_a",
+                          "created_at": "2", "attachments": [
+                              {"uid": "att_1", "filename": "menu.jpeg", "url": "/v1/x?exp=1"}]})
+        with mock.patch.object(self.pc, "download", return_value="/saved/att_1-menu.jpeg") as dl:
+            self.assertEqual(self.pc.poll_chat(self.creds, "cht_a"), 1)
+        dl.assert_called_once()
+        self.assertIn("[attached, open it: /saved/att_1-menu.jpeg]", self.sent[0])
+
+    def test_reply_uploads_files_then_sends_their_uids(self):
+        calls = []
+
+        def api(method, path, body=None, token=None):
+            calls.append((method, path, body))
+            if path.endswith("/attachments"):
+                return 201, {"uid": "att_out", "upload_url": "https://up/x", "upload_headers": {"h": "v"}}
+            return 200, {"uid": "msg"}
+        self.pc.api = api
+        with tempfile.NamedTemporaryFile(suffix=".png") as f, \
+                mock.patch.object(self.pc.urllib.request, "urlopen") as put:
+            f.write(b"png")
+            f.flush()
+            self.pc.send_message("look", "cht_a", self.creds, files=[f.name])
+        self.assertEqual(calls[0][2]["content_type"], "image/png")
+        self.assertEqual(calls[0][2]["size_bytes"], 3)
+        self.assertEqual(put.call_args[0][0].get_method(), "PUT")
+        self.assertEqual(calls[1], ("POST", "/v1/chats/cht_a/messages",
+                                    {"body": "look", "attachment_uids": ["att_out"]}))
+
     def test_failed_delivery_is_retried(self):
         self.pc.poll_chat(self.creds, "cht_a")
         self.msgs.append({"uid": "m2", "direction": "inbound", "body": "hi",
