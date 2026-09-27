@@ -8,8 +8,10 @@
 #   - the Agent Index reporter, fed by agentsview, which is the only way it sees Claude Code.
 # Nothing tenant-specific is baked in: the token comes from Plow's proxy at run time.
 #
-#   docker buildx build --platform linux/amd64 -f cloud/Dockerfile -t ghcr.io/delattre1/myplow:v1 .
-ARG BASE=ghcr.io/delattre1/mypeople:5.18.0
+# Published by .github/workflows/publish-container.yml as ghcr.io/delattre1/mypeople:cloud-<version>,
+# with BASE set to that same release. By hand:
+#   docker buildx build --platform linux/amd64 -f cloud/Dockerfile --build-arg BASE=... .
+ARG BASE=ghcr.io/delattre1/mypeople:latest
 FROM ${BASE}
 
 USER root
