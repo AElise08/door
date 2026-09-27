@@ -1,0 +1,12 @@
+# Claude Code -> Plow. Whatever model Claude Code asks for (its main model, its small fast
+# one), Plow's default model answers; the owner's Plow credits pay for it.
+model_list:
+  - model_name: "*"
+    litellm_params:
+      # hosted_vllm/ = plain chat completions; openai/ would call /v1/responses, which Plow does not serve.
+      model: hosted_vllm/anthropic/claude-sonnet-5
+      api_base: os.environ/PLOW_LLM_BASE
+      # "proxied" on a Plow VM: the exe.dev proxy swaps in the agent's real token.
+      api_key: os.environ/PLOW_AGENT_TOKEN
+litellm_settings:
+  drop_params: true
