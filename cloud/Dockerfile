@@ -44,5 +44,9 @@ ENV PLOW_CHAT=1 \
     DISABLE_AUTOUPDATER=1 \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
+# Plow's VMs (exe.dev) boot the image's CMD, not its ENTRYPOINT, and may boot it as root: the
+# base image's ENTRYPOINT is cleared so `docker run` boots the same CMD, and entrypoint.sh drops
+# to the mypeople user itself.
 USER mypeople
-ENTRYPOINT ["/opt/myplow/entrypoint.sh"]
+ENTRYPOINT []
+CMD ["/opt/myplow/entrypoint.sh"]
