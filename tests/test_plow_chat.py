@@ -53,6 +53,10 @@ class PlowChatTest(unittest.TestCase):
         self.assertIn("[plowchat] from Dan in cht_a: hi boss", self.sent[0])
         self.assertIn("reply cht_a", self.sent[0])
 
+    def test_chat_that_appears_while_running_is_routed_not_swallowed(self):
+        self.assertEqual(self.pc.poll_chat(self.creds, "cht_a", seed=False), 1)
+        self.assertIn("[plowchat]", self.sent[0])
+
     def test_failed_delivery_is_retried(self):
         self.pc.poll_chat(self.creds, "cht_a")
         self.msgs.append({"uid": "m2", "direction": "inbound", "body": "hi",
@@ -64,6 +68,36 @@ class PlowChatTest(unittest.TestCase):
         self.pc.send_to_boss = lambda m: self.sent.append(m) or True
         self.assertEqual(self.pc.poll_chat(self.creds, "cht_a"), 1)
 
+
+
+class CloudTest(unittest.TestCase):
+    """A 1-click Plow VM: no saved login, PLOW_API_BASE + a proxied token."""
+
+    def test_cloud_agent_reads_chats_from_me_and_says_hello_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pc = load("plow_chat_cloud", "plow-chat/plow-chat.py",
+                      {"PLOW_CHAT_STATE_DIR": tmp, "HOST_ID": "h",
+                       "PLOW_API_BASE": "https://plow-x.int.exe.xyz/"})
+            with mock.patch.dict(os.environ, {"PLOW_API_BASE": "https://plow-x.int.exe.xyz/"}):
+                os.environ.pop("PLOW_AGENT_TOKEN", None)
+                creds = pc.load_creds()
+            self.assertEqual(pc.BASE, "https://plow-x.int.exe.xyz")
+            self.assertEqual(creds["token"], "proxied")
+            calls = []
+
+            def api(method, path, body=None, token=None):
+                calls.append((method, path, body, token))
+                if path == "/v1/agents/cloud/me":
+                    return 200, {"chats": [{"uid": "cht_c"}]}
+                return 200, {"data": [{"uid": "m1", "direction": "inbound",
+                                       "body": "Set this up for me", "chat_uid": "cht_c"}]}
+            pc.api = api
+            self.assertEqual(pc.list_chats(creds), ["cht_c"])
+            pc.poll_chat(creds, "cht_c")
+            pc.poll_chat(creds, "cht_c")
+            hellos = [c for c in calls if c[0] == "POST"]
+            self.assertEqual(hellos, [("POST", "/v1/chats/cht_c/messages",
+                                       {"body": pc.WELCOME}, "proxied")])
 
 
 class WiringTest(unittest.TestCase):

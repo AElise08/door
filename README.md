@@ -151,3 +151,8 @@ Add `export PLOW_CHAT=1` to `~/.config/mypeople/queue.env`, then `mypeople down 
 The first time it starts, run `python3 "$INSTALL_DIR/plugins/plow-chat/plow-chat.py" status` and text the
 `Plow Activate: …` line it prints to the number it prints. After that your iMessages reach the Boss and it
 replies in the same thread, including group threads you add the number to.
+
+In the cloud: `cloud/Dockerfile` builds MyPlow as a Plow cloud agent (1-click from
+[aiworthusing.com/agent-index/myplow](https://aiworthusing.com/agent-index/myplow)). It is a separate MyPlow
+with its own Boss that knows only its own chat; it never reaches the Mac. Claude Code runs on Plow's model
+through an in-image bridge, and the Agent Index reporter posts its usage every 5 minutes.

@@ -14,6 +14,11 @@ Usage:
 One account covers every chat: the owner can add the Plow line to group
 threads, and each group is its own chat that reaches the Boss and is answered
 in the thread that asked.
+
+In a Plow cloud agent (PLOW_API_BASE set, no saved login) there is nothing to
+activate: the VM's own line is the chat, the token comes from the environment
+(or the "proxied" placeholder the exe.dev proxy swaps for the real one), and
+the chats come from GET /v1/agents/cloud/me.
 """
 import json
 import os
@@ -26,7 +31,8 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-BASE = os.environ.get("PLOW_CHAT_BASE_URL", "https://api.plow.co")
+BASE = (os.environ.get("PLOW_CHAT_BASE_URL") or os.environ.get("PLOW_API_BASE")
+        or "https://api.plow.co").rstrip("/")
 INSTALL = Path(os.environ.get("INSTALL_DIR") or os.environ.get("MYPEOPLE_HOME")
                or Path.home() / "mypeople")
 STATE_DIR = Path(os.environ.get("PLOW_CHAT_STATE_DIR") or INSTALL / "state" / "plow-chat")
@@ -43,6 +49,7 @@ MP_BIN = os.environ.get("MP_BIN") or str(INSTALL / "bin" / "mp")
 POLL_SECONDS = float(os.environ.get("PLOW_CHAT_POLL_SECONDS", "5"))
 SELF = str(Path(__file__).resolve())
 STATE_LOCK = threading.Lock()
+WELCOME = "MyPlow is up. Text me what you want done."
 
 
 def log(msg: str):
@@ -152,14 +159,25 @@ def route_message(message: dict) -> str:
     return "ERROR mp send failed; sender warned, retrying next pass"
 
 
+def load_creds() -> dict:
+    """A saved login wins; otherwise a cloud agent's environment is the login."""
+    creds = read_json(CREDS, {})
+    if not creds.get("token") and os.environ.get("PLOW_API_BASE"):
+        creds = {"token": os.environ.get("PLOW_AGENT_TOKEN") or "proxied",
+                 "chat_uid": "", "cloud": True}
+    return creds
+
+
 # --- Outbound ---
 
-def send_message(text: str, chat_uid: str = "") -> dict:
-    creds = read_json(CREDS, {})
+def send_message(text: str, chat_uid: str = "", creds=None) -> dict:
+    creds = creds or load_creds()
     if not creds.get("token"):
         raise SystemExit("no Plow Chat credentials yet: activation is not done")
-    # No thread named = the owner's own 1:1, the chat activation resolved.
-    status, data = api("POST", f"/v1/chats/{chat_uid or creds['chat_uid']}/messages",
+    # No thread named = the owner's own 1:1: the chat activation resolved, or
+    # in the cloud the first chat on this agent's line.
+    chat_uid = chat_uid or creds["chat_uid"] or next(iter(list_chats(creds)), "")
+    status, data = api("POST", f"/v1/chats/{chat_uid}/messages",
                        {"body": text}, token=creds["token"])
     if status >= 400:
         raise SystemExit(f"send failed {status}: {json.dumps(data)[:200]}")
@@ -224,6 +242,13 @@ def activation_loop() -> dict:
 # --- Bridge ---
 
 def list_chats(creds: dict) -> list:
+    if creds.get("cloud"):
+        # Live read every pass: a group the line joins later is a new chat.
+        status, data = api("GET", "/v1/agents/cloud/me", token=creds["token"])
+        if status >= 400:
+            log(f"/me failed {status}: {json.dumps(data)[:160]}")
+            return []
+        return [c["uid"] for c in data.get("chats") or [] if c.get("uid")]
     status, data = api("GET", "/v1/chats", token=creds["token"])
     if status >= 400:
         # A listing hiccup must not cost the owner their own 1:1.
@@ -232,11 +257,13 @@ def list_chats(creds: dict) -> list:
     return [c["uid"] for c in listing(data) if c.get("uid")] or [creds["chat_uid"]]
 
 
-def poll_chat(creds: dict, chat_uid: str) -> int:
+def poll_chat(creds: dict, chat_uid: str, seed: bool = True) -> int:
     """Route new messages in one chat, seeding it silently the first time.
 
     Seeding is per chat: a group joined months in carries its own history, and
-    replaying it would hand the Boss a fake inbox.
+    replaying it would hand the Boss a fake inbox. Only chats already there when
+    the bridge starts are seeded; one that appears while it runs was started by
+    a text, and swallowing that text would leave the sender unanswered.
     """
     status, data = api("GET", f"/v1/chats/{chat_uid}/messages", token=creds["token"])
     if status >= 400:
@@ -247,6 +274,10 @@ def poll_chat(creds: dict, chat_uid: str) -> int:
         st = read_json(STATE, {})
         seeded = set(st.get("seeded_chats", []))
         first = chat_uid not in seeded
+        if first and not seed:
+            st["seeded_chats"] = sorted(seeded | {chat_uid})
+            write_json(STATE, st)
+            first = False
         if first:
             seen = list(st.get("seen_ids", []))
             seen += [m["uid"] for m in msgs if m.get("uid") and m["uid"] not in seen]
@@ -255,6 +286,13 @@ def poll_chat(creds: dict, chat_uid: str) -> int:
             write_json(STATE, st)
     if first:
         log(f"seeded {len(msgs)} existing message(s) in {chat_uid} as already handled")
+        if creds.get("cloud"):
+            # A fresh cloud agent's first text was the signup phrase, which the
+            # seed just swallowed; without this the new owner hears nothing.
+            try:
+                send_message(WELCOME, chat_uid, creds)
+            except SystemExit as e:  # a failed hello must not take the bridge down
+                log(f"welcome not sent: {e}")
         return 0
     routed = 0
     for m in sorted(msgs, key=lambda m: m.get("created_at") or ""):
@@ -267,10 +305,12 @@ def poll_chat(creds: dict, chat_uid: str) -> int:
 
 def bridge_loop(creds: dict):
     log(f"bridge up, routing to {BOSS_AGENT}")
+    seed = True
     while True:
         try:
             for uid in list_chats(creds):
-                poll_chat(creds, uid)
+                poll_chat(creds, uid, seed)
+            seed = False
         except (OSError, ValueError) as e:
             log(f"poll error: {e}")
         time.sleep(POLL_SECONDS)
@@ -285,16 +325,17 @@ def main():
             raise SystemExit(f"usage: {SELF} reply [cht_x] \"text\"")
         print(json.dumps(send_message(" ".join(args), chat_uid)))
     elif cmd == "status":
-        creds, act = read_json(CREDS, {}), read_json(ACTIVATION, {})
+        creds, act = load_creds(), read_json(ACTIVATION, {})
         print(json.dumps({
             "activated": bool(creds.get("token")),
+            "cloud": bool(creds.get("cloud")),
             "chat_uid": creds.get("chat_uid"),
             "text_this": f"Plow Activate: {act['display_code']}" if act.get("display_code") else None,
             "to": act.get("send_to"),
             "seeded_chats": read_json(STATE, {}).get("seeded_chats"),
         }, indent=2))
     elif cmd == "serve":
-        creds = read_json(CREDS, {})
+        creds = load_creds()
         bridge_loop(creds if creds.get("token") else activation_loop())
     else:
         raise SystemExit(__doc__)
