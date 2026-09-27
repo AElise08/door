@@ -170,4 +170,5 @@ jobs:
           push: true
 
       - name: Plow image reference
-        run: echo "Plow image: ${IMAGE}@${{ steps.build.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "Plow image: ${IMAGE}@${{ steps.build.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"
