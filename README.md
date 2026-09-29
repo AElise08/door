@@ -152,6 +152,14 @@ The first time it starts, run `python3 "$INSTALL_DIR/plugins/plow-chat/plow-chat
 `Plow Activate: …` line it prints to the number it prints. After that your iMessages reach the Boss and it
 replies in the same thread, including group threads you add the number to.
 
+## Let people ask your agent in Discord
+
+Set `DISCORD_AGENT=1`, `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_IDS` in `queue.env`. Questions asked in
+those channels reach an agent of its own (never the Boss) that answers from the public publish page and
+READMEs, and hands anything about rules, prizes or someone's verification to the Boss. It can only read
+those pages and write answers; the plugin posts them after its guards. Off switch:
+`touch "$INSTALL_DIR/state/discord-agent/OFF"`.
+
 In the cloud: `cloud/Dockerfile` builds MyPlow as a Plow cloud agent (1-click from
 [aiworthusing.com/agent-index/myplow](https://aiworthusing.com/agent-index/myplow)). It is a separate MyPlow
 with its own Boss that knows only its own chat; it never reaches the Mac. Claude Code runs on Plow's model

@@ -87,6 +87,9 @@ while true; do
   [ -n "${INSTAGRAM_COMMENTS:-}" ] && ensure "$ID/plugins/instagram-comments/instagram-comments.py" "exec python3 '$ID/plugins/instagram-comments/instagram-comments.py' serve"
   # Plow Chat: the owner texts the Boss over iMessage. Off until queue.env sets PLOW_CHAT (see the plugin's header).
   [ -n "${PLOW_CHAT:-}" ] && ensure "$ID/plugins/plow-chat/plow-chat.py" "exec python3 '$ID/plugins/plow-chat/plow-chat.py' serve"
+  # Discord agent: builders' questions in the listed channels, answered by its own agent. Off until
+  # queue.env sets DISCORD_AGENT (see the plugin's header).
+  [ -n "${DISCORD_AGENT:-}" ] && ensure "$ID/plugins/discord-agent/discord-agent.py" "exec python3 '$ID/plugins/discord-agent/discord-agent.py' serve"
   recycle_leaked_ttyd "ttyd -W -a -p $TTYD_PORT"
   recycle_leaked_ttyd "ttyd -a -p $TTYD_RO_PORT"
   sleep 10

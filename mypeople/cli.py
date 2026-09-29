@@ -277,6 +277,9 @@ def cmd_down(args):
                    capture_output=True)
     subprocess.run(["pkill", "-f", os.path.join(install, "plugins", "plow-chat", "plow-chat.py")],
                    capture_output=True)
+    subprocess.run(["pkill", "-f", os.path.join(install, "plugins", "discord-agent", "discord-agent.py")],
+                   capture_output=True)
+    subprocess.run(["tmux", "kill-session", "-t", "discord-agent"], capture_output=True)
     # Writable + read-only ttyd. On Linux, supervise.sh detaches children with setsid so
     # killpg on the supervisor does not reach them. Without both pkill patterns, `down`/`up`
     # upgrades leave the RO graph-tile ttyd running with the old argv (card 789b5d04f9).
