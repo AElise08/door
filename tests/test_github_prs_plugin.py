@@ -154,6 +154,33 @@ class PollRoutingTests(unittest.TestCase):
             self.poll()
         self.assertEqual(["node/main:Boss"], [a for a, _ in self.sent])
 
+    def test_a_merge_reaches_the_owner_once(self):
+        self.poll()                                   # bootstrap
+        self.poll()                                   # outcome check on from here
+        with mock.patch.object(self.m, "open_prs", lambda author: []), \
+                mock.patch.object(self.m, "pr_outcome", lambda repo, n: {"state": "MERGED", "by": "builder"}):
+            self.poll()
+            self.poll()
+        (agent, text), = self.sent
+        self.assertEqual("node/main:eng-1", agent)
+        self.assertIn("[PR merged] acme/app#8 (your PR) by builder", text)
+
+    def test_a_pr_missing_from_one_search_but_still_open_is_not_announced(self):
+        self.poll()
+        self.poll()
+        with mock.patch.object(self.m, "open_prs", lambda author: []), \
+                mock.patch.object(self.m, "pr_outcome", lambda repo, n: {"state": "OPEN", "by": ""}):
+            self.poll()
+        self.assertEqual([], self.sent)
+
+    def test_prs_closed_before_the_outcome_check_existed_stay_quiet(self):
+        state = self.m.load_state()
+        state["updated"] = {"acme/old#1": "t"}           # closed long ago, from an older version's state
+        self.m.save_state(state)
+        with mock.patch.object(self.m, "pr_outcome", side_effect=AssertionError("asked about history")):
+            self.poll()
+        self.assertEqual([], self.sent)
+
     def test_state_survives_a_restart(self):
         self.poll()
         self.events.append(ev("comment:5"))

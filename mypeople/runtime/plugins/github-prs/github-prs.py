@@ -4,7 +4,8 @@
 Without this, an engineer opens a PR, requests a review, and never hears the verdict: nothing in
 the fleet reads GitHub. Every poll this finds the open PRs authored by the fleet's GitHub login,
 and delivers each NEW comment, review or inline review comment with `mp send` to the agent whose
-board card links that PR -- so the engineer who opened it reacts to its own review. A PR no card
+board card links that PR -- so the engineer who opened it reacts to its own review. When one of
+those PRs leaves the open list, its owner hears whether it was merged or closed. A PR no card
 links, or whose owner is gone, goes to the Boss.
 
 Turn it on in ~/.config/mypeople/queue.env, then restart the daemons:
@@ -93,6 +94,12 @@ def open_prs(author):
             for p in prs]
 
 
+def pr_outcome(repo, n):
+    """A PR that left the open list: {"state": MERGED|CLOSED|OPEN, "by": login}."""
+    p = gh("pr", "view", str(n), "-R", repo, "--json", "state,mergedBy")
+    return {"state": p.get("state") or "", "by": (p.get("mergedBy") or {}).get("login") or ""}
+
+
 def pr_events(repo, n):
     """Comments, inline review comments and reviews on one PR, each with a stable key."""
     out = []
@@ -162,7 +169,8 @@ def format_event(repo, n, event, owned, orphan=False):
     if len(body) > SNIPPET:
         body = body[:SNIPPET - 1] + "…"
     verdict = event["state"].lower().replace("_", " ") if event["kind"] == "review" else ""
-    what = {"review": "review", "review_comment": "inline review comment"}.get(event["kind"], "comment")
+    what = {"review": "review", "review_comment": "inline review comment",
+            "merged": "merged", "closed": "closed"}.get(event["kind"], "comment")
     head = "[PR %s] %s#%d%s by %s" % (what, repo, n, " (your PR)" if owned else "", event["user"])
     if verdict:
         head += " — %s" % verdict
@@ -172,6 +180,8 @@ def format_event(repo, n, event, owned, orphan=False):
         # one more line among everything else the Boss is told. Say what to do with it.
         tail = (" — no card on the board links this PR, so nobody owns it: give it to an agent"
                 " or handle it yourself.")
+    if event["kind"] in ("merged", "closed"):
+        return "%s: %s%s" % (head, event["url"], tail)
     return "%s: %s %s%s" % (head, body or "(no text)", event["url"], tail)
 
 
@@ -219,13 +229,34 @@ def poll(author, state):
     full = now - state.get("last_full_sweep", 0) >= FULL_SWEEP_SECS
     updated = state.setdefault("updated", {})
     outbox = []
-    for repo, n, upd, url in open_prs(author):
+    prs = open_prs(author)
+    for repo, n, upd, url in prs:
         key = "%s#%d" % (repo, n)
         if not should_fetch(key, upd, updated.get(key), full):
             continue
         updated[key] = upd
         for e in fresh_events(key, pr_events(repo, n), state):
             outbox.append((repo, n, url, e))
+    # A watched PR that left the open list was merged or closed; nothing else ever says so. The first
+    # poll with this check only forgets the PRs that closed before it existed, so none is announced late.
+    gone = set(updated) - {"%s#%d" % (repo, n) for repo, n, _, _ in prs}
+    announce = state.get("outcomes_on", False)
+    state["outcomes_on"] = True
+    for key in sorted(gone):
+        repo, n = key.rsplit("#", 1)
+        if announce:
+            try:
+                outcome = pr_outcome(repo, int(n))
+            except RuntimeError as e:
+                log("skip outcome %s: %s" % (key, e))
+                continue
+            if outcome["state"] == "OPEN":   # missing from one search is not closed
+                continue
+            kind = "merged" if outcome["state"] == "MERGED" else "closed"
+            url = "https://github.com/%s/pull/%s" % (repo, n)
+            outbox.append((repo, int(n), url, {"key": "%s:%s" % (kind, key), "kind": kind, "user": outcome["by"] or "?",
+                                               "body": "", "state": "", "url": url}))
+        del updated[key]
     if full:
         state["last_full_sweep"] = now
     board = None
