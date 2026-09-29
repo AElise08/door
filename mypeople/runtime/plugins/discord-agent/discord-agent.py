@@ -248,13 +248,19 @@ def launches(now=None, add=False):
     return ts
 
 
+def stopped():
+    """A sanctioned stop -- mp kill (retired row) or the OFF file. It stays down and SILENT: an
+    off switch that raises an alarm every few minutes trains everyone to ignore the alarms."""
+    row = roster_row()
+    return OFF.exists() or bool(row.get("retired") and row.get("lifecycle") == "plugin:discord-agent")
+
+
 def ensure_agent():
     """Plugin on means its agent is up -- unless mp kill retired it, which is how it is stopped.
     True once the locked Claude session takes input. Not proving the pane is only ever a reason
     not to deliver; a pane is killed only when positively identified as wrong, and relaunches are
     capped, so a bug here degrades to silence plus an alert, never to a spawn loop."""
-    row = roster_row()
-    if row.get("retired") and row.get("lifecycle") == "plugin:discord-agent":
+    if stopped():
         return False
     ok, pid, slot = check_pane()
     if ok:
@@ -461,7 +467,7 @@ def serve():
     failures = 0
     while True:
         try:
-            if not OFF.exists():
+            if not stopped():               # stopped: skip the pass entirely, cursor held, no alarms
                 ensure_agent()              # every pass: a vanished or tampered window is repaired now
                 st = read_state()
                 for ch in channels():

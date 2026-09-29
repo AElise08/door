@@ -31,6 +31,7 @@ class GuardTest(unittest.TestCase):
         self.d.api = lambda method, path, body=None: self.posted.append((path, body)) or {}
         # Never the real mp: an alert from a test must not land in the Boss's inbox as a real one.
         self.d.MP_BIN = "/nonexistent/mp"
+        self.d.roster_row = lambda: {}   # never the live install's roster
         patcher = mock.patch.object(self.d.subprocess, "run")
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -169,6 +170,24 @@ class GuardTest(unittest.TestCase):
         self.d.PANE_FILE.unlink()
         with mock.patch.object(self.d, "fleet_panes", return_value=cases["happy"][0]):
             self.assertFalse(self.d.check_pane()[0], "no recorded pane id")
+
+    def test_a_sanctioned_stop_is_silent_and_reads_nothing(self):
+        for stop in ("retired", "off"):
+            if stop == "off":
+                self.d.OFF.write_text("")
+            row = {"retired": True, "lifecycle": "plugin:discord-agent"} if stop == "retired" else {}
+            calls = []
+            self.d.api = lambda m, p, b=None: calls.append(p) or {"id": "me"}
+            with mock.patch.object(self.d, "roster_row", return_value=row), \
+                    mock.patch.object(self.d, "alert") as alert, \
+                    mock.patch.object(self.d, "ensure_agent") as ensure, \
+                    mock.patch.object(self.d.time, "sleep", side_effect=[None, SystemExit]):
+                with self.assertRaises(SystemExit):
+                    self.d.serve()
+            alert.assert_not_called()
+            self.assertEqual(calls, ["/users/@me"], stop)   # no channel was read
+            self.assertEqual(ensure.call_count, 1, stop)       # only the startup call
+            self.d.OFF.unlink(missing_ok=True)
 
     def test_killed_with_mp_kill_it_stays_down(self):
         with mock.patch.object(self.d, "roster_row",
