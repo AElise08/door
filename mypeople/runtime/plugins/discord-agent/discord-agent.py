@@ -268,6 +268,9 @@ def drain_outbox(st):
 
 def serve():
     me = api("GET", "/users/@me")["id"]
+    OUTBOX.mkdir(parents=True, exist_ok=True)   # before the first pass: claiming reads it
+    PENDING.mkdir(parents=True, exist_ok=True)
+    ensure_agent()                              # plugin on means its agent is up, not on first message
     log("up, reading %s" % ", ".join(channels()))
     while True:
         try:

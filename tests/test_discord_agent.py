@@ -94,6 +94,15 @@ class GuardTest(unittest.TestCase):
         self.d.drain_outbox(self.st)
         self.assertEqual([b["content"] for _, b in self.posted], ["first"])
 
+    def test_a_fresh_install_records_its_channels_on_the_first_pass(self):
+        # A brand-new state dir has no outbox yet; the first pass must still record the cursor.
+        self.d.api = lambda m, p, b=None: {"id": "me"} if p == "/users/@me" else [{"id": "7"}]
+        with mock.patch.object(self.d, "ensure_agent"), mock.patch.object(self.d.time, "sleep",
+                                                                           side_effect=SystemExit):
+            with self.assertRaises(SystemExit):
+                self.d.serve()
+        self.assertEqual(self.d.read_state()["cursor"], {"c1": "7"})
+
     def test_first_sight_of_a_channel_answers_no_backlog(self):
         calls = []
         self.d.api = lambda m, p, b=None: calls.append(p) or [{"id": "99"}]
