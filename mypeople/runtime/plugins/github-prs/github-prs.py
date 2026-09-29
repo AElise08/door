@@ -49,6 +49,9 @@ HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 # A comment that is only a slash command ("/srosro-review") is a trigger an agent posted, not a
 # review; echoing it back to that agent is pure noise.
 SLASH_ONLY = re.compile(r"^\s*/[\w-]+\s*$")
+# Agents and the CEO post under the same GitHub login, so the author cannot tell an agent's own
+# comment from his. Agents end theirs with this hidden line; the watcher never echoes those back.
+AGENT_MARK = "<!-- mp:agent -->"
 
 
 def log(msg):
@@ -121,6 +124,8 @@ def pr_events(repo, n):
 
 # ---------------------------------------------------------------- pure logic (tested)
 def is_noise(event):
+    if AGENT_MARK in event["body"]:
+        return True
     body = HTML_COMMENT.sub("", event["body"])
     return bool(SLASH_ONLY.match(body)) and event["kind"] == "comment"
 

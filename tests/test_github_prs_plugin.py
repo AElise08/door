@@ -62,6 +62,14 @@ class FreshEventsTests(unittest.TestCase):
                                                  ev("comment:6", "please fix /tmp handling")], state)
         self.assertEqual(["comment:6"], [e["key"] for e in new])
 
+    def test_an_agents_own_comment_is_not_echoed_back_but_the_ceos_is(self):
+        # Same GitHub login for both: only the hidden mark tells them apart.
+        state = {}
+        self.m.fresh_events("acme/app#8", [], state)
+        new = self.m.fresh_events("acme/app#8", [ev("comment:7", "ACK going to iterate again\n<!-- mp:agent -->"),
+                                                 ev("comment:8", "why is this still open?")], state)
+        self.assertEqual(["comment:8"], [e["key"] for e in new])
+
 
 class OwnerTests(unittest.TestCase):
     def setUp(self):
