@@ -2,6 +2,7 @@
 import importlib.machinery
 import importlib.util
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -143,6 +144,39 @@ class GuardTest(unittest.TestCase):
             self.assertNotIn("\x1b", out)
         self.assertEqual(self.d.one_line("a" * 5000), "a" * 5000)   # long stays one line
 
+    def test_no_stranger_text_ever_reaches_an_unproven_pane(self):
+        with mock.patch.object(self.d, "ensure_agent", return_value=True), \
+                mock.patch.object(self.d, "check_pane", return_value=(False, None, [])), \
+                mock.patch.object(self.d, "tmux") as tmux:
+            self.assertFalse(self.d.deliver("[DISCORD] msg=1 channel=c1 from=x: hi"))
+        tmux.assert_not_called()
+
+    def test_only_its_own_locked_pane_alone_in_the_slot_counts(self):
+        locked = "env AGENT_ID=a bash -c 'claude --permission-mode dontAsk'"
+        self.d.PANE_FILE.write_text("%7")
+        cases = {
+            "happy": ([("%7", "discord", locked), ("%3", "Boss", "claude")], True),
+            "absent": ([("%3", "Boss", locked)], False),
+            "renamed": ([("%7", "discord-old", locked)], False),
+            "duplicate": ([("%7", "discord", locked), ("%9", "discord", "bash")], False),
+            "revived unlocked": ([("%8", "discord", "claude --dangerously-skip-permissions")], False),
+            "own pane unlocked": ([("%7", "discord", "claude --dangerously-skip-permissions")], False),
+            "tmux unreadable": (None, False),
+        }
+        for name, (listing, want) in cases.items():
+            with mock.patch.object(self.d, "fleet_panes", return_value=listing):
+                self.assertEqual(self.d.check_pane()[0], want, name)
+        self.d.PANE_FILE.unlink()
+        with mock.patch.object(self.d, "fleet_panes", return_value=cases["happy"][0]):
+            self.assertFalse(self.d.check_pane()[0], "no recorded pane id")
+
+    def test_killed_with_mp_kill_it_stays_down(self):
+        with mock.patch.object(self.d, "roster_row",
+                               return_value={"retired": True, "lifecycle": "plugin:discord-agent"}), \
+                mock.patch.object(self.d, "tmux") as tmux:
+            self.assertFalse(self.d.ensure_agent())
+        tmux.assert_not_called()
+
     def test_first_sight_of_a_channel_answers_no_backlog(self):
         calls = []
         self.d.api = lambda m, p, b=None: calls.append(p) or [{"id": "99"}]
@@ -150,6 +184,88 @@ class GuardTest(unittest.TestCase):
             self.d.poll_channel("c1", self.st, "me")
         deliver.assert_not_called()
         self.assertEqual(self.st["cursor"]["c1"], "99")
+
+
+
+@unittest.skipUnless(shutil.which("tmux"), "needs tmux")
+class RealTmuxSlotTest(unittest.TestCase):
+    """The slot check against a real tmux server, with a grouped viewer session like the fleet's
+    _v_* ones: a mock of list-panes passed the version that killed its own pane forever."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.sock = os.path.join(self.tmp.name, "tmux.sock")
+        self.env = mock.patch.dict(os.environ, {"DISCORD_AGENT_STATE_DIR": self.tmp.name,
+                                                "DISCORD_CHANNEL_IDS": "c1"})
+        self.env.start()
+        self.d = load({})
+        real = self.d.tmux
+        self.d.tmux = lambda *a, stdin=None: real("-S", self.sock, *a, stdin=stdin)
+        self.d.FLEET = "fleet"
+        self.d.agent_cmd = lambda: "sleep 300; echo --permission-mode dontAsk"
+        self.d.prepare_agent = lambda: None
+        self.d.register = lambda cmd: None
+        self.alerts = []
+        self.d.alert = lambda kind, text, now=None: self.alerts.append(kind)
+        self.d.roster_row = lambda: {}
+        self.d.tmux("new-session", "-d", "-s", "fleet", "-n", "Boss", "sleep 300")
+        self.d.tmux("new-session", "-d", "-t", "fleet", "-s", "_v_viewer")   # grouped viewer
+
+    def tearDown(self):
+        self.d.tmux("kill-server")
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def launches(self):
+        return len(self.d.launches())
+
+    def test_launch_once_then_recognise_its_own_pane_despite_the_viewer(self):
+        self.d.ensure_agent()
+        self.assertTrue(self.d.check_pane()[0], "its own fresh pane, seen twice via the viewer")
+        self.d.ensure_agent()
+        self.d.ensure_agent()
+        self.assertEqual(self.launches(), 1, "no relaunch loop")
+
+    def test_absent_is_relaunched(self):
+        self.d.ensure_agent()
+        self.d.tmux("kill-pane", "-t", self.d.PANE_FILE.read_text())
+        self.assertFalse(self.d.check_pane()[0])
+        self.d.ensure_agent()
+        self.assertTrue(self.d.check_pane()[0])
+
+    def test_revived_unlocked_is_replaced_never_fed(self):
+        self.d.ensure_agent()
+        self.d.tmux("kill-pane", "-t", self.d.PANE_FILE.read_text())
+        self.d.tmux("new-window", "-d", "-t", "=fleet:", "-n", "discord", "sleep 301")   # unlocked
+        self.assertFalse(self.d.check_pane()[0])
+        self.d.ensure_agent()
+        self.assertTrue(self.d.check_pane()[0])
+        self.assertIn("slot-repaired", self.alerts)
+
+    def test_renamed_own_pane_is_retired_not_duplicated(self):
+        self.d.ensure_agent()
+        old = self.d.PANE_FILE.read_text()
+        self.d.tmux("rename-window", "-t", old, "discord-renamed")
+        self.d.ensure_agent()
+        self.assertFalse(self.d.pane_exists(old))
+        self.assertTrue(self.d.check_pane()[0])
+
+    def test_ambiguous_slot_pauses_without_killing(self):
+        self.d.ensure_agent()
+        self.d.tmux("new-window", "-d", "-t", "=fleet:", "-n", "discord", "sleep 302 # --permission-mode dontAsk")
+        before = self.d.fleet_panes()
+        self.assertFalse(self.d.ensure_agent())
+        self.assertEqual(self.d.fleet_panes(), before, "nothing killed")
+        self.assertIn("slot-ambiguous", self.alerts)
+
+    def test_circuit_breaker_holds_it_down(self):
+        for _ in range(5):
+            self.d.ensure_agent()
+            pid = self.d.PANE_FILE.read_text()
+            if self.d.pane_exists(pid):
+                self.d.tmux("kill-pane", "-t", pid)
+        self.assertEqual(self.launches(), self.d.MAX_STARTS)
+        self.assertIn("circuit-open", self.alerts)
 
 
 if __name__ == "__main__":
