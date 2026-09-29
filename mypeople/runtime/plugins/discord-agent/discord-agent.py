@@ -43,6 +43,7 @@ import shlex
 import subprocess
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -179,6 +180,17 @@ def deliver(text):
 
 
 # ---------------------------------------------------------------- inbound
+def one_line(text):
+    """A stranger's text as ONE line of data. The agent treats input that starts with [DISCORD]
+    as a stranger and anything else as its operator, so a stranger who could start a new line
+    would become the operator: every control character (newlines, CR, ESC and the rest), every
+    line/paragraph separator (U+2028/U+2029) and every other invisible format character becomes
+    a space, and a [DISCORD] inside the text is defanged."""
+    flat = "".join(" " if unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") else c for c in text)
+    return re.sub(r"\[\s*discord\s*\]", "(discord)", " ".join(flat.split()), flags=re.I)
+
+
+
 def poll_channel(ch, st, me):
     """Deliver new human messages in one channel. First sight of a channel records its newest
     message and delivers nothing, so turning this on never answers the backlog."""
@@ -193,8 +205,8 @@ def poll_channel(ch, st, me):
         a = m.get("author") or {}
         text = (m.get("content") or "").strip()
         if text and not a.get("bot") and a.get("id") != me:
-            who = a.get("global_name") or a.get("username") or "someone"
-            line = "[DISCORD] msg=%s channel=%s from=%s: %s" % (m["id"], ch, who, text.replace("\n", " "))
+            who = one_line(a.get("global_name") or a.get("username") or "someone")
+            line = "[DISCORD] msg=%s channel=%s from=%s: %s" % (m["id"], ch, who, one_line(text))
             if not deliver(line):
                 # cursor stays: this message is retried on the next pass
                 since = st.setdefault("undelivered_since", time.time())
