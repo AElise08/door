@@ -103,6 +103,32 @@ class GuardTest(unittest.TestCase):
                 self.d.serve()
         self.assertEqual(self.d.read_state()["cursor"], {"c1": "7"})
 
+    def test_failures_reach_the_boss_once_an_hour(self):
+        with mock.patch.object(self.d.subprocess, "run") as run:
+            self.d.alert("failing", "x", now=1000)
+            self.d.alert("failing", "x", now=2000)          # same kind within the hour: quiet
+            self.d.alert("cap", "y", now=2000)              # another kind: sent
+            self.d.alert("failing", "x", now=5000)          # an hour later: sent again
+        msgs = [c[0][0][-1] for c in run.call_args_list]
+        self.assertEqual(len(msgs), 3)
+        self.assertTrue(all(m.startswith("[discord escalation]") for m in msgs))
+        self.assertEqual(run.call_args_list[0][0][0][2:4], ["send", self.d.BOSS])
+
+    def test_hitting_the_cap_is_not_silent(self):
+        with mock.patch.object(self.d, "alert") as alert:
+            self.d.post({"reply_to": "m1", "text": "a"}, self.st, 1000)
+            self.d.post({"reply_to": "m2", "text": "b"}, self.st, 1011)
+            self.d.post({"reply_to": "m3", "text": "c"}, self.st, 1100)
+        self.assertEqual(alert.call_args[0][0], "cap")
+
+    def test_a_dead_token_at_startup_reaches_the_boss(self):
+        def dead(*a, **k):
+            raise self.d.urllib.error.URLError("401")
+        self.d.api = dead
+        with mock.patch.object(self.d, "alert") as alert, self.assertRaises(Exception):
+            self.d.serve()
+        self.assertEqual(alert.call_args[0][0], "cannot-start")
+
     def test_first_sight_of_a_channel_answers_no_backlog(self):
         calls = []
         self.d.api = lambda m, p, b=None: calls.append(p) or [{"id": "99"}]

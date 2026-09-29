@@ -21,6 +21,11 @@ The agent itself is locked by Claude's dontAsk mode + an allow-list (write files
 public knowledge): the lock holds because everything else is refused, not because the agent behaves.
 Kill switch: touch $STATE_DIR/OFF -- nothing is delivered or posted until it is removed.
 
+Unattended, so every way it can go quiet reaches the Boss as a "[discord escalation]" line (each kind
+at most once an hour): the plugin cannot start (e.g. a dead bot token), passes keep failing (401s,
+network, a post Discord refuses), the agent stops taking messages or keeps restarting, the hourly cap
+is hit, or the agent tries to post something the guards block.
+
 Config (env, or the file MYPEOPLE_CONFIG_PATH names, default ~/.config/mypeople/queue.env):
 
     DISCORD_AGENT=1
@@ -116,6 +121,7 @@ def api(method, path, body=None):
 # ---------------------------------------------------------------- the agent this plugin owns
 AGENT = STATE_DIR / "agent"            # its whole world: rules and public knowledge
 SESSION = "discord-agent"              # its own tmux session, outside the fleet's
+STARTS = []
 
 
 def tmux(*args, stdin=None):
@@ -148,6 +154,9 @@ def ensure_agent():
     """Plugin on means its agent is up. True once the Claude session takes input."""
     if tmux("has-session", "-t", SESSION).returncode:
         log("starting agent")
+        STARTS.append(time.time())
+        if len([s for s in STARTS if s > time.time() - 3600]) > 3:
+            alert("agent-restarting", "its agent has had to be restarted more than 3 times this hour")
         prepare_agent()
         cmd = ("claude --permission-mode dontAsk --settings {a}/settings.json --strict-mcp-config "
                "--mcp-config {a}/mcp.json --append-system-prompt-file {a}/CLAUDE.md --model {m}").format(
@@ -187,14 +196,43 @@ def poll_channel(ch, st, me):
             who = a.get("global_name") or a.get("username") or "someone"
             line = "[DISCORD] msg=%s channel=%s from=%s: %s" % (m["id"], ch, who, text.replace("\n", " "))
             if not deliver(line):
-                return  # cursor stays: this message is retried on the next pass
+                # cursor stays: this message is retried on the next pass
+                since = st.setdefault("undelivered_since", time.time())
+                if time.time() - since > 300:
+                    alert("agent-down", "its agent has not taken a message for 5 minutes")
+                return
+            st.pop("undelivered_since", None)
             st.setdefault("delivered", {})[m["id"]] = ch
         cur[ch] = m["id"]
 
 
 # ---------------------------------------------------------------- outbound, guarded
+def alert(kind, text, now=None):
+    """Tell the Boss this public-facing agent is failing; at most once an hour per kind."""
+    now = now or time.time()
+    path = STATE_DIR / "alerts.json"
+    try:
+        sent = json.loads(path.read_text())
+    except (OSError, ValueError):
+        sent = {}
+    if kind in sent and now - sent[kind] < 3600:
+        return
+    sent[kind] = now
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(sent))
+    log("alerting the Boss: %s: %s" % (kind, text))
+    subprocess.run([sys.executable, MP_BIN, "send", BOSS,
+                    "[discord escalation] the Discord agent needs a look (%s): %s. Off switch: touch %s"
+                    % (kind, text, OFF)], capture_output=True, timeout=60)
+
+
 def refuse(item, why):
     log("refused %s: %s" % (item.get("reply_to"), why))
+    if why == "hourly cap":
+        alert("cap", "it hit its hourly cap, so builders are going unanswered")
+    elif "secret" in why:
+        alert("blocked-post", "it tried to post something that looked like a secret, path or private "
+                              "repo in reply to message %s; the post was blocked" % item.get("reply_to"))
     return why
 
 
@@ -267,11 +305,16 @@ def drain_outbox(st):
 
 
 def serve():
-    me = api("GET", "/users/@me")["id"]
+    try:
+        me = api("GET", "/users/@me")["id"]
+    except Exception as e:   # a dead token or no network: supervise.sh restarts us, the Boss hears it
+        alert("cannot-start", "it cannot reach Discord as its bot (%s)" % e)
+        raise
     OUTBOX.mkdir(parents=True, exist_ok=True)   # before the first pass: claiming reads it
     PENDING.mkdir(parents=True, exist_ok=True)
     ensure_agent()                              # plugin on means its agent is up, not on first message
     log("up, reading %s" % ", ".join(channels()))
+    failures = 0
     while True:
         try:
             if not OFF.exists():
@@ -280,8 +323,12 @@ def serve():
                     poll_channel(ch, st, me)
                 drain_outbox(st)
                 write_state(st)
+            failures = 0
         except (OSError, ValueError, RuntimeError, urllib.error.URLError) as e:
+            failures += 1
             log("pass failed: %s" % e)
+            if failures >= 3:
+                alert("failing", "%d passes in a row failed, last: %s" % (failures, e))
         time.sleep(POLL)
 
 
