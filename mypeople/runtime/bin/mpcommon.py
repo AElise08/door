@@ -316,6 +316,13 @@ def write_json_merged(path, obj):
     lock spans re-read + merge + write, and only the keys this process actually touched
     since its own read are applied. Keys another writer added meanwhile survive; keys this
     process deleted are deleted. Same flock pattern as _locked_notification_routes.
+
+    A write CONSUMES the tracked read. A deletion is a key that was in this process's own
+    read_json_tracked() and is missing from what it writes back -- one read, one write. Keeping
+    the merged file as the next snapshot (as this used to) meant a caller that wrote a partial
+    dict twice in one process deleted every key it had not mentioned: the Discord plugin's
+    relaunch loop dropped 14 agents and their roles from roster.json that way (card
+    f864c568e6). Without a fresh tracked read, a write only adds and updates.
     """
     lock_path = path + ".lock"
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -325,7 +332,7 @@ def write_json_merged(path, obj):
         snapshot = _JSON_SNAPSHOTS.get(path)
         if not (isinstance(obj, dict) and isinstance(current, dict)):
             write_json(path, obj)
-            _JSON_SNAPSHOTS[path] = copy.deepcopy(obj)
+            _JSON_SNAPSHOTS.pop(path, None)
             return
         merged = dict(current)
         if isinstance(snapshot, dict):
@@ -336,10 +343,10 @@ def write_json_merged(path, obj):
                 if k not in obj:
                     merged.pop(k, None)
         else:
-            # No tracked read in this process: apply everything we hold, delete nothing.
+            # No tracked read since this process last wrote: apply everything, delete nothing.
             merged.update(obj)
         write_json(path, merged)
-        _JSON_SNAPSHOTS[path] = copy.deepcopy(merged)
+        _JSON_SNAPSHOTS.pop(path, None)
 
 
 def read_json(path, default=None):

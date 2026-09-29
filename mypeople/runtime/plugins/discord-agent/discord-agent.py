@@ -188,11 +188,15 @@ def register(cmd):
     """The same roster row and queue registration mp spawn writes, so mp status, peek and kill
     work on it -- with no boss, and the spawn command recorded as the locked one."""
     import mpcommon as C
-    C.write_json_merged(str(INSTALL / "run" / "roster.json"), {AID: dict(roster_row(), **{
+    # Tracked read, change our one row, write the whole thing back: the same transaction mp does.
+    path = str(INSTALL / "run" / "roster.json")
+    roster = C.read_json_tracked(path, {}) or {}
+    roster[AID] = dict(roster.get(AID) or {}, **{
         "agent_id": AID, "host": HOST_ID, "session": "main", "tab": "discord", "backend": "claude",
         "boss_id": "", "cwd": str(AGENT), "spawn_cmd": cmd, "model": cfg("DISCORD_AGENT_MODEL", "claude-opus-5-5"),
         "is_master": False, "retired": False, "lifecycle": "plugin:discord-agent",
-        "summary": "Discord agent: answers builders' questions (plugin-owned, locked)"})})
+        "summary": "Discord agent: answers builders' questions (plugin-owned, locked)"})
+    C.write_json_merged(path, roster)
     try:
         C.http_json("POST", cfg("QUEUE_URL", "http://127.0.0.1:9900") + "/agents/register",
                     {"agent_id": AID, "host": HOST_ID, "session": "main", "tab": "discord",
