@@ -140,9 +140,10 @@ jobs:
           set -euo pipefail
           docker buildx imagetools inspect "${IMAGE}:${{ steps.version.outputs.value }}"
 
-  # MyPlow as a Plow cloud agent (cloud/Dockerfile), on top of the release just published. A tag
-  # of THIS package, not a package of its own: GHCR creates new packages private, and Plow pulls
-  # anonymously. amd64 only -- Plow's VMs are amd64.
+  # MyPlow as a Plow cloud agent (cloud/Dockerfile), on top of the release just published. Its own
+  # package, whose :latest IS the cloud image: exe.dev boots <repo>:latest whatever digest Plow pins
+  # (proved 2026-10-01: a 5.20.2 digest booted 5.20.3), so inside this repo the pin got the base.
+  # The package was made public by hand once; Plow pulls anonymously. amd64 only -- Plow's VMs are amd64.
   cloud:
     name: cloud image
     needs: merge
@@ -166,12 +167,16 @@ jobs:
           file: cloud/Dockerfile
           platforms: linux/amd64
           build-args: BASE=${{ env.IMAGE }}:${{ needs.merge.outputs.version }}
-          tags: ${{ env.IMAGE }}:cloud-${{ needs.merge.outputs.version }}
+          tags: |
+            ${{ env.IMAGE }}:cloud-${{ needs.merge.outputs.version }}
+            ghcr.io/delattre1/myplow-cloud:${{ needs.merge.outputs.version }}
+            ghcr.io/delattre1/myplow-cloud:latest
+          provenance: false
           push: true
 
       - name: Plow image reference
         run: |
-          echo "Plow image: ${IMAGE}@${{ steps.build.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Plow image: ghcr.io/delattre1/myplow-cloud@${{ steps.build.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The same MyPlow without the Playwright browsers and the codex/grok CLIs (~0.9 GB, Claude agents
       # only): for when a fresh host's first pull time matters more than those capabilities.
