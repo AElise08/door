@@ -1,0 +1,56 @@
+#!/bin/bash
+# The Claude login of this MyPlow's OWNER, fetched at boot from the owner's login server
+# (plow-seedlab-seedbed-substrate lease/lease-server.py, POST /token). Nothing is in the image: the
+# server hands the login only to agents on the owner's Plow account, so anyone else's install
+# boots without one and is told so by text instead of failing silently.
+#
+#   claude-login.sh fetch   -> prints the token on stdout (exit 0), or texts why not (exit 1)
+#
+# Checked once, at boot -- no polling. A restart runs the check again, so the way back from any
+# failure below is restarting the agent, and its first text after that says what is still wrong.
+# ponytail: a login that expires while the agent runs is only noticed at its next boot (it goes
+# quiet until then); upgrade path is the chat bridge re-checking when a text gets no answer.
+set -u
+BANK="${MYPLOW_CLAUDE_BANK:-https://delattre-server.mulley-firefighter.ts.net/claude-bank}"
+TOLD="${MYPEOPLE_HOME:-/var/lib/mypeople}/state/claude-login-told"
+AUTH=(-H "Authorization: Bearer ${PLOW_AGENT_TOKEN:-proxied}")
+
+# Text whoever deployed this agent, through the chat plugin as the package ships it.
+say(){
+  local plug
+  plug="$(python3 -c 'import mypeople,os;print(os.path.join(os.path.dirname(mypeople.__file__),"runtime","plugins","plow-chat","plow-chat.py"))')"
+  PLOW_CHAT_STATE_DIR="${TMPDIR:-/tmp}/claude-login-chat" python3 "$plug" reply "$1" >/dev/null 2>&1 \
+    || echo "claude-login: could not text: $1" >&2
+}
+# Say each problem once per kind, not on every restart.
+say_once(){ mkdir -p "$TOLD"; [ -e "$TOLD/$1" ] && return; touch "$TOLD/$1"; say "$2"; }
+
+# The token works if one tiny real request succeeds on it.
+works(){ CLAUDE_CODE_OAUTH_TOKEN="$1" timeout 120 claude -p "reply with OK" --model claude-haiku-4-5 >/dev/null 2>&1; }
+
+EXPIRED="My Claude login stopped working, so I can't answer. Most likely it expired: it lasts about a \
+year. The owner renews it by running 'claude setup-token' and saving the new login on the login server."
+
+case "${1:-}" in
+  fetch)
+    a=$(curl -fsS "${AUTH[@]}" "$PLOW_API_BASE/v1/auth/index-identity" | python3 -c 'import json,sys;print(json.load(sys.stdin)["assertion"])' 2>/dev/null) || a=""
+    out=$(curl -sS -m 30 -w '\n%{http_code}' -X POST -H "Content-Type: application/json" \
+          -H "X-Plow-Index-Assertion: $a" -d '{"holder": "'"$(hostname)"'"}' "$BANK/token")
+    code="${out##*$'\n'}"; body="${out%$'\n'*}"
+    case "$code" in
+      200)
+        tok=$(python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])' <<<"$body")
+        if works "$tok"; then rm -rf "$TOLD"; printf '%s' "$tok"; exit 0; fi
+        say_once expired "$EXPIRED"; exit 1 ;;
+      401)
+        say_once not-owner "This MyPlow is a prototype that only works for its owner's Plow account. \
+It has no Claude login for you, so it can't answer here."; exit 1 ;;
+      503)
+        say_once no-login "My owner hasn't saved a Claude login on their login server yet, so I can't \
+answer. Restart me once they have."; exit 1 ;;
+      *)
+        say_once unreachable "I couldn't reach my owner's login server when I started (answer: ${code:-none}), \
+so I can't answer. Restart me once it's back and I'll log in."; exit 1 ;;
+    esac ;;
+  *) echo "usage: claude-login.sh fetch" >&2; exit 2 ;;
+esac

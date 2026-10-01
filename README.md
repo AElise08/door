@@ -162,5 +162,8 @@ those pages and write answers; the plugin posts them after its guards. Off switc
 
 In the cloud: `cloud/Dockerfile` builds MyPlow as a Plow cloud agent (1-click from
 [aiworthusing.com/agent-index/myplow](https://aiworthusing.com/agent-index/myplow)). It is a separate MyPlow
-with its own Boss that knows only its own chat; it never reaches the Mac. Claude Code runs on Plow's model
-through an in-image bridge, and the Agent Index reporter posts its usage every 5 minutes.
+with its own Boss that knows only its own chat; it never reaches the Mac. **Prototype:** at boot it fetches
+its owner's long-lived Claude login from the owner's login server (`cloud/claude-login.sh`), so every copy
+runs on that one person's Claude plan. The server hands the login only to agents on the owner's Plow
+account; anyone else's install boots without one and texts its installer that it only works for its owner.
+No credential is in the image.
