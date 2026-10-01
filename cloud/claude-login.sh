@@ -33,7 +33,14 @@ year. The owner renews it by running 'claude setup-token' and saving the new log
 
 case "${1:-}" in
   fetch)
-    a=$(curl -fsS "${AUTH[@]}" "$PLOW_API_BASE/v1/auth/index-identity" | python3 -c 'import json,sys;print(json.load(sys.stdin)["assertion"])' 2>/dev/null) || a=""
+    # Every network call has a time limit: a call that stalls would otherwise hold the boot forever,
+    # and the reasons below are only ever said if the attempt RETURNS.
+    a=$(curl -fsS -m 20 "${AUTH[@]}" "$PLOW_API_BASE/v1/auth/index-identity" | python3 -c 'import json,sys;print(json.load(sys.stdin)["assertion"])' 2>/dev/null) || a=""
+    if [ -z "$a" ]; then
+      # Not "not the owner": Plow didn't say who we are at all (down, slow, or no PLOW_API_BASE).
+      say_once plow-unreachable "I couldn't reach Plow when I started, so I can't log in. Restart me and I'll try again."
+      exit 1
+    fi
     out=$(curl -sS -m 30 -w '\n%{http_code}' -X POST -H "Content-Type: application/json" \
           -H "X-Plow-Index-Assertion: $a" -d '{"holder": "'"$(hostname)"'"}' "$BANK/token")
     code="${out##*$'\n'}"; body="${out%$'\n'*}"
