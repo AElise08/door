@@ -172,3 +172,19 @@ jobs:
       - name: Plow image reference
         run: |
           echo "Plow image: ${IMAGE}@${{ steps.build.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The same MyPlow without the Playwright browsers and the codex/grok CLIs (~0.9 GB, Claude agents
+      # only): for when a fresh host's first pull time matters more than those capabilities.
+      - name: Build and push slim
+        id: slim
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cloud/Dockerfile.slim
+          platforms: linux/amd64
+          tags: ${{ env.IMAGE }}:cloud-slim-${{ needs.merge.outputs.version }}
+          push: true
+
+      - name: Plow slim image reference
+        run: |
+          echo "Plow slim image: ${IMAGE}@${{ steps.slim.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"
