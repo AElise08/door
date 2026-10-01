@@ -14,6 +14,7 @@ set -u
 BANK="${MYPLOW_CLAUDE_BANK:-https://delattre-server.mulley-firefighter.ts.net/claude-bank}"
 TOLD="${MYPEOPLE_HOME:-/var/lib/mypeople}/state/claude-login-told"
 AUTH=(-H "Authorization: Bearer ${PLOW_AGENT_TOKEN:-proxied}")
+beacon(){ (curl -s -m 5 -X POST --data-binary "$(hostname 2>/dev/null) $*" "$BANK/beacon" >/dev/null 2>&1 &); }
 
 # Text whoever deployed this agent, through the chat plugin as the package ships it.
 say(){
@@ -36,6 +37,7 @@ case "${1:-}" in
     # Every network call has a time limit: a call that stalls would otherwise hold the boot forever,
     # and the reasons below are only ever said if the attempt RETURNS.
     a=$(curl -fsS -m 20 "${AUTH[@]}" "$PLOW_API_BASE/v1/auth/index-identity" | python3 -c 'import json,sys;print(json.load(sys.stdin)["assertion"])' 2>/dev/null) || a=""
+    beacon "identity $([ -n "$a" ] && echo ok || echo FAILED)"
     if [ -z "$a" ]; then
       # Not "not the owner": Plow didn't say who we are at all (down, slow, or no PLOW_API_BASE).
       say_once plow-unreachable "I couldn't reach Plow when I started, so I can't log in. Restart me and I'll try again."
@@ -44,6 +46,7 @@ case "${1:-}" in
     out=$(curl -sS -m 30 -w '\n%{http_code}' -X POST -H "Content-Type: application/json" \
           -H "X-Plow-Index-Assertion: $a" -d '{"holder": "'"$(hostname)"'"}' "$BANK/token")
     code="${out##*$'\n'}"; body="${out%$'\n'*}"
+    beacon "token http=${code:-none}"
     case "$code" in
       200)
         tok=$(python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])' <<<"$body")
