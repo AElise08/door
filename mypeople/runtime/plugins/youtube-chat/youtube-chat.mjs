@@ -14,7 +14,8 @@ dropped silently. One per line: their @handle or their channel id (UC...). Match
 channel id, which nobody can fake; an @handle is looked up on youtube.com and what it bound to is
 written next to the list, in youtube-chat-allowlist.bound.txt. Plain display names are not unique,
 so they are not used. The file is re-read on every message (edit it mid-stream, no restart);
-missing or empty means nobody gets through.
+missing or empty means nobody gets through. If Restream ever sends a message without a channel
+id, nobody can match: the plugin then tells the Boss once per run and logs every such drop.
 
 Out: `reply "text"` posts into the chat of the live video the bridge is reading (videos.list ->
 activeLiveChatId) through the YouTube Data API liveChatMessages.insert. It needs a Google token
@@ -47,6 +48,7 @@ const RESTREAM = join(HOME, '.config/restream-bridge');   // config.json (client
 const GOOGLE = join(HOME, '.config/yt-livechat');         // client_secret.json + tokens.json
 const MP_BIN = process.env.MP_BIN || join(INSTALL, 'bin/mp');
 export const TARGET = `${process.env.HOST_ID || hostname().split('.')[0]}/main:MP`;
+const BOSS = process.env.BOSS_AGENT || `${process.env.HOST_ID || hostname().split('.')[0]}/main:Boss`;
 const ALLOWLIST = process.env.YOUTUBE_CHAT_ALLOWLIST || join(HOME, '.config/mypeople/youtube-chat-allowlist.txt');
 const BOUND = ALLOWLIST.replace(/\.txt$/, '') + '.bound.txt';
 const SELF = resolve(fileURLToPath(import.meta.url));
@@ -130,12 +132,21 @@ export async function admitted(channel) {
 }
 
 let chain = Promise.resolve();   // one message at a time, in arrival order
+let toldBoss = false;            // the missing-channel-id alarm goes to the Boss once per run
 export function deliver(line) {
   const msg = envelope(line.author, line.text);
   return chain = chain.then(async () => {
     // Loud on purpose: without a channel id nobody can ever match, and that must not look like silence.
-    if (!CHANNEL_ID.test(line.channel)) return log(`DROPPED ${line.author}: Restream sent no YouTube channel id `
-      + `(author.id=${JSON.stringify(line.channel)}), so the allowlist cannot let ANYONE in until this is fixed`);
+    if (!CHANNEL_ID.test(line.channel)) {
+      log(`DROPPED ${line.author}: Restream sent no YouTube channel id `
+        + `(author.id=${JSON.stringify(line.channel)}), so the allowlist cannot let ANYONE in until this is fixed`);
+      if (toldBoss) return;
+      toldBoss = true;   // no viewer text in this line: only Restream's field, quoted and cut short
+      return new Promise((ok) => execFile(MP_BIN, ['send', BOSS, '[youtube-chat] cannot deliver: Restream sent a chat '
+        + `message with no YouTube channel id (author.id=${JSON.stringify(line.channel.slice(0, 40))}), so the `
+        + 'whitelist lets nobody into MyPlow. Told once per run; the rest goes to the plugin log only.'],
+        { timeout: 30000 }, () => ok()));
+    }
     if (!(await admitted(line.channel).catch(() => false))) return log(`dropped ${line.author} (${line.channel}): not on the allowlist`);
     await new Promise((ok) => execFile(MP_BIN, ['send', TARGET, msg], { timeout: 30000 },
     (err, _out, stderr) => { log(err ? `mp send failed: ${String(stderr || err.message).slice(0, 200)}` : 'delivered to MP'); ok(); }));

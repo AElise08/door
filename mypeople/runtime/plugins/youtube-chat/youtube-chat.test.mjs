@@ -57,11 +57,18 @@ try {
   const logged = []; console.log = (m) => logged.push(m);
   await deliver({ author: 'Bob', channel: '', text: 'renamed stranger' });
   await deliver({ author: 'Cy', channel: 'UCcccccccccccccccccccccc', text: 'not listed' });
+  await deliver({ author: 'Dee', channel: 'not-a-channel', text: 'second missing id' });
   console.log = quiet;
   assert.match(logged[0], /DROPPED Bob: Restream sent no YouTube channel id .* cannot let ANYONE in/);
   assert.match(logged[1], /dropped Cy \(UCcccccccccccccccccccccc\): not on the allowlist/);
-  assert.deepEqual(readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)),
-    [['send', TARGET, envelope('Bob', 'build me a todo app')]]);
+  assert.match(logged[2], /DROPPED Dee/, 'every missing id is still logged');
+  // ...and the Boss hears it exactly once per run, with no viewer text.
+  const sent = readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const toBoss = sent.filter((c) => c[1].endsWith(':Boss'));
+  assert.equal(toBoss.length, 1);
+  assert.match(toBoss[0][2], /^\[youtube-chat\] cannot deliver: .*no YouTube channel id/);
+  assert.ok(!/Bob|renamed stranger|Dee/.test(toBoss[0][2]), 'no viewer name or text reaches the Boss');
+  assert.deepEqual(sent.filter((c) => c[1] === TARGET), [['send', TARGET, envelope('Bob', 'build me a todo app')]]);
 
   // Out: long replies become several chat messages, each <=200 (YouTube's limit), nothing lost, in order.
   const long = Array.from({ length: 120 }, (_, i) => `word${i}`).join(' ') + '\nnext line ' + 'z'.repeat(450);
