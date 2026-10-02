@@ -90,6 +90,9 @@ while true; do
   # Discord agent: builders' questions in the listed channels, answered by its own agent. Off until
   # queue.env sets DISCORD_AGENT (see the plugin's header).
   [ -n "${DISCORD_AGENT:-}" ] && ensure "$ID/plugins/discord-agent/discord-agent.py" "exec python3 '$ID/plugins/discord-agent/discord-agent.py' serve"
+  # YouTube chat: the owner's live chat reaches MP (never the Boss), read via Restream. Off until
+  # queue.env sets YOUTUBE_CHAT (see the plugin's header).
+  [ -n "${YOUTUBE_CHAT:-}" ] && ensure "$ID/plugins/youtube-chat/youtube-chat.mjs" "exec node '$ID/plugins/youtube-chat/youtube-chat.mjs' serve"
   recycle_leaked_ttyd "ttyd -W -a -p $TTYD_PORT"
   recycle_leaked_ttyd "ttyd -a -p $TTYD_RO_PORT"
   sleep 10
