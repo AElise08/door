@@ -317,6 +317,23 @@ def save_board(board):
     return True
 
 
+
+def delete_comment(board, tid, cid, actor):
+    """Remove ONE comment by id. Only its own author or the Boss may do it.
+
+    No bulk, no wildcard: a delete is irreversible on every card of the board, so the scope is a
+    single id the caller already knows, and an actor who is neither the author nor the Boss is
+    refused. Returns (error, removed_comment)."""
+    t = board["tasks"].get(tid)
+    if not t:
+        return "no_task", None
+    for i, c in enumerate(t.get("comments") or []):
+        if c.get("id") == cid:
+            if not actor or actor not in (c.get("by"), BOSS_AGENT):
+                return "not_author", None
+            return None, t["comments"].pop(i)
+    return "no_comment", None
+
 def now():
     return time.time()
 
@@ -778,6 +795,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._update(body, ident)
         if p == "/todo/comment":
             return self._comment(body, ident)
+        if p == "/todo/comment/delete":
+            return self._comment_delete(body, ident)
         if p == "/todo/owner":
             return self._owner(body, ident)
         if p == "/todo/proof":
@@ -1086,6 +1105,28 @@ class Handler(BaseHTTPRequestHandler):
             save_board(board)
             wd_schedule_unanswered(tid, c["id"], by)
             return self._send(200, {"ok": True, "id": c["id"]})
+
+    # ---- comment delete (one id, author or Boss only) ----
+    def _comment_delete(self, body, ident):
+        actor = body.get("by") or ("CEO" if ident == "browser" else "")
+        tid, cid = body.get("task_id"), body.get("comment_id")
+        if not tid or not cid:
+            return self._send(400, {"ok": False, "error": "task_id_and_comment_id_required"})
+        with LOCK:
+            board = load_board()
+            err, c = delete_comment(board, tid, cid, actor)
+            if err:
+                code = 403 if err == "not_author" else 200
+                return self._send(code, {"ok": False, "error": err})
+            board["tasks"][tid]["updated"] = now()
+            save_board(board)
+            try:
+                with open(os.path.join(TODOS_DIR, "comment-deletes.jsonl"), "a") as f:
+                    f.write(json.dumps({"comment_id": cid, "card": tid, "author": c.get("by"),
+                                        "actor": actor, "ts": now()}) + "\n")
+            except OSError:
+                pass
+            return self._send(200, {"ok": True, "deleted": cid})
 
     # ---- proof (json) ----
     def _proof_json(self, body):
