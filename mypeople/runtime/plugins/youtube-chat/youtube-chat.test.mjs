@@ -7,11 +7,15 @@ import { join } from 'node:path';
 const dir = mkdtempSync(join(tmpdir(), 'yt-chat-test-'));
 // A stub mp that records its argv, one JSON line per call.
 const stub = join(dir, 'mp');
-writeFileSync(stub, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(join(dir, 'argv'))}, JSON.stringify(process.argv.slice(2)) + '\\n')\n`);
+// It exits 1 for sends to MP while <dir>/fail exists, to simulate MyPlow not being there.
+writeFileSync(stub, `#!/usr/bin/env node\nconst fs = require('fs'); fs.appendFileSync(${JSON.stringify(join(dir, 'argv'))}, JSON.stringify(process.argv.slice(2)) + '\\n');\n`
+  + `if (fs.existsSync(${JSON.stringify(join(dir, 'fail'))}) && process.argv[3].endsWith(':MP')) process.exit(1);\n`);
 chmodSync(stub, 0o755);
 const LIST = join(dir, 'allow.txt');
-Object.assign(process.env, { YOUTUBE_CHAT_STATE_DIR: dir, MP_BIN: stub, YOUTUBE_CHAT_ALLOWLIST: LIST });   // read at import
-const { TARGET, admitted, chatLine, deliver, envelope, ownEcho, parseAllowlist, parts } = await import('./youtube-chat.mjs');
+Object.assign(process.env, { YOUTUBE_CHAT_STATE_DIR: dir, MP_BIN: stub, YOUTUBE_CHAT_ALLOWLIST: LIST,
+  YOUTUBE_CHAT_DOWN_ALARM_MS: '50' });   // read at import
+const { TARGET, admitted, chatLine, connection, deliver, envelope, ownEcho, parseAllowlist, parts } = await import('./youtube-chat.mjs');
+const bossLines = () => readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((c) => c[1].endsWith(':Boss'));
 // Fake youtube.com: @ana is a real channel, anything else 404s. Counts lookups.
 let lookups = 0;
 globalThis.fetch = async (url) => { lookups++; return url.endsWith('/@ana')
@@ -86,6 +90,29 @@ try {
   assert.equal(ownEcho({ msgId: '', channel: BOB, text: 'old' }), false, 'expired after 10 minutes');
   assert.deepEqual(chatLine({ action: 'event', payload: { eventSourceId: 13, eventIdentifier: 'e9',
     eventPayload: { author: { displayName: 'A', id: ANA }, text: 'x', liveChatMessageId: 'M9' } } }).msgId, 'M9');
+
+  // A failed hand-off to MyPlow tells the Boss once per run (no viewer text), then logs only.
+  writeFileSync(join(dir, 'fail'), '');
+  console.log = () => {};
+  await deliver({ author: 'Bob', channel: BOB, text: 'secret viewer words one' });
+  await deliver({ author: 'Bob', channel: BOB, text: 'secret viewer words two' });
+  console.log = quiet;
+  rmSync(join(dir, 'fail'));
+  const mpAlarm = bossLines().filter((c) => /handing a chat message/.test(c[2]));
+  assert.equal(mpAlarm.length, 1);
+  assert.ok(!/secret viewer words|Bob/.test(mpAlarm[0][2]));
+
+  // The Restream connection: a quick reconnect is silent; staying down tells the Boss once.
+  const wsAlarms = () => bossLines().filter((c) => /connection has been down/.test(c[2])).length;
+  connection.closed(); connection.opened();
+  await new Promise((r) => setTimeout(r, 120));
+  assert.equal(wsAlarms(), 0, 'recovered in time: no alarm');
+  connection.closed();
+  await new Promise((r) => setTimeout(r, 300));
+  connection.opened(); connection.closed();
+  await new Promise((r) => setTimeout(r, 300));
+  connection.opened();
+  assert.equal(wsAlarms(), 1, 'down too long: told once per run');
 
   // Out: long replies become several chat messages, each <=200 (YouTube's limit), nothing lost, in order.
   const long = Array.from({ length: 120 }, (_, i) => `word${i}`).join(' ') + '\nnext line ' + 'z'.repeat(450);

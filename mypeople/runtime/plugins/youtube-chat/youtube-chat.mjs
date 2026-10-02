@@ -15,7 +15,8 @@ channel id, which nobody can fake; an @handle is looked up on youtube.com and wh
 written next to the list, in youtube-chat-allowlist.bound.txt. Plain display names are not unique,
 so they are not used. The file is re-read on every message (edit it mid-stream, no restart);
 missing or empty means nobody gets through. If Restream ever sends a message without a channel
-id, nobody can match: the plugin then tells the Boss once per run and logs every such drop.
+id, nobody can match. That, a failed hand-off to MP, and the Restream connection staying down for 5
+minutes each send the Boss one line per run (no viewer text); after that they are only logged.
 
 Out: `reply "text"` posts into the chat of the live video the bridge is reading (videos.list ->
 activeLiveChatId) through the YouTube Data API liveChatMessages.insert. It needs a Google token
@@ -133,7 +134,26 @@ export async function admitted(channel) {
 }
 
 let chain = Promise.resolve();   // one message at a time, in arrival order
-let toldBoss = false;            // the missing-channel-id alarm goes to the Boss once per run
+// A bridge that cannot deliver tells the Boss: one line per kind of failure per run, then log-only.
+// Never viewer names or text in these lines.
+const told = new Set();
+export function tellBoss(kind, text) {
+  if (told.has(kind)) return Promise.resolve();
+  told.add(kind);
+  return new Promise((ok) => execFile(MP_BIN, ['send', BOSS, `[youtube-chat] ${text} Told once per run; `
+    + 'the rest goes to the plugin log only.'], { timeout: 30000 }, () => ok()));
+}
+
+// The Restream connection is down and has not come back for DOWN_ALARM_MS: tell the Boss.
+const DOWN_ALARM_MS = Number(process.env.YOUTUBE_CHAT_DOWN_ALARM_MS || 5 * 60 * 1000);
+let downTimer = null;
+export const connection = {
+  closed() {
+    downTimer ??= setTimeout(() => tellBoss('websocket', `cannot deliver: the Restream chat connection has been down `
+      + `for ${Math.round(DOWN_ALARM_MS / 60000)} minutes and is still retrying, so no YouTube chat reaches MyPlow.`), DOWN_ALARM_MS);
+  },
+  opened() { clearTimeout(downTimer); downTimer = null; },
+};
 export function deliver(line) {
   const msg = envelope(line.author, line.text);
   return chain = chain.then(async () => {
@@ -144,16 +164,19 @@ export function deliver(line) {
     if (!CHANNEL_ID.test(line.channel)) {
       log(`DROPPED ${line.author}: Restream sent no YouTube channel id `
         + `(author.id=${JSON.stringify(line.channel)}), so the allowlist cannot let ANYONE in until this is fixed`);
-      if (toldBoss) return;
-      toldBoss = true;   // no viewer text in this line: only Restream's field, quoted and cut short
-      return new Promise((ok) => execFile(MP_BIN, ['send', BOSS, '[youtube-chat] cannot deliver: Restream sent a chat '
-        + `message with no YouTube channel id (author.id=${JSON.stringify(line.channel.slice(0, 40))}), so the `
-        + 'whitelist lets nobody into MyPlow. Told once per run; the rest goes to the plugin log only.'],
-        { timeout: 30000 }, () => ok()));
+      // Only Restream's field, quoted and cut short: no viewer text.
+      return tellBoss('channel-id', 'cannot deliver: Restream sent a chat message with no YouTube channel id '
+        + `(author.id=${JSON.stringify(line.channel.slice(0, 40))}), so the whitelist lets nobody into MyPlow.`);
     }
     if (!(await admitted(line.channel).catch(() => false))) return log(`dropped ${line.author} (${line.channel}): not on the allowlist`);
     await new Promise((ok) => execFile(MP_BIN, ['send', TARGET, msg], { timeout: 30000 },
-    (err, _out, stderr) => { log(err ? `mp send failed: ${String(stderr || err.message).slice(0, 200)}` : 'delivered to MP'); ok(); }));
+    (err, _out, stderr) => {
+      if (!err) { log('delivered to MP'); return ok(); }
+      log(`mp send failed: ${String(stderr || err.message).slice(0, 200)}`);
+      // The exit code only: mp's stderr can quote the message, which is viewer text.
+      tellBoss('mp-send', `cannot deliver: handing a chat message to ${TARGET} failed (mp send exit ${err.code ?? 'timeout'}); `
+        + 'is MyPlow running?').then(ok);
+    }));
   });
 }
 
@@ -186,9 +209,10 @@ async function serve() {
       ws = new WebSocket(`wss://chat.api.restream.io/ws?accessToken=${encodeURIComponent(await restreamToken(failed))}`);
     } catch (e) {
       log(`connect failed: ${e.message}`);
+      connection.closed();
       return setTimeout(connect, backoff = Math.min(backoff * 2, 60000));
     }
-    ws.addEventListener('open', () => { opened = true; failed = false; backoff = 1000; log('websocket open'); });
+    ws.addEventListener('open', () => { opened = true; failed = false; backoff = 1000; connection.opened(); log('websocket open'); });
     ws.addEventListener('message', (evt) => {
       let f; try { f = JSON.parse(evt.data); } catch { return; }
       if (f.action === 'connection_info' && f.payload?.eventSourceId === YOUTUBE && f.payload.target?.event?.id) {
@@ -201,6 +225,7 @@ async function serve() {
     });
     ws.addEventListener('close', (e) => {
       failed = !opened;
+      connection.closed();
       log(`websocket closed ${e.code}, retry in ${backoff}ms`);
       setTimeout(connect, backoff = Math.min(backoff * 2, 60000));
     });
