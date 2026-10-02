@@ -9,25 +9,55 @@ const dir = mkdtempSync(join(tmpdir(), 'yt-chat-test-'));
 const stub = join(dir, 'mp');
 writeFileSync(stub, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(join(dir, 'argv'))}, JSON.stringify(process.argv.slice(2)) + '\\n')\n`);
 chmodSync(stub, 0o755);
-Object.assign(process.env, { YOUTUBE_CHAT_STATE_DIR: dir, MP_BIN: stub });   // read at import
-const { TARGET, chatLine, deliver, envelope, parts } = await import('./youtube-chat.mjs');
+const LIST = join(dir, 'allow.txt');
+Object.assign(process.env, { YOUTUBE_CHAT_STATE_DIR: dir, MP_BIN: stub, YOUTUBE_CHAT_ALLOWLIST: LIST });   // read at import
+const { TARGET, admitted, chatLine, deliver, envelope, parseAllowlist, parts } = await import('./youtube-chat.mjs');
+// Fake youtube.com: @ana is a real channel, anything else 404s. Counts lookups.
+let lookups = 0;
+globalThis.fetch = async (url) => { lookups++; return url.endsWith('/@ana')
+  ? new Response('<meta property="og:title" content="Ana Silva">..."externalId":"UCaaaaaaaaaaaaaaaaaaaaaa"...')
+  : new Response('', { status: 404 }); };
+const ANA = 'UCaaaaaaaaaaaaaaaaaaaaaa', BOB = 'UCbbbbbbbbbbbbbbbbbbbbbb';
 
 try {
   // In: YouTube chat messages, not Twitch or blanks, reach MyPlow as `mp send <MP> <envelope>`.
   assert.match(TARGET, /\/main:MP$/);
   const frame = (sid, text) => ({ action: 'event', payload: { eventSourceId: sid, eventIdentifier: 'e1',
     eventPayload: { author: { displayName: 'Ana' }, text } } });
-  assert.deepEqual(chatLine(frame(13, 'oi')), { id: 'e1', author: 'Ana', text: 'oi' });
+  assert.deepEqual(chatLine(frame(13, 'oi')), { id: 'e1', author: 'Ana', channel: '', text: 'oi' });
+  const withId = frame(13, 'oi'); withId.payload.eventPayload.author.id = ANA;
+  assert.equal(chatLine(withId).channel, ANA);
   assert.equal(chatLine(frame(2, 'twitch')), null);
   assert.equal(chatLine(frame(13, '  ')), null);
   assert.equal(chatLine({ action: 'heartbeat' }), null);
   assert.ok(envelope('Ana', 'oi').startsWith('[youtube-chat] from Ana: oi\n'));
   assert.match(envelope('Ana', 'oi'), /youtube-chat\.mjs reply "your reply"/);
+  // Allowlist: missing file = nobody (and it is created for him to edit).
+  assert.equal(await admitted(ANA), false);
+  assert.match(readFileSync(LIST, 'utf8'), /@handle or channel id/);
+  assert.deepEqual(parseAllowlist('# c\n@ana\nUCbbbbbbbbbbbbbbbbbbbbbb  # bob\nAna Silva\n\n'),
+    { ids: [BOB], handles: ['@ana'], plain: ['Ana Silva'] });
+  writeFileSync(LIST, '@ana\nAna Silva\n@nobody-here\n');
+  assert.equal(await admitted(ANA), true, '@handle binds to its channel id');
+  assert.equal(await admitted(BOB), false);
+  assert.equal(await admitted(''), false, 'no channel id = not admitted');
+  const bound = readFileSync(join(dir, 'allow.bound.txt'), 'utf8');
+  assert.match(bound, /@ana -> UCaaaaaaaaaaaaaaaaaaaaaa \(Ana Silva\)/);
+  assert.match(bound, /Ana Silva -> NOT USED/);
+  assert.match(bound, /@nobody-here -> NOT FOUND/);
+  const n = lookups; await admitted(ANA); assert.equal(lookups, n, 'unchanged list is not looked up again');
+  writeFileSync(LIST, BOB + '\n');   // edited mid-stream, no restart
+  assert.equal(await admitted(BOB), true);
+  assert.equal(await admitted(ANA), false, 'removed person is out at once');
+
+  // Only listed people are delivered; the rest are dropped without a word.
   const quiet = console.log; console.log = () => {};
-  await deliver({ author: 'Ana', text: 'build me a todo app' });
+  await deliver({ author: 'Ana', channel: ANA, text: 'let me in' });
+  await deliver({ author: 'Bob', channel: BOB, text: 'build me a todo app' });
+  await deliver({ author: 'Bob', channel: '', text: 'renamed stranger' });
   console.log = quiet;
   assert.deepEqual(readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)),
-    [['send', TARGET, envelope('Ana', 'build me a todo app')]]);
+    [['send', TARGET, envelope('Bob', 'build me a todo app')]]);
 
   // Out: long replies become several chat messages, each <=200 (YouTube's limit), nothing lost, in order.
   const long = Array.from({ length: 120 }, (_, i) => `word${i}`).join(' ') + '\nnext line ' + 'z'.repeat(450);

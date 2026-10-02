@@ -9,6 +9,13 @@ needs no Google login. Each YouTube chat message reaches MP through `mp send` as
     [youtube-chat] from <author>: <text>
     (... To answer, run: node youtube-chat.mjs reply "your reply" ...)
 
+Allowlist: only people on ~/.config/mypeople/youtube-chat-allowlist.txt reach MP; everyone else is
+dropped silently. One per line: their @handle or their channel id (UC...). Matching is on the
+channel id, which nobody can fake; an @handle is looked up on youtube.com and what it bound to is
+written next to the list, in youtube-chat-allowlist.bound.txt. Plain display names are not unique,
+so they are not used. The file is re-read on every message (edit it mid-stream, no restart);
+missing or empty means nobody gets through.
+
 Out: `reply "text"` posts into the chat of the live video the bridge is reading (videos.list ->
 activeLiveChatId) through the YouTube Data API liveChatMessages.insert. It needs a Google token
 with scope https://www.googleapis.com/auth/youtube.force-ssl at ~/.config/yt-livechat/tokens.json:
@@ -24,10 +31,10 @@ Config (env, or the file MYPEOPLE_CONFIG_PATH names, default ~/.config/mypeople/
 
     youtube-chat.mjs serve             read and deliver forever
     youtube-chat.mjs reply "text"      MP's reply, into the live chat
-    youtube-chat.mjs status            target and current video
+    youtube-chat.mjs status            target, current video, who the allowlist lets in
 */
 import { execFile } from 'node:child_process';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -40,11 +47,14 @@ const RESTREAM = join(HOME, '.config/restream-bridge');   // config.json (client
 const GOOGLE = join(HOME, '.config/yt-livechat');         // client_secret.json + tokens.json
 const MP_BIN = process.env.MP_BIN || join(INSTALL, 'bin/mp');
 export const TARGET = `${process.env.HOST_ID || hostname().split('.')[0]}/main:MP`;
+const ALLOWLIST = process.env.YOUTUBE_CHAT_ALLOWLIST || join(HOME, '.config/mypeople/youtube-chat-allowlist.txt');
+const BOUND = ALLOWLIST.replace(/\.txt$/, '') + '.bound.txt';
 const SELF = resolve(fileURLToPath(import.meta.url));
 const YOUTUBE = 13;   // Restream eventSourceId; 2 is Twitch
 
 const log = (m) => console.log(`${new Date().toISOString()} [youtube-chat] ${m}`);
 const readJson = (p, d) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return d; } };
+readJson.raw = (p) => { try { return readFileSync(p, 'utf8'); } catch { return ''; } };
 
 function writeJson(p, obj) {
   mkdirSync(STATE_DIR, { recursive: true });
@@ -66,14 +76,67 @@ export function chatLine(frame) {
   if (p?.eventSourceId !== YOUTUBE) return null;
   const ep = p.eventPayload || {};
   const text = String(ep.text ?? '').trim();
-  return text ? { id: p.eventIdentifier, author: ep.author?.displayName || 'unknown', text } : null;
+  return text ? { id: p.eventIdentifier, author: ep.author?.displayName || 'unknown', channel: ep.author?.id || '', text } : null;
 }
 
-let chain = Promise.resolve();   // one mp send at a time, in arrival order
+// --- Allowlist ---
+
+const CHANNEL_ID = /^UC[\w-]{22}$/;
+
+export function parseAllowlist(text) {
+  const ids = [], handles = [], plain = [];
+  for (const raw of String(text).split('\n')) {
+    const e = raw.replace(/#.*/, '').trim();
+    if (!e) continue;
+    if (CHANNEL_ID.test(e)) ids.push(e);
+    else if (/^@[\w.-]{3,30}$/.test(e)) handles.push(e);
+    else plain.push(e);
+  }
+  return { ids, handles, plain };
+}
+
+// @handle -> {id, name} from the public channel page, or null if there is no such channel.
+export async function resolveHandle(handle) {
+  const res = await fetch(`https://www.youtube.com/${handle}`, { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'en' } });
+  if (!res.ok) return null;
+  const html = await res.text();
+  const id = html.match(/"externalId":"(UC[\w-]{22})"/)?.[1];
+  const name = html.match(/<meta property="og:title" content="([^"]*)"/)?.[1] || '';
+  return id ? { id, name } : null;
+}
+
+let allow = { text: null, ids: new Set(), retryAt: 0 };
+export async function admitted(channel) {
+  if (!existsSync(ALLOWLIST)) {
+    mkdirSync(join(ALLOWLIST, '..'), { recursive: true });
+    writeFileSync(ALLOWLIST, '# Only these people reach MyPlow. One per line: their @handle or channel id (UC...).\n');
+  }
+  const text = readJson.raw(ALLOWLIST);
+  if (text !== allow.text || (allow.retryAt && Date.now() > allow.retryAt)) {
+    const { ids, handles, plain } = parseAllowlist(text);
+    const bound = new Set(ids), lines = ['# What each entry of the allowlist let in. Written by the plugin; edit the allowlist, not this.'];
+    let retry = false;
+    for (const id of ids) lines.push(`${id} -> that channel`);
+    for (const h of handles) {
+      const r = await resolveHandle(h).catch(() => null);
+      if (r) { bound.add(r.id); lines.push(`${h} -> ${r.id} (${r.name})`); }
+      else { retry = true; lines.push(`${h} -> NOT FOUND on YouTube, nobody let in (check the spelling)`); }
+    }
+    for (const n of plain) lines.push(`${n} -> NOT USED: names are not unique, write their @handle instead`);
+    writeFileSync(BOUND, lines.join('\n') + '\n');
+    allow = { text, ids: bound, retryAt: retry ? Date.now() + 60000 : 0 };
+  }
+  return !!channel && allow.ids.has(channel);
+}
+
+let chain = Promise.resolve();   // one message at a time, in arrival order
 export function deliver(line) {
   const msg = envelope(line.author, line.text);
-  return chain = chain.then(() => new Promise((ok) => execFile(MP_BIN, ['send', TARGET, msg], { timeout: 30000 },
-    (err, _out, stderr) => { log(err ? `mp send failed: ${String(stderr || err.message).slice(0, 200)}` : 'delivered to MP'); ok(); })));
+  return chain = chain.then(async () => {
+    if (!(await admitted(line.channel).catch(() => false))) return log('dropped: not on the allowlist');
+    await new Promise((ok) => execFile(MP_BIN, ['send', TARGET, msg], { timeout: 30000 },
+    (err, _out, stderr) => { log(err ? `mp send failed: ${String(stderr || err.message).slice(0, 200)}` : 'delivered to MP'); ok(); }));
+  });
 }
 
 let tokens = null;
@@ -180,6 +243,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   const [cmd = 'serve', ...rest] = process.argv.slice(2);
   if (cmd === 'serve') serve();
   else if (cmd === 'reply') reply(rest.join(' ')).catch((e) => { console.error(`not posted: ${e.message}`); process.exit(1); });
-  else if (cmd === 'status') console.log(JSON.stringify({ target: TARGET, video: readJson(STATE, {}).video || null }, null, 2));
+  else if (cmd === 'status') console.log(JSON.stringify({ target: TARGET, video: readJson(STATE, {}).video || null,
+    allowlist: ALLOWLIST, bound: readJson.raw(BOUND) }, null, 2));
   else { console.error('usage: youtube-chat.mjs serve | reply "text" | status'); process.exit(2); }
 }
