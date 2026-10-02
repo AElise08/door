@@ -7,15 +7,15 @@ import { join } from 'node:path';
 const dir = mkdtempSync(join(tmpdir(), 'yt-chat-test-'));
 // A stub mp that records its argv, one JSON line per call.
 const stub = join(dir, 'mp');
-// It exits 1 for sends to MP while <dir>/fail exists, to simulate MyPlow not being there.
+// It exits 1 for chat deliveries while <dir>/fail exists, to simulate the target not being there.
 writeFileSync(stub, `#!/usr/bin/env node\nconst fs = require('fs'); fs.appendFileSync(${JSON.stringify(join(dir, 'argv'))}, JSON.stringify(process.argv.slice(2)) + '\\n');\n`
-  + `if (fs.existsSync(${JSON.stringify(join(dir, 'fail'))}) && process.argv[3].endsWith(':MP')) process.exit(1);\n`);
+  + `if (fs.existsSync(${JSON.stringify(join(dir, 'fail'))}) && process.argv[4].startsWith('[youtube-chat] from')) process.exit(1);\n`);
 chmodSync(stub, 0o755);
 const LIST = join(dir, 'allow.txt');
 Object.assign(process.env, { YOUTUBE_CHAT_STATE_DIR: dir, MP_BIN: stub, YOUTUBE_CHAT_ALLOWLIST: LIST,
   YOUTUBE_CHAT_DOWN_ALARM_MS: '50' });   // read at import
 const { TARGET, admitted, chatLine, command, connection, deliver, envelope, ownEcho, parseAllowlist, parts } = await import('./youtube-chat.mjs');
-const bossLines = () => readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((c) => c[1].endsWith(':Boss'));
+const bossLines = () => readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((c) => /^\[youtube-chat\] cannot deliver/.test(c[2]));
 // Fake youtube.com: @ana is a real channel, anything else 404s. Counts lookups.
 let lookups = 0;
 globalThis.fetch = async (url) => { lookups++; return url.endsWith('/@ana')
@@ -25,7 +25,7 @@ const ANA = 'UCaaaaaaaaaaaaaaaaaaaaaa', BOB = 'UCbbbbbbbbbbbbbbbbbbbbbb';
 
 try {
   // In: YouTube chat messages, not Twitch or blanks, reach MyPlow as `mp send <MP> <envelope>`.
-  assert.match(TARGET, /\/main:MP$/);
+  assert.match(TARGET, /\/main:Boss$/);
   const frame = (sid, text) => ({ action: 'event', payload: { eventSourceId: sid, eventIdentifier: 'e1',
     eventPayload: { author: { displayName: 'Ana' }, text } } });
   assert.deepEqual(chatLine(frame(13, 'oi')), { id: 'e1', msgId: '', author: 'Ana', channel: '', text: 'oi' });
@@ -68,11 +68,11 @@ try {
   assert.match(logged[2], /DROPPED Dee/, 'every missing id is still logged');
   // ...and the Boss hears it exactly once per run, with no viewer text.
   const sent = readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  const toBoss = sent.filter((c) => c[1].endsWith(':Boss'));
+  const toBoss = sent.filter((c) => /^\[youtube-chat\] cannot deliver/.test(c[2]));
   assert.equal(toBoss.length, 1);
   assert.match(toBoss[0][2], /^\[youtube-chat\] cannot deliver: .*no YouTube channel id/);
   assert.ok(!/Bob|renamed stranger|Dee/.test(toBoss[0][2]), 'no viewer name or text reaches the Boss');
-  assert.deepEqual(sent.filter((c) => c[1] === TARGET), [['send', TARGET, envelope('Bob', 'build me a todo app')]]);
+  assert.deepEqual(sent.filter((c) => c[1] === TARGET && c[2].startsWith('[youtube-chat] from')), [['send', TARGET, envelope('Bob', 'build me a todo app')]]);
 
   // MyPlow's own reply comes back as the owner's message: skipped by message id, or by same text
   // from the posting channel; a viewer typing the same words is not an echo; old posts expire.
@@ -83,7 +83,7 @@ try {
   console.log = () => {};
   await deliver({ author: 'Bob', channel: BOB, msgId: 'zzz', text: '/myplow sure,  on it' });
   console.log = quiet;
-  assert.equal(readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').filter((l) => JSON.parse(l)[1] === TARGET).length, 1, 'echo not delivered');
+  assert.equal(readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').filter((l) => JSON.parse(l)[1] === TARGET && JSON.parse(l)[2].startsWith('[youtube-chat] from')).length, 1, 'echo not delivered');
   assert.equal(ownEcho({ msgId: 'MSG1', channel: BOB, text: 'paraphrased differently' }), true, 'message id match wins');
   assert.equal(ownEcho({ msgId: '', channel: BOB, text: '/myplow sure, on it' }), true, 'same text from the posting channel');
   assert.equal(ownEcho({ msgId: '', channel: ANA, text: '/myplow sure, on it' }), false, 'a viewer saying the same words is not an echo');
@@ -121,14 +121,14 @@ try {
   assert.equal(command('/MYPLOW  '), '');
   for (const no of ['what is the weather', 'hey /myplow do it', '/myplowx hi', '/plow hi', ''])
     assert.equal(command(no), null, `not a command: ${no}`);
-  const before = readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').filter((l) => JSON.parse(l)[1] === TARGET).length;
+  const before = readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').filter((l) => JSON.parse(l)[1] === TARGET && JSON.parse(l)[2].startsWith('[youtube-chat] from')).length;
   console.log = () => {};
   await deliver({ author: 'Bob', channel: BOB, text: 'no prefix, from a listed person' });
   await deliver({ author: 'Cy', channel: 'UCcccccccccccccccccccccc', text: '/myplow prefix but not listed' });
   await deliver({ author: 'Bob', channel: BOB, text: ' /MyPlow   what is the weather' });
   await deliver({ author: 'Bob', channel: BOB, text: '/myplow' });
   console.log = quiet;
-  const toMp = readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((c) => c[1] === TARGET);
+  const toMp = readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((c) => c[1] === TARGET && c[2].startsWith('[youtube-chat] from'));
   assert.deepEqual(toMp.slice(before).map((c) => c[2]),
     [envelope('Bob', 'what is the weather'), envelope('Bob', '(just "/myplow", nothing after it: say hello)')],
     'both gates must pass; prefix stripped');

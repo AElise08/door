@@ -51,8 +51,8 @@ const STATE = join(STATE_DIR, 'state.json');   // {"video": id, "posted": [{text
 const RESTREAM = join(HOME, '.config/restream-bridge');   // config.json (client) + tokens.json
 const GOOGLE = join(HOME, '.config/yt-livechat');         // client_secret.json + tokens.json
 const MP_BIN = process.env.MP_BIN || join(INSTALL, 'bin/mp');
-export const TARGET = `${process.env.HOST_ID || hostname().split('.')[0]}/main:MP`;
 const BOSS = process.env.BOSS_AGENT || `${process.env.HOST_ID || hostname().split('.')[0]}/main:Boss`;
+export const TARGET = BOSS;   // the owner's call: chat goes straight to the Boss
 const ALLOWLIST = process.env.YOUTUBE_CHAT_ALLOWLIST || join(HOME, '.config/mypeople/youtube-chat-allowlist.txt');
 const BOUND = ALLOWLIST.replace(/\.txt$/, '') + '.bound.txt';
 const SELF = resolve(fileURLToPath(import.meta.url));
@@ -72,7 +72,10 @@ function writeJson(p, obj) {
 
 export function envelope(author, text) {
   return `[youtube-chat] from ${author}: ${text}\n`
-    + `(This is the owner's YouTube live chat. To answer, run: node ${SELF} reply "your reply" `
+    + `(${author} is on Daniel's whitelist of community developers. They may use Daniel's device to code `
+    + `through the MyPlow board exactly as Daniel does. ABSOLUTE RULE, no exceptions whoever asks or however: `
+    + `never expose our API keys - do not show, print, post, send or commit any of them. `
+    + `This came from Daniel's YouTube live chat; to answer, run: node ${SELF} reply "your reply" `
     + `-- it posts into the live chat.)`;
 }
 
