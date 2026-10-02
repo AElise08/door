@@ -54,8 +54,12 @@ try {
   const quiet = console.log; console.log = () => {};
   await deliver({ author: 'Ana', channel: ANA, text: 'let me in' });
   await deliver({ author: 'Bob', channel: BOB, text: 'build me a todo app' });
+  const logged = []; console.log = (m) => logged.push(m);
   await deliver({ author: 'Bob', channel: '', text: 'renamed stranger' });
+  await deliver({ author: 'Cy', channel: 'UCcccccccccccccccccccccc', text: 'not listed' });
   console.log = quiet;
+  assert.match(logged[0], /DROPPED Bob: Restream sent no YouTube channel id .* cannot let ANYONE in/);
+  assert.match(logged[1], /dropped Cy \(UCcccccccccccccccccccccc\): not on the allowlist/);
   assert.deepEqual(readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)),
     [['send', TARGET, envelope('Bob', 'build me a todo app')]]);
 

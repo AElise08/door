@@ -133,7 +133,10 @@ let chain = Promise.resolve();   // one message at a time, in arrival order
 export function deliver(line) {
   const msg = envelope(line.author, line.text);
   return chain = chain.then(async () => {
-    if (!(await admitted(line.channel).catch(() => false))) return log('dropped: not on the allowlist');
+    // Loud on purpose: without a channel id nobody can ever match, and that must not look like silence.
+    if (!CHANNEL_ID.test(line.channel)) return log(`DROPPED ${line.author}: Restream sent no YouTube channel id `
+      + `(author.id=${JSON.stringify(line.channel)}), so the allowlist cannot let ANYONE in until this is fixed`);
+    if (!(await admitted(line.channel).catch(() => false))) return log(`dropped ${line.author} (${line.channel}): not on the allowlist`);
     await new Promise((ok) => execFile(MP_BIN, ['send', TARGET, msg], { timeout: 30000 },
     (err, _out, stderr) => { log(err ? `mp send failed: ${String(stderr || err.message).slice(0, 200)}` : 'delivered to MP'); ok(); }));
   });
