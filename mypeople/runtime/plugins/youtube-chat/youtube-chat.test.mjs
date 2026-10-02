@@ -24,7 +24,7 @@ try {
   assert.match(TARGET, /\/main:MP$/);
   const frame = (sid, text) => ({ action: 'event', payload: { eventSourceId: sid, eventIdentifier: 'e1',
     eventPayload: { author: { displayName: 'Ana' }, text } } });
-  assert.deepEqual(chatLine(frame(13, 'oi')), { id: 'e1', author: 'Ana', channel: '', text: 'oi' });
+  assert.deepEqual(chatLine(frame(13, 'oi')), { id: 'e1', msgId: '', author: 'Ana', channel: '', text: 'oi' });
   const withId = frame(13, 'oi'); withId.payload.eventPayload.author.id = ANA;
   assert.equal(chatLine(withId).channel, ANA);
   assert.equal(chatLine(frame(2, 'twitch')), null);
@@ -70,14 +70,22 @@ try {
   assert.ok(!/Bob|renamed stranger|Dee/.test(toBoss[0][2]), 'no viewer name or text reaches the Boss');
   assert.deepEqual(sent.filter((c) => c[1] === TARGET), [['send', TARGET, envelope('Bob', 'build me a todo app')]]);
 
-  // MyPlow's own reply comes back as the owner's message: skipped, not delivered; after 10 min, not.
-  writeFileSync(join(dir, 'state.json'), JSON.stringify({ posted: [{ text: 'sure, on it', at: Date.now() }, { text: 'old', at: Date.now() - 700000 }] }));
+  // MyPlow's own reply comes back as the owner's message: skipped by message id, or by same text
+  // from the posting channel; a viewer typing the same words is not an echo; old posts expire.
+  const now0 = Date.now();
+  writeFileSync(join(dir, 'state.json'), JSON.stringify({ posted: [
+    { key: 'a', text: 'sure, on it', channel: BOB, id: 'MSG1', at: now0 },
+    { key: 'b', text: 'old', channel: BOB, at: now0 - 700000 }] }));
   console.log = () => {};
-  await deliver({ author: 'Bob', channel: BOB, text: 'sure,  on it' });
+  await deliver({ author: 'Bob', channel: BOB, msgId: 'zzz', text: 'sure,  on it' });
   console.log = quiet;
   assert.equal(readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').filter((l) => JSON.parse(l)[1] === TARGET).length, 1, 'echo not delivered');
-  assert.equal(ownEcho('old'), false);
-  assert.equal(ownEcho('sure, on it'), true);
+  assert.equal(ownEcho({ msgId: 'MSG1', channel: BOB, text: 'paraphrased differently' }), true, 'message id match wins');
+  assert.equal(ownEcho({ msgId: '', channel: BOB, text: 'sure, on it' }), true, 'same text from the posting channel');
+  assert.equal(ownEcho({ msgId: '', channel: ANA, text: 'sure, on it' }), false, 'a viewer saying the same words is not an echo');
+  assert.equal(ownEcho({ msgId: '', channel: BOB, text: 'old' }), false, 'expired after 10 minutes');
+  assert.deepEqual(chatLine({ action: 'event', payload: { eventSourceId: 13, eventIdentifier: 'e9',
+    eventPayload: { author: { displayName: 'A', id: ANA }, text: 'x', liveChatMessageId: 'M9' } } }).msgId, 'M9');
 
   // Out: long replies become several chat messages, each <=200 (YouTube's limit), nothing lost, in order.
   const long = Array.from({ length: 120 }, (_, i) => `word${i}`).join(' ') + '\nnext line ' + 'z'.repeat(450);

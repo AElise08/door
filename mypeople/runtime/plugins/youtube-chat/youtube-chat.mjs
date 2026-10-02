@@ -78,7 +78,8 @@ export function chatLine(frame) {
   if (p?.eventSourceId !== YOUTUBE) return null;
   const ep = p.eventPayload || {};
   const text = String(ep.text ?? '').trim();
-  return text ? { id: p.eventIdentifier, author: ep.author?.displayName || 'unknown', channel: ep.author?.id || '', text } : null;
+  return text ? { id: p.eventIdentifier, msgId: ep.liveChatMessageId || '', author: ep.author?.displayName || 'unknown',
+    channel: ep.author?.id || '', text } : null;
 }
 
 // --- Allowlist ---
@@ -138,7 +139,7 @@ export function deliver(line) {
   return chain = chain.then(async () => {
     // Replies post as the owner's channel, so they come back through Restream as his messages:
     // skip our own echo, or MyPlow would be answering itself.
-    if (ownEcho(line.text)) return log('skipped: MyPlow\'s own reply coming back');
+    if (ownEcho(line)) return log('skipped: MyPlow\'s own reply coming back');
     // Loud on purpose: without a channel id nobody can ever match, and that must not look like silence.
     if (!CHANNEL_ID.test(line.channel)) {
       log(`DROPPED ${line.author}: Restream sent no YouTube channel id `
@@ -209,16 +210,20 @@ async function serve() {
 
 // --- Out: MP's reply -> YouTube chat ---
 
+// Our own posts come back through Restream as the posting channel's messages. Matched on
+// YouTube's message id when we have it, else on same text from the posting channel.
 const ECHO_SECONDS = 600;
-export function ownEcho(text, now = Date.now()) {
-  const t = String(text).replace(/\s+/g, ' ').trim();
-  return (readJson(STATE, {}).posted || []).some((p) => p.text === t && now - p.at < ECHO_SECONDS * 1000);
+export function ownEcho(line, now = Date.now()) {
+  const t = String(line.text).replace(/\s+/g, ' ').trim();
+  return (readJson(STATE, {}).posted || []).some((p) => now - p.at < ECHO_SECONDS * 1000
+    && ((p.id && p.id === line.msgId) || (p.text === t && (!p.channel || p.channel === line.channel))));
 }
 
-function rememberPosted(text) {
+function rememberPosted(entry) {
   const st = readJson(STATE, {});
   const now = Date.now();
-  writeJson(STATE, { ...st, posted: [...(st.posted || []).filter((p) => now - p.at < ECHO_SECONDS * 1000), { text, at: now }] });
+  const kept = (st.posted || []).filter((p) => now - p.at < ECHO_SECONDS * 1000 && p.key !== entry.key);
+  writeJson(STATE, { ...st, posted: [...kept, { ...entry, at: now }] });
 }
 
 // YouTube takes at most 200 characters per chat message and no line breaks: split on word
@@ -260,13 +265,16 @@ async function reply(text) {
   const v = await (await fetch(`${yt}/videos?part=liveStreamingDetails&id=${encodeURIComponent(st.video)}`, { headers: auth })).json();
   const liveChatId = v.items?.[0]?.liveStreamingDetails?.activeLiveChatId;
   if (!liveChatId) { console.error('not posted: that video has no active live chat'); process.exit(1); }
+  const channel = (await (await fetch(`${yt}/channels?part=id&mine=true`, { headers: auth })).json()).items?.[0]?.id || '';
   for (const [i, messageText] of all.entries()) {
-    rememberPosted(messageText);   // before posting: the echo can arrive before the POST returns
+    const key = `${Date.now()}-${i}`;
+    rememberPosted({ key, text: messageText, channel });   // before posting: the echo can beat the POST's answer
     const res = await fetch(`${yt}/liveChat/messages?part=snippet`, {
       method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({ snippet: { liveChatId, type: 'textMessageEvent', textMessageDetails: { messageText } } }),
     });
     if (!res.ok) { console.error(`posted ${i} of ${all.length}; stopped: YouTube ${res.status}`); process.exit(1); }
+    rememberPosted({ key, text: messageText, channel, id: (await res.json()).id || '' });
   }
   console.log(`posted ${all.length} message(s)`);
 }
