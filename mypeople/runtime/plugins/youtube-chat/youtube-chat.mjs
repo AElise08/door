@@ -154,10 +154,10 @@ export function deliver(line) {
 }
 
 let tokens = null;
-async function restreamToken() {
+async function restreamToken(force = false) {
   tokens ??= readJson(join(RESTREAM, 'tokens.json'), {});
   const now = Math.floor(Date.now() / 1000);
-  if (tokens.access_token && now < (tokens.obtained_at || 0) + (tokens.expires_in || 3600) - 300) return tokens.access_token;
+  if (!force && tokens.access_token && now < (tokens.obtained_at || 0) + (tokens.expires_in || 3600) - 300) return tokens.access_token;
   const c = readJson(join(RESTREAM, 'config.json'), {});
   const res = await fetch('https://api.restream.io/oauth/token', {
     method: 'POST',
@@ -175,15 +175,16 @@ async function serve() {
   log(`up, delivering to ${TARGET}`);
   const seen = new Set();
   let backoff = 1000;
+  let failed = false;   // a connection that never opened usually means a revoked token: refresh it
   const connect = async () => {
-    let ws;
+    let ws, opened = false;
     try {
-      ws = new WebSocket(`wss://chat.api.restream.io/ws?accessToken=${encodeURIComponent(await restreamToken())}`);
+      ws = new WebSocket(`wss://chat.api.restream.io/ws?accessToken=${encodeURIComponent(await restreamToken(failed))}`);
     } catch (e) {
       log(`connect failed: ${e.message}`);
       return setTimeout(connect, backoff = Math.min(backoff * 2, 60000));
     }
-    ws.addEventListener('open', () => { backoff = 1000; log('websocket open'); });
+    ws.addEventListener('open', () => { opened = true; failed = false; backoff = 1000; log('websocket open'); });
     ws.addEventListener('message', (evt) => {
       let f; try { f = JSON.parse(evt.data); } catch { return; }
       if (f.action === 'connection_info' && f.payload?.eventSourceId === YOUTUBE && f.payload.target?.event?.id) {
@@ -195,6 +196,7 @@ async function serve() {
       deliver(line);
     });
     ws.addEventListener('close', (e) => {
+      failed = !opened;
       log(`websocket closed ${e.code}, retry in ${backoff}ms`);
       setTimeout(connect, backoff = Math.min(backoff * 2, 60000));
     });
