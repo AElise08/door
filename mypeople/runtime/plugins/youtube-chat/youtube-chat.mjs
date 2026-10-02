@@ -43,7 +43,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const HOME = homedir();
 const INSTALL = process.env.INSTALL_DIR || process.env.MYPEOPLE_HOME || join(HOME, '.local/share/mypeople');
 const STATE_DIR = process.env.YOUTUBE_CHAT_STATE_DIR || join(INSTALL, 'state/youtube-chat');
-const STATE = join(STATE_DIR, 'state.json');   // {"video": id}
+const STATE = join(STATE_DIR, 'state.json');   // {"video": id, "posted": [{text, at}]}
 const RESTREAM = join(HOME, '.config/restream-bridge');   // config.json (client) + tokens.json
 const GOOGLE = join(HOME, '.config/yt-livechat');         // client_secret.json + tokens.json
 const MP_BIN = process.env.MP_BIN || join(INSTALL, 'bin/mp');
@@ -136,6 +136,9 @@ let toldBoss = false;            // the missing-channel-id alarm goes to the Bos
 export function deliver(line) {
   const msg = envelope(line.author, line.text);
   return chain = chain.then(async () => {
+    // Replies post as the owner's channel, so they come back through Restream as his messages:
+    // skip our own echo, or MyPlow would be answering itself.
+    if (ownEcho(line.text)) return log('skipped: MyPlow\'s own reply coming back');
     // Loud on purpose: without a channel id nobody can ever match, and that must not look like silence.
     if (!CHANNEL_ID.test(line.channel)) {
       log(`DROPPED ${line.author}: Restream sent no YouTube channel id `
@@ -206,6 +209,18 @@ async function serve() {
 
 // --- Out: MP's reply -> YouTube chat ---
 
+const ECHO_SECONDS = 600;
+export function ownEcho(text, now = Date.now()) {
+  const t = String(text).replace(/\s+/g, ' ').trim();
+  return (readJson(STATE, {}).posted || []).some((p) => p.text === t && now - p.at < ECHO_SECONDS * 1000);
+}
+
+function rememberPosted(text) {
+  const st = readJson(STATE, {});
+  const now = Date.now();
+  writeJson(STATE, { ...st, posted: [...(st.posted || []).filter((p) => now - p.at < ECHO_SECONDS * 1000), { text, at: now }] });
+}
+
 // YouTube takes at most 200 characters per chat message and no line breaks: split on word
 // boundaries, in order.
 export function parts(text, max = 200) {
@@ -246,6 +261,7 @@ async function reply(text) {
   const liveChatId = v.items?.[0]?.liveStreamingDetails?.activeLiveChatId;
   if (!liveChatId) { console.error('not posted: that video has no active live chat'); process.exit(1); }
   for (const [i, messageText] of all.entries()) {
+    rememberPosted(messageText);   // before posting: the echo can arrive before the POST returns
     const res = await fetch(`${yt}/liveChat/messages?part=snippet`, {
       method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({ snippet: { liveChatId, type: 'textMessageEvent', textMessageDetails: { messageText } } }),

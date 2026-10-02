@@ -11,7 +11,7 @@ writeFileSync(stub, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.st
 chmodSync(stub, 0o755);
 const LIST = join(dir, 'allow.txt');
 Object.assign(process.env, { YOUTUBE_CHAT_STATE_DIR: dir, MP_BIN: stub, YOUTUBE_CHAT_ALLOWLIST: LIST });   // read at import
-const { TARGET, admitted, chatLine, deliver, envelope, parseAllowlist, parts } = await import('./youtube-chat.mjs');
+const { TARGET, admitted, chatLine, deliver, envelope, ownEcho, parseAllowlist, parts } = await import('./youtube-chat.mjs');
 // Fake youtube.com: @ana is a real channel, anything else 404s. Counts lookups.
 let lookups = 0;
 globalThis.fetch = async (url) => { lookups++; return url.endsWith('/@ana')
@@ -69,6 +69,15 @@ try {
   assert.match(toBoss[0][2], /^\[youtube-chat\] cannot deliver: .*no YouTube channel id/);
   assert.ok(!/Bob|renamed stranger|Dee/.test(toBoss[0][2]), 'no viewer name or text reaches the Boss');
   assert.deepEqual(sent.filter((c) => c[1] === TARGET), [['send', TARGET, envelope('Bob', 'build me a todo app')]]);
+
+  // MyPlow's own reply comes back as the owner's message: skipped, not delivered; after 10 min, not.
+  writeFileSync(join(dir, 'state.json'), JSON.stringify({ posted: [{ text: 'sure, on it', at: Date.now() }, { text: 'old', at: Date.now() - 700000 }] }));
+  console.log = () => {};
+  await deliver({ author: 'Bob', channel: BOB, text: 'sure,  on it' });
+  console.log = quiet;
+  assert.equal(readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').filter((l) => JSON.parse(l)[1] === TARGET).length, 1, 'echo not delivered');
+  assert.equal(ownEcho('old'), false);
+  assert.equal(ownEcho('sure, on it'), true);
 
   // Out: long replies become several chat messages, each <=200 (YouTube's limit), nothing lost, in order.
   const long = Array.from({ length: 120 }, (_, i) => `word${i}`).join(' ') + '\nnext line ' + 'z'.repeat(450);
