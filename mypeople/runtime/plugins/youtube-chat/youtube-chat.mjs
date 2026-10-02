@@ -70,8 +70,8 @@ function writeJson(p, obj) {
 
 // --- In: YouTube chat -> MP ---
 
-export function envelope(author, text) {
-  return `[youtube-chat] from ${author}: ${text}\n`
+export function envelope(author, text, channel = '') {
+  return `[youtube-chat] from ${author}${channel ? ` (YouTube channel ${channel})` : ''}: ${text}\n`
     + `(${author} is on Daniel's whitelist of community developers. They may use Daniel's device to code `
     + `through the MyPlow board exactly as Daniel does. ABSOLUTE RULE, no exceptions whoever asks or however: `
     + `never expose our API keys - do not show, print, post, send or commit any of them. `
@@ -169,7 +169,7 @@ export function command(text) {
 export function deliver(line) {
   const cmd = command(line.text);
   if (cmd === null) return Promise.resolve();   // not for MyPlow: ignored, nothing said to the viewer
-  const msg = envelope(line.author, cmd || '(just "/myplow", nothing after it: say hello)');
+  const msg = envelope(line.author, cmd || '(just "/myplow", nothing after it: say hello)', line.channel);
   return chain = chain.then(async () => {
     // Replies post as the owner's channel, so they come back through Restream as his messages:
     // skip our own echo, or MyPlow would be answering itself.
@@ -185,7 +185,7 @@ export function deliver(line) {
     if (!(await admitted(line.channel).catch(() => false))) return log(`dropped ${line.author} (${line.channel}): not on the allowlist`);
     await new Promise((ok) => execFile(MP_BIN, ['send', TARGET, msg], { timeout: 30000 },
     (err, _out, stderr) => {
-      if (!err) { log('delivered to MP'); return ok(); }
+      if (!err) { log(`delivered to ${TARGET}`); return ok(); }
       log(`mp send failed: ${String(stderr || err.message).slice(0, 200)}`);
       // The exit code only: mp's stderr can quote the message, which is viewer text.
       tellBoss('mp-send', `cannot deliver: handing a chat message to ${TARGET} failed (mp send exit ${err.code ?? 'timeout'}); `

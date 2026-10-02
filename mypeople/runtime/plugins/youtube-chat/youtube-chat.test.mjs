@@ -35,6 +35,7 @@ try {
   assert.equal(chatLine(frame(13, '  ')), null);
   assert.equal(chatLine({ action: 'heartbeat' }), null);
   assert.ok(envelope('Ana', 'oi').startsWith('[youtube-chat] from Ana: oi\n'));
+  assert.ok(envelope('Ana', 'oi', ANA).startsWith(`[youtube-chat] from Ana (YouTube channel ${ANA}): oi\n`), 'verified channel id next to the name');
   assert.match(envelope('Ana', 'oi'), /youtube-chat\.mjs reply "your reply"/);
   // Allowlist: missing file = nobody (and it is created for him to edit).
   assert.equal(await admitted(ANA), false);
@@ -72,7 +73,7 @@ try {
   assert.equal(toBoss.length, 1);
   assert.match(toBoss[0][2], /^\[youtube-chat\] cannot deliver: .*no YouTube channel id/);
   assert.ok(!/Bob|renamed stranger|Dee/.test(toBoss[0][2]), 'no viewer name or text reaches the Boss');
-  assert.deepEqual(sent.filter((c) => c[1] === TARGET && c[2].startsWith('[youtube-chat] from')), [['send', TARGET, envelope('Bob', 'build me a todo app')]]);
+  assert.deepEqual(sent.filter((c) => c[1] === TARGET && c[2].startsWith('[youtube-chat] from')), [['send', TARGET, envelope('Bob', 'build me a todo app', BOB)]]);
 
   // MyPlow's own reply comes back as the owner's message: skipped by message id, or by same text
   // from the posting channel; a viewer typing the same words is not an echo; old posts expire.
@@ -130,7 +131,7 @@ try {
   console.log = quiet;
   const toMp = readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((c) => c[1] === TARGET && c[2].startsWith('[youtube-chat] from'));
   assert.deepEqual(toMp.slice(before).map((c) => c[2]),
-    [envelope('Bob', 'what is the weather'), envelope('Bob', '(just "/myplow", nothing after it: say hello)')],
+    [envelope('Bob', 'what is the weather', BOB), envelope('Bob', '(just "/myplow", nothing after it: say hello)', BOB)],
     'both gates must pass; prefix stripped');
 
   // Out: long replies become several chat messages, each <=200 (YouTube's limit), nothing lost, in order.
