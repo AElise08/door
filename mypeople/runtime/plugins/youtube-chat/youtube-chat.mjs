@@ -9,7 +9,10 @@ needs no Google login. Each YouTube chat message reaches MP through `mp send` as
     [youtube-chat] from <author>: <text>
     (... To answer, run: node youtube-chat.mjs reply "your reply" ...)
 
-Allowlist: only people on ~/.config/mypeople/youtube-chat-allowlist.txt reach MP; everyone else is
+Only messages that start with /myplow (any case, leading spaces fine) are forwarded, with the
+"/myplow" taken off; everything else is ignored without a word. A bare "/myplow" arrives as a hello.
+
+Allowlist: on top of that, only people on ~/.config/mypeople/youtube-chat-allowlist.txt reach MP; everyone else is
 dropped silently. One per line: their @handle or their channel id (UC...). Matching is on the
 channel id, which nobody can fake; an @handle is looked up on youtube.com and what it bound to is
 written next to the list, in youtube-chat-allowlist.bound.txt. Plain display names are not unique,
@@ -154,8 +157,16 @@ export const connection = {
   },
   opened() { clearTimeout(downTimer); downTimer = null; },
 };
+// Only messages that start with /myplow are for MyPlow: the rest of the text, or null if it isn't one.
+export function command(text) {
+  const m = String(text).match(/^\s*\/myplow(?:\s+|$)([\s\S]*)$/i);
+  return m ? m[1].trim() : null;
+}
+
 export function deliver(line) {
-  const msg = envelope(line.author, line.text);
+  const cmd = command(line.text);
+  if (cmd === null) return Promise.resolve();   // not for MyPlow: ignored, nothing said to the viewer
+  const msg = envelope(line.author, cmd || '(just "/myplow", nothing after it: say hello)');
   return chain = chain.then(async () => {
     // Replies post as the owner's channel, so they come back through Restream as his messages:
     // skip our own echo, or MyPlow would be answering itself.

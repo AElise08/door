@@ -14,7 +14,7 @@ chmodSync(stub, 0o755);
 const LIST = join(dir, 'allow.txt');
 Object.assign(process.env, { YOUTUBE_CHAT_STATE_DIR: dir, MP_BIN: stub, YOUTUBE_CHAT_ALLOWLIST: LIST,
   YOUTUBE_CHAT_DOWN_ALARM_MS: '50' });   // read at import
-const { TARGET, admitted, chatLine, connection, deliver, envelope, ownEcho, parseAllowlist, parts } = await import('./youtube-chat.mjs');
+const { TARGET, admitted, chatLine, command, connection, deliver, envelope, ownEcho, parseAllowlist, parts } = await import('./youtube-chat.mjs');
 const bossLines = () => readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((c) => c[1].endsWith(':Boss'));
 // Fake youtube.com: @ana is a real channel, anything else 404s. Counts lookups.
 let lookups = 0;
@@ -56,12 +56,12 @@ try {
 
   // Only listed people are delivered; the rest are dropped without a word.
   const quiet = console.log; console.log = () => {};
-  await deliver({ author: 'Ana', channel: ANA, text: 'let me in' });
-  await deliver({ author: 'Bob', channel: BOB, text: 'build me a todo app' });
+  await deliver({ author: 'Ana', channel: ANA, text: '/myplow let me in' });
+  await deliver({ author: 'Bob', channel: BOB, text: '/myplow build me a todo app' });
   const logged = []; console.log = (m) => logged.push(m);
-  await deliver({ author: 'Bob', channel: '', text: 'renamed stranger' });
-  await deliver({ author: 'Cy', channel: 'UCcccccccccccccccccccccc', text: 'not listed' });
-  await deliver({ author: 'Dee', channel: 'not-a-channel', text: 'second missing id' });
+  await deliver({ author: 'Bob', channel: '', text: '/myplow renamed stranger' });
+  await deliver({ author: 'Cy', channel: 'UCcccccccccccccccccccccc', text: '/myplow not listed' });
+  await deliver({ author: 'Dee', channel: 'not-a-channel', text: '/myplow second missing id' });
   console.log = quiet;
   assert.match(logged[0], /DROPPED Bob: Restream sent no YouTube channel id .* cannot let ANYONE in/);
   assert.match(logged[1], /dropped Cy \(UCcccccccccccccccccccccc\): not on the allowlist/);
@@ -78,15 +78,15 @@ try {
   // from the posting channel; a viewer typing the same words is not an echo; old posts expire.
   const now0 = Date.now();
   writeFileSync(join(dir, 'state.json'), JSON.stringify({ posted: [
-    { key: 'a', text: 'sure, on it', channel: BOB, id: 'MSG1', at: now0 },
+    { key: 'a', text: '/myplow sure, on it', channel: BOB, id: 'MSG1', at: now0 },
     { key: 'b', text: 'old', channel: BOB, at: now0 - 700000 }] }));
   console.log = () => {};
-  await deliver({ author: 'Bob', channel: BOB, msgId: 'zzz', text: 'sure,  on it' });
+  await deliver({ author: 'Bob', channel: BOB, msgId: 'zzz', text: '/myplow sure,  on it' });
   console.log = quiet;
   assert.equal(readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').filter((l) => JSON.parse(l)[1] === TARGET).length, 1, 'echo not delivered');
   assert.equal(ownEcho({ msgId: 'MSG1', channel: BOB, text: 'paraphrased differently' }), true, 'message id match wins');
-  assert.equal(ownEcho({ msgId: '', channel: BOB, text: 'sure, on it' }), true, 'same text from the posting channel');
-  assert.equal(ownEcho({ msgId: '', channel: ANA, text: 'sure, on it' }), false, 'a viewer saying the same words is not an echo');
+  assert.equal(ownEcho({ msgId: '', channel: BOB, text: '/myplow sure, on it' }), true, 'same text from the posting channel');
+  assert.equal(ownEcho({ msgId: '', channel: ANA, text: '/myplow sure, on it' }), false, 'a viewer saying the same words is not an echo');
   assert.equal(ownEcho({ msgId: '', channel: BOB, text: 'old' }), false, 'expired after 10 minutes');
   assert.deepEqual(chatLine({ action: 'event', payload: { eventSourceId: 13, eventIdentifier: 'e9',
     eventPayload: { author: { displayName: 'A', id: ANA }, text: 'x', liveChatMessageId: 'M9' } } }).msgId, 'M9');
@@ -94,8 +94,8 @@ try {
   // A failed hand-off to MyPlow tells the Boss once per run (no viewer text), then logs only.
   writeFileSync(join(dir, 'fail'), '');
   console.log = () => {};
-  await deliver({ author: 'Bob', channel: BOB, text: 'secret viewer words one' });
-  await deliver({ author: 'Bob', channel: BOB, text: 'secret viewer words two' });
+  await deliver({ author: 'Bob', channel: BOB, text: '/myplow secret viewer words one' });
+  await deliver({ author: 'Bob', channel: BOB, text: '/myplow secret viewer words two' });
   console.log = quiet;
   rmSync(join(dir, 'fail'));
   const mpAlarm = bossLines().filter((c) => /handing a chat message/.test(c[2]));
@@ -113,6 +113,25 @@ try {
   await new Promise((r) => setTimeout(r, 300));
   connection.opened();
   assert.equal(wsAlarms(), 1, 'down too long: told once per run');
+
+  // Only /myplow messages, prefix stripped, any case, leading spaces; bare /myplow is a hello.
+  assert.equal(command('/myplow what is the weather'), 'what is the weather');
+  assert.equal(command('  /MyPlow   build it'), 'build it');
+  assert.equal(command('/myplow'), '');
+  assert.equal(command('/MYPLOW  '), '');
+  for (const no of ['what is the weather', 'hey /myplow do it', '/myplowx hi', '/plow hi', ''])
+    assert.equal(command(no), null, `not a command: ${no}`);
+  const before = readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').filter((l) => JSON.parse(l)[1] === TARGET).length;
+  console.log = () => {};
+  await deliver({ author: 'Bob', channel: BOB, text: 'no prefix, from a listed person' });
+  await deliver({ author: 'Cy', channel: 'UCcccccccccccccccccccccc', text: '/myplow prefix but not listed' });
+  await deliver({ author: 'Bob', channel: BOB, text: ' /MyPlow   what is the weather' });
+  await deliver({ author: 'Bob', channel: BOB, text: '/myplow' });
+  console.log = quiet;
+  const toMp = readFileSync(join(dir, 'argv'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((c) => c[1] === TARGET);
+  assert.deepEqual(toMp.slice(before).map((c) => c[2]),
+    [envelope('Bob', 'what is the weather'), envelope('Bob', '(just "/myplow", nothing after it: say hello)')],
+    'both gates must pass; prefix stripped');
 
   // Out: long replies become several chat messages, each <=200 (YouTube's limit), nothing lost, in order.
   const long = Array.from({ length: 120 }, (_, i) => `word${i}`).join(' ') + '\nnext line ' + 'z'.repeat(450);
