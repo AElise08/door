@@ -19,7 +19,11 @@ def config_path():
 
 CONFIG_PATH = config_path()
 
-def load_env():
+def read_config_file():
+    """queue.env as it is on disk now, without the env override load_env() applies.
+
+    A long-lived process (the Boss) snapshotted its env at launch, so for a knob meant to move
+    without a restart -- the default models -- the file is the current answer."""
     cfg = {}
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH) as f:
@@ -36,6 +40,11 @@ def load_env():
                 if len(v) >= 2 and v[0] in "\"'" and v[-1] == v[0]:
                     v = v[1:-1]
                 cfg[k.strip()] = v
+    return cfg
+
+
+def load_env():
+    cfg = read_config_file()
     # Live env overrides the file, including fleet/client-only keys not present in old configs.
     known = set(cfg) | {
         "INSTALL_DIR", "HOST_ID", "HUD_PORT", "TODO_PORT", "TTYD_PORT",

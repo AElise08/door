@@ -273,12 +273,9 @@ def cmd_down(args):
     for pat in ("supervise.sh", "queue-server.py", "todo-server.py", "queue-client.py",
                 "board-exporter.py", "boss-supervisor.sh"):
         subprocess.run(["pkill", "-f", os.path.join(bindir, pat)], capture_output=True)
-    subprocess.run(["pkill", "-f", os.path.join(install, "plugins", "github-prs", "github-prs.py")],
-                   capture_output=True)
-    subprocess.run(["pkill", "-f", os.path.join(install, "plugins", "plow-chat", "plow-chat.py")],
-                   capture_output=True)
-    subprocess.run(["pkill", "-f", os.path.join(install, "plugins", "discord-agent", "discord-agent.py")],
-                   capture_output=True)
+    # Every plugin, not a named few: one `down` forgot kept serving its old code after an upgrade
+    # while run/serving.version claimed the new release (latch-reconnect, 10-03).
+    subprocess.run(["pkill", "-f", os.path.join(install, "plugins") + os.sep], capture_output=True)
     subprocess.run(["tmux", "kill-session", "-t", "discord-agent"], capture_output=True)
     # Writable + read-only ttyd. On Linux, supervise.sh detaches children with setsid so
     # killpg on the supervisor does not reach them. Without both pkill patterns, `down`/`up`

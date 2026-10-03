@@ -205,7 +205,7 @@ class WiringTests(unittest.TestCase):
 
     def test_down_stops_it(self):
         cli = (ROOT / "mypeople" / "cli.py").read_text()
-        self.assertIn('"plugins", "github-prs", "github-prs.py"', cli)
+        self.assertIn('os.path.join(install, "plugins") + os.sep', cli)
 
 
 if __name__ == "__main__":

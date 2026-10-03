@@ -605,9 +605,13 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
         return 2
     boss_id = full_aid(boss) if (boss_given and boss.strip()) else ""
     if not is_master and model is None:
-        model = {"claude": DEFAULT_CLAUDE_MODEL,
-                 "codex": DEFAULT_CODEX_MODEL,
-                 "grok": DEFAULT_GROK_MODEL}.get(backend) or None
+        # queue.env as it is NOW beats this process's env: the Boss spawns with the env it was
+        # launched with, so an edited default model reached new agents only after a Boss restart.
+        # (This fix once lived only on a live install, 09-23, and the next sync erased it.)
+        pinned = C.read_config_file()
+        model = {"claude": pinned.get("DEFAULT_CLAUDE_MODEL") or DEFAULT_CLAUDE_MODEL,
+                 "codex": pinned.get("DEFAULT_CODEX_MODEL") or DEFAULT_CODEX_MODEL,
+                 "grok": pinned.get("DEFAULT_GROK_MODEL") or DEFAULT_GROK_MODEL}.get(backend) or None
     if not is_local(aid):
         ok, result = remote_task("spawn", aid, {
             "backend": backend, "cwd": cwd or "", "boss": boss_id,

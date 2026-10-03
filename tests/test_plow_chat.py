@@ -210,7 +210,7 @@ class WiringTest(unittest.TestCase):
         root = PLUGINS.parents[2]
         sup = (root / "mypeople" / "runtime" / "bin" / "supervise.sh").read_text()
         self.assertIn('[ -n "${PLOW_CHAT:-}" ] && ensure "$ID/plugins/plow-chat/plow-chat.py"', sup)
-        self.assertIn('"plugins", "plow-chat", "plow-chat.py"', (root / "mypeople" / "cli.py").read_text())
+        self.assertIn('os.path.join(install, "plugins") + os.sep', (root / "mypeople" / "cli.py").read_text())
 
 
 if __name__ == "__main__":

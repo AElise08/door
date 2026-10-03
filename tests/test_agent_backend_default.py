@@ -70,6 +70,21 @@ class AgentBackendDefaultTests(unittest.TestCase):
             (_, _, payload), _ = remote.call_args
         self.assertEqual(("grok", "grok-4.7"), (payload["backend"], payload["model"]))
 
+    def test_an_edited_queue_env_reaches_a_spawn_from_a_stale_env(self):
+        """The Boss's env is a launch-time snapshot; the file is what the owner edits."""
+        with tempfile.TemporaryDirectory() as td, \
+             env_with(DEFAULT_AGENT_BACKEND="grok", DEFAULT_GROK_MODEL="grok-4.7"):
+            mp = load_mp(td)
+            conf = os.path.join(td, "queue.env")
+            with open(conf) as f:
+                text = f.read().replace('DEFAULT_GROK_MODEL=""', 'DEFAULT_GROK_MODEL="grok-5"')
+            with open(conf, "w") as f:
+                f.write(text)
+            with mock.patch.object(mp, "remote_task", return_value=(True, "ok")) as remote:
+                mp.do_spawn([REMOTE % "eng-6"])
+            (_, _, payload), _ = remote.call_args
+        self.assertEqual("grok-5", payload["model"])
+
 
 if __name__ == "__main__":
     unittest.main()
