@@ -5,6 +5,7 @@ new message is delivered once, and a failed delivery is retried instead of skipp
 """
 import importlib.machinery
 import importlib.util
+from datetime import timedelta
 import os
 from pathlib import Path
 import tempfile
@@ -92,9 +93,31 @@ class PlowChatTest(unittest.TestCase):
         self.msgs.append({"uid": "m2", "direction": "inbound", "body": "hi",
                           "chat_uid": "cht_a", "created_at": "2"})
         self.pc.send_to_boss = lambda m: False
+        self.pc.STARTED -= 300  # a bridge that has been up a while
         with mock.patch.object(self.pc, "send_message") as warn:
             self.assertEqual(self.pc.poll_chat(self.creds, "cht_a"), 0)
         warn.assert_called_once()  # the sender hears it did not land
+        self.pc.send_to_boss = lambda m: self.sent.append(m) or True
+        self.assertEqual(self.pc.poll_chat(self.creds, "cht_a"), 1)
+
+    def test_a_text_that_lands_while_the_boss_comes_back_is_not_warned_about(self):
+        """An in-place update restarts the bridge before the Boss: the text waits, nobody is told."""
+        self.pc.poll_chat(self.creds, "cht_a")
+        now = self.pc.datetime.now(self.pc.timezone.utc)
+        self.msgs.append({"uid": "m2", "direction": "inbound", "body": "codename?",
+                          "chat_uid": "cht_a", "created_at": now.isoformat()})
+        self.pc.send_to_boss = lambda m: False
+        with mock.patch.object(self.pc, "send_message") as warn:
+            self.pc.poll_chat(self.creds, "cht_a")
+            self.pc.poll_chat(self.creds, "cht_a")
+            warn.assert_not_called()
+            self.msgs[-1]["created_at"] = (now - timedelta(seconds=300)).isoformat()
+            self.pc.poll_chat(self.creds, "cht_a")
+            warn.assert_not_called()  # an overdue text, but the bridge itself just came back up
+            self.pc.STARTED -= 300
+            self.pc.poll_chat(self.creds, "cht_a")
+            self.pc.poll_chat(self.creds, "cht_a")
+        warn.assert_called_once()  # overdue: told once, not on every pass
         self.pc.send_to_boss = lambda m: self.sent.append(m) or True
         self.assertEqual(self.pc.poll_chat(self.creds, "cht_a"), 1)
 

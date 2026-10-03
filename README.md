@@ -176,3 +176,9 @@ its owner's long-lived Claude login from the owner's login server (`cloud/claude
 runs on that one person's Claude plan. The server hands the login only to agents on the owner's Plow
 account; anyone else's install boots without one and texts its installer that it only works for its owner.
 No credential is in the image.
+
+A running cloud MyPlow updates itself in place (`cloud/update.py`): promote a new image on Plow and, within
+about five minutes and once its agents are idle, it switches to that release on the same VM and disk, so the
+board, chats and the Boss's memory stay. A release that is not healthy within five minutes is rolled back,
+data included, and the owner gets one text saying so. Only the release dir moves (MyPlow, Claude Code, the
+cloud scripts); OS packages and browsers stay at the VM's first image.

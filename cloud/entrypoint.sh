@@ -1,57 +1,143 @@
 #!/bin/bash
-# PID 1 of a MyPlow cloud agent. Plow sets PLOW_API_BASE (and AGENT_ID on a 1-click deploy);
-# everything else is derived here, at run time, never at build time.
+# PID 1 of a MyPlow cloud agent, and the one file an update never replaces. It runs the release
+# that /opt/myplow/current points at (releases/<release>/run.sh, as the mypeople user) and owns the
+# only moment an update is dangerous: switching releases.
+#
+# update.py (inside the running release) stages the next release, waits until the agents are idle,
+# writes run/myplow-update-request and stops the fleet. Then, here, with nothing running:
+#   snapshot the data -> point current at the new release -> start it -> health-check it.
+#   Healthy: done, same VM, same disk, same chats. Not healthy within HEALTH_WAIT: stop it, point
+#   current back, restore the snapshot, never retry that image, and tell the owner in one line.
+# Nothing here is release code, so a broken release cannot break its own rollback.
 set -u
+M=/opt/myplow
+DATA=/var/lib/mypeople
+RUN="$DATA/run"
+REQUEST="$RUN/myplow-update-request"
+PENDING="$RUN/myplow-update-pending"
+BAD="$RUN/myplow-update-bad"
+SNAPS="$DATA/snapshots"
+HEALTH_WAIT="${MYPLOW_HEALTH_WAIT:-300}"
+BANK="${MYPLOW_CLAUDE_BANK:-https://delattre-server.mulley-firefighter.ts.net/claude-bank}"
 # Boot beacons: one short step line to the owner's login server, in the background with a 5s cap,
 # so the boot never waits on it. The only view into a Plow VM nobody can log into. No secrets.
-BANK="${MYPLOW_CLAUDE_BANK:-https://delattre-server.mulley-firefighter.ts.net/claude-bank}"
 beacon(){ (curl -s -m 5 -X POST --data-binary "$(hostname 2>/dev/null) $*" "$BANK/beacon" >/dev/null 2>&1 &); }
-beacon "start uid=$(id -u) home=${HOME:-unset} api_base=${PLOW_API_BASE:+set} envfile=$([ -r /exe.dev/etc/env ] && echo yes || echo no) cmd=$0"
+beacon "start uid=$(id -u) current=$(readlink "$M/current" 2>/dev/null)"
+
 # exe.dev writes the tenant environment here; normally it is also in ours, so this only fills gaps.
 if [ -z "${PLOW_API_BASE:-}" ] && [ -r /exe.dev/etc/env ]; then set -a; . /exe.dev/etc/env; set +a; fi
-# Booted as root (exe.dev): own the state, then become mypeople. Claude Code refuses to skip
-# permission prompts as root, so the fleet must never run as root.
-beacon "env api_base=${PLOW_API_BASE:+set}"
+# Booted as root (exe.dev): own the state, and run everything else as mypeople. Claude Code refuses
+# to skip permission prompts as root, so the fleet must never run as root.
+mkdir -p "$RUN" "$SNAPS"   # before the chown: a root-owned run/ stops the Boss from starting
 if [ "$(id -u)" = 0 ]; then
-  beacon "root: dropping to mypeople"
-  chown -R mypeople:mypeople /var/lib/mypeople /home/mypeople
-  exec setpriv --reuid=mypeople --regid=mypeople --init-groups env HOME=/home/mypeople "$0" "$@"
+  chown -R mypeople:mypeople "$DATA" /home/mypeople
+  me(){ setpriv --reuid=mypeople --regid=mypeople --init-groups env HOME=/home/mypeople "$@"; }
+else
+  me(){ "$@"; }
 fi
-export PLOW_API_BASE="${PLOW_API_BASE:-https://api.plow.co}"
-# On a Plow VM the proxy replaces Authorization with the agent's real token, so a placeholder
-# fills an absent one; a local run passes the real token and it is used as is.
-export PLOW_AGENT_TOKEN="${PLOW_AGENT_TOKEN:-proxied}"
-LOG="${MYPEOPLE_HOME:-/var/lib/mypeople}/logs"
-mkdir -p "$LOG"
 
-# AGENT_ID means "which Index listing" to Plow and "which agent am I" to every mypeople process.
-# Hand Plow's to the reporter and keep it out of the fleet's environment.
-INDEX_AGENT_ID="${AGENT_ID:-}"
-unset AGENT_ID
+# What a snapshot holds: the board, the roster, plugin state (plow-chat's seen messages included)
+# and the config -- what a new release could rewrite. Claude transcripts are append-only and stay
+# put. ponytail: the snapshot is on this disk; a lost VM still loses everything (upgrade path: copy
+# it off-VM, restore it on an empty disk).
+SNAP_PATHS=(var/lib/mypeople/todos/board.v2.sqlite3 var/lib/mypeople/todos/board.v2.sqlite3-wal
+            var/lib/mypeople/todos/board.v2.sqlite3-shm var/lib/mypeople/todos/board.v2.json
+            var/lib/mypeople/run/roster.json var/lib/mypeople/state var/lib/mypeople/config)
+snapshot(){
+  local f="$SNAPS/$(date -u +%Y%m%dT%H%M%SZ)-$1.tgz" have=() p
+  ls -1t "$SNAPS"/*.tgz 2>/dev/null | tail -n +3 | xargs -r rm -f   # this one + the last 2
+  for p in "${SNAP_PATHS[@]}"; do [ -e "/$p" ] && have+=("$p"); done
+  me tar -czf "$f" -C / "${have[@]}" && echo "$f"
+}
+restore(){
+  # Remove first: a newer -wal left beside an older database would be replayed into it.
+  local p; for p in "${SNAP_PATHS[@]}"; do me rm -rf "/$p"; done
+  me tar -xzf "$1" -C /
+}
+point(){ ln -sfn "$1" "$M/current.new" && mv -Tf "$M/current.new" "$M/current"; }
 
-# Claude Code skips its first-run screens only when told they are done.
-python3 - <<'EOF'
-import json, os
-p = os.path.expanduser("~/.claude.json")
-try:
-    cfg = json.load(open(p))
-except (OSError, ValueError):
-    cfg = {}
-cfg.update(hasCompletedOnboarding=True, bypassPermissionsModeAccepted=True)
-json.dump(cfg, open(p, "w"))
-EOF
+stop_fleet(){
+  me tmux kill-server >/dev/null 2>&1
+  me env PATH="$M/current/bin:$PATH" PYTHONPATH="$M/current/py" mypeople down >/dev/null 2>&1
+  # The release being stopped may be the broken one, so its own `down` is not trusted: anything
+  # still running from the install dir (daemons, plugins) or from a release (its helpers) goes too,
+  # or the next release's check-before-spawn supervisor would adopt the old processes.
+  pkill -u mypeople -f "$DATA/(bin|plugins)/" 2>/dev/null
+  pkill -u mypeople -f "$M/releases/[^ ]*/(update.py|agent-index.sh)" 2>/dev/null
+  pkill -u mypeople -x ttyd 2>/dev/null
+  if [ -n "${child:-}" ]; then kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; fi
+}
 
-# The owner's Claude login, fetched once from the owner's login server. Without it there is no Boss:
-# the installer has been texted why (not the owner's account, expired, server down), and this PID 1
-# blocks instead of starting a fleet that cannot answer. A restart checks again.
-beacon "login fetch, as $(id -un)"
-if ! CLAUDE_CODE_OAUTH_TOKEN="$(/opt/myplow/claude-login.sh fetch 2>>"$LOG/claude-login.log")"; then
-  echo "no Claude login; see the text sent to the installer" >>"$LOG/claude-login.log"
-  beacon "login FAILED, blocking"
-  exec python3 -c "import signal; signal.pause()"
-fi
-export CLAUDE_CODE_OAUTH_TOKEN
-/opt/myplow/agent-index.sh "$INDEX_AGENT_ID" >>"$LOG/agent-index.log" 2>&1 &
+# Healthy = the release is still running AND the board answers AND the chat bridge has stayed up
+# for 10s (the supervisor respawns a crashing one, so "a process exists" proves nothing) AND the
+# Boss runs Claude. All four at once, within HEALTH_WAIT.
+bridge_up(){
+  local pid; pid="$(pgrep -o -u mypeople -f "plugins/plow-chat/plow-chat.py serve")" || return 1
+  [ "$(ps -o etimes= -p "$pid" | tr -d ' ')" -ge 10 ] 2>/dev/null
+}
+healthy(){
+  local deadline=$((SECONDS + HEALTH_WAIT))
+  while [ $SECONDS -lt $deadline ]; do
+    kill -0 "$child" 2>/dev/null || return 1
+    if curl -fsS -m 3 "http://127.0.0.1:${TODO_PORT:-9933}/health" >/dev/null 2>&1 \
+       && bridge_up \
+       && me tmux list-panes -a -F '#{window_name} #{pane_current_command}' 2>/dev/null \
+            | grep -q '^Boss claude'; then
+      return 0
+    fi
+    sleep 5
+  done
+  return 1
+}
 
-beacon "login ok, starting mypeople"
-exec mypeople up --both
+tell_owner(){
+  me env PYTHONPATH="$M/current/py" PLOW_CHAT_STATE_DIR=/tmp/myplow-update-chat \
+    python3 "$M/current/py/mypeople/runtime/plugins/plow-chat/plow-chat.py" reply "$1" >/dev/null 2>&1
+}
+
+switch(){
+  local to image from snap
+  read -r to image < "$REQUEST"
+  rm -f "$REQUEST"
+  [ -x "$M/releases/$to/run.sh" ] || { beacon "update: $to not staged, skipped"; return; }
+  from="$(readlink "$M/current")"
+  snap="$(snapshot "${from##*/}")" || { beacon "update: snapshot FAILED, staying on $from"; return; }
+  point "releases/$to"
+  printf '%s %s %s\n' "$from" "$image" "$snap" > "$PENDING"
+  beacon "update: switched $from -> releases/$to"
+}
+
+rollback(){
+  local from image snap
+  read -r from image snap < "$PENDING"
+  stop_fleet
+  point "$from"
+  restore "$snap"
+  echo "$image" >> "$BAD"
+  rm -f "$PENDING"
+  beacon "update: ROLLED BACK to $from (bad: $image)"
+  rolled_back="$(cat "$M/$from/RELEASE" 2>/dev/null)"
+}
+
+rolled_back=""
+while :; do
+  [ -f "$REQUEST" ] && switch
+  me "$M/current/run.sh" & child=$!
+  if [ -f "$PENDING" ]; then
+    if healthy; then
+      rm -f "$PENDING"
+      beacon "update: healthy on $(readlink "$M/current")"
+      # Keep the release we came from for a manual way back; drop anything older.
+      ls -1dt "$M"/releases/*/ | tail -n +3 | grep -v "$(readlink -f "$M/current")" | xargs -r rm -rf
+    else
+      rollback
+      continue
+    fi
+  fi
+  if [ -n "$rolled_back" ]; then
+    healthy && tell_owner "An update didn't pass its health check, so I went back to the version I was on ($rolled_back). Everything you had is still here."
+    rolled_back=""
+  fi
+  wait "$child"; rc=$?
+  [ -f "$REQUEST" ] || { beacon "release exited ($rc), restarting it"; sleep 5; }
+done

@@ -1037,7 +1037,12 @@ def do_revive(argv):
     elif rr.get("lifecycle") == "temporary":
         args += ["--temporary"]
     # Pin the exact recorded ref+digest so a restored agent cannot silently come back under a
-    # different doctrine than the one it died with.
+    # different doctrine than the one it died with. A node that updates itself in place (the cloud
+    # image sets MP_REVIVE_FOLLOWS_REGISTRY=1) changes doctrine ON PURPOSE: there the revive resumes
+    # the same session under the role the installed release ships, instead of refusing -- which
+    # left the Boss unrevivable after any update that bumped its role.
+    if os.environ.get("MP_REVIVE_FOLLOWS_REGISTRY") == "1":
+        return do_spawn(args, resume_session=sid)
     return do_spawn(args, resume_session=sid, locked_role_ref=rr.get("role_ref") or None,
                     expected_role_digest=rr.get("role_digest") or None)
 

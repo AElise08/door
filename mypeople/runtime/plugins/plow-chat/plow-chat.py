@@ -127,6 +127,18 @@ def send_to_boss(message: str) -> bool:
     return True
 
 
+WARN_AFTER = 120  # seconds a text may wait for a Boss that is coming back before its sender is told
+STARTED = time.time()  # a bridge that just started (a reboot, an update) gives the Boss WARN_AFTER too
+
+
+def message_age(message: dict) -> float:
+    try:
+        sent = datetime.fromisoformat((message.get("created_at") or "").replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - sent).total_seconds()
+    except (ValueError, TypeError):
+        return float("inf")  # no readable time: treat it as long overdue
+
+
 def route_message(message: dict) -> str:
     """Deliver one inbound message to the Boss, exactly once."""
     if message.get("direction") != "inbound":
@@ -163,7 +175,15 @@ def route_message(message: dict) -> str:
     with STATE_LOCK:  # release the claim so the next pass retries it
         st = read_json(STATE, {})
         st["seen_ids"] = [i for i in st.get("seen_ids", []) if i != mid]
+        warned = mid in st.get("warned_ids", [])
+        late = min(message_age(message), time.time() - STARTED) >= WARN_AFTER
+        if late and not warned:
+            st["warned_ids"] = (st.get("warned_ids", []) + [mid])[-200:]
         write_json(STATE, st)
+    if not late or warned:
+        # A Boss that is coming up (a restart, an in-place update) gets it on the next pass; a text
+        # that keeps failing is told once, not every pass.
+        return "ERROR mp send failed; retrying next pass"
     # Say it on the phone that just texted, the one path known to work, instead
     # of leaving them waiting on an answer nobody heard.
     try:

@@ -4,7 +4,7 @@
 # is registered (0 yes, 3 no, 2 unreadable -- never register over 2), and only the one
 # registration call is handed the Plow token.
 id="${1:-}"
-C=/opt/myplow/agent_index_client.py
+C="$(cd "$(dirname "$0")" && pwd -P)/agent_index_client.py"
 if [ -z "$id" ]; then
   echo "agent-index: no AGENT_ID (not a 1-click deploy), nothing to report for -- standing down"
   exec sleep infinity
