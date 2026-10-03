@@ -68,7 +68,9 @@ jobs:
         working-directory: desktop
         env:
           CI: "true"   # skips the Finder-layout AppleScript, which a runner cannot authorize
-        run: cargo tauri build
+        run: |
+          V=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' ../mypeople/__init__.py)
+          cargo tauri build --config "{\"version\":\"$V\"}"
 
       - name: Smoke test the built app
         run: desktop/scripts/smoke-test.sh

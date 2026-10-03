@@ -30,7 +30,7 @@ run() {
   env -u TMUX -u TMUX_PANE -u QUEUE_SECRET -u UPSTREAM_QUEUE_URL -u UPSTREAM_QUEUE_SECRET \
       PATH="$RES/bin:$RES/python/bin:$HOME/.local/bin:$HOME/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
       PYTHONPATH="$RES/pylib" PYTHONDONTWRITEBYTECODE=1 \
-      MYPEOPLE_DESKTOP=1 \
+      MYPEOPLE_DESKTOP=1 HOME="$PREFIX/home" \
       MYPEOPLE_HOME="$PREFIX" MYPEOPLE_CONFIG_PATH="$PREFIX/config/queue.env" \
       INSTALL_DIR="$PREFIX" HOST_ID=mpsmoke \
       HUD_PORT=$HUD TODO_PORT=$TODO TTYD_PORT=$TTYD TTYD_RO_PORT=$((TTYD+1)) \
@@ -46,7 +46,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-rm -rf "$PREFIX" "$MUX"; mkdir -p "$PREFIX" "$MUX"
+# Its own HOME too: firstrun points ~/.claude/settings.json hooks and ~/.tmux.conf at the install it
+# sets up, so a run on a developer's Mac would aim every live agent's hooks at this throwaway dir.
+# An empty tpm dir skips the tmux theme download: it is cosmetic, needs the network, and is not
+# what this test proves.
+rm -rf "$PREFIX" "$MUX"; mkdir -p "$PREFIX/home/.tmux/plugins/tpm" "$MUX"
 
 fail=0
 check() {  # check <name> <url> [expected-substring]
@@ -88,6 +92,18 @@ for spec in "$HUD:HUD (python3)" "$TODO:board (python3)" "$TTYD:ttyd rw" "$((TTY
     "$RES"/*) printf '  ok    %-22s %s\n' "$name" "${exe#"$APP"/}" ;;
     *)        printf '  FAIL  %-22s port %s served by %s\n' "$name" "$port" "${exe:-nothing}"; fail=1 ;;
   esac
+done
+
+# A version number is only worth something if it is the code that runs: the app's own label,
+# the install's VERSION and the daemons' serving.version must all be the package it carries.
+echo "[smoke] one version everywhere"
+want="$(run -c 'import mypeople; print(mypeople.__version__)')"
+label="$(defaults read "$APP/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null)"
+for spec in "app label:$label" "VERSION:$(cat "$PREFIX/VERSION" 2>/dev/null)" \
+            "serving.version:$(cat "$PREFIX/run/serving.version" 2>/dev/null)"; do
+  name="${spec%%:*}"; got="${spec#*:}"
+  if [ "$got" = "$want" ]; then printf '  ok    %-22s %s\n' "$name" "$got"
+  else printf '  FAIL  %-22s %s, the app carries %s\n' "$name" "${got:-missing}" "$want"; fail=1; fi
 done
 
 [ "$fail" = 0 ] && echo "[smoke] PASS" || echo "[smoke] FAIL"

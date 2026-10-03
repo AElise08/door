@@ -7,9 +7,11 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -85,6 +87,25 @@ class MaterializeOverExistingInstallTests(unittest.TestCase):
         for name in ("mp", "supervise.sh", "boss-supervisor.sh"):
             p = os.path.join(self.install, "bin", name)
             self.assertTrue(os.access(p, os.X_OK), "%s must stay executable" % name)
+
+
+class TmuxThemeTests(unittest.TestCase):
+    def test_a_hung_theme_download_does_not_stop_up(self):
+        """install_tmux_conf runs inside ensure(), before any daemon starts: a hung tpm clone on a
+        fresh home raised TimeoutExpired there and `mypeople up` started nothing."""
+        def run(cmd, **kw):
+            if cmd[0] != "tmux":
+                raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+        with tempfile.TemporaryDirectory() as home, mock.patch.dict(os.environ, {"HOME": home}), \
+                mock.patch.object(firstrun, "CONFIG_DIR", os.path.join(home, "cfg")), \
+                mock.patch.object(firstrun.shutil, "which", return_value="/usr/bin/x"), \
+                mock.patch.object(firstrun.subprocess, "run", side_effect=run) as ran:
+            install = os.path.join(home, "install")
+            os.makedirs(os.path.join(install, "config"))
+            Path(install, "config", "tmux.conf").write_text("set -g mouse on\n")
+            firstrun.install_tmux_conf(install)  # must not raise
+        self.assertEqual("git", ran.call_args_list[0][0][0][0])
+        self.assertEqual("tmux", ran.call_args_list[-1][0][0][0], "the conf is still loaded")
 
 
 if __name__ == "__main__":
