@@ -93,6 +93,9 @@ while true; do
   # YouTube chat: bridge between the owner's YouTube live chat and MyPlow, both ways. Off until
   # queue.env sets YOUTUBE_CHAT (see the plugin's header).
   [ -n "${YOUTUBE_CHAT:-}" ] && ensure "$ID/plugins/youtube-chat/youtube-chat.mjs" "exec node '$ID/plugins/youtube-chat/youtube-chat.mjs' serve"
+  # Latch reconnect: after Latch restarts, types `/mcp reconnect all` into each IDLE Claude agent so it gets
+  # its Latch tools back. Off until queue.env sets LATCH_RECONNECT (see the plugin's header).
+  [ -n "${LATCH_RECONNECT:-}" ] && ensure "$ID/plugins/latch-reconnect/latch-reconnect.py" "exec python3 '$ID/plugins/latch-reconnect/latch-reconnect.py' serve"
   recycle_leaked_ttyd "ttyd -W -a -p $TTYD_PORT"
   recycle_leaked_ttyd "ttyd -a -p $TTYD_RO_PORT"
   sleep 10

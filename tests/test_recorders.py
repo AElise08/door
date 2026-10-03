@@ -179,6 +179,7 @@ class RecorderLifecycleTests(unittest.TestCase):
             }}))
             stopped = {"validated": [4242], "survivors": []}
             with mock.patch.object(queue, "window_alive", return_value=False), \
+                 mock.patch.object(queue, "auth_health", return_value={"state": "live"}), \
                  mock.patch.object(queue.C, "stop_recorder", return_value=stopped) as stop:
                 self.assertEqual([], queue.live_agents())
             stop.assert_called_once_with("main", "eng-1", metadata, "test-node")
@@ -201,6 +202,7 @@ class RecorderLifecycleTests(unittest.TestCase):
                 "recorder": old, "retired": False,
             }}))
             with mock.patch.object(queue, "window_alive", return_value=True), \
+                 mock.patch.object(queue, "auth_health", return_value={"state": "live"}), \
                  mock.patch.object(queue.C, "current_recorder", return_value=current), \
                  mock.patch.object(queue.C, "stop_recorder", return_value={}) as stop:
                 agents = queue.live_agents()

@@ -158,6 +158,14 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(state, A.DEAD)
         self.assertEqual(calls, [], "a provably dead credential must not cost a model round-trip")
 
+    def test_probe_runs_without_the_callers_agent_id(self):
+        """Run from an agent's shell, the probe's Stop hook used to ping the Boss 'finished: PONG'."""
+        envs = []
+        with mock.patch.dict(os.environ, {"AGENT_ID": "node/main:eng-7"}):
+            A.claude_probe(runner=lambda *a, **k: envs.append(k["env"]) or completed("PONG"))
+        self.assertNotIn("AGENT_ID", envs[0])
+        self.assertIn("PATH", envs[0])
+
 
 class FirstrunGateTests(unittest.TestCase):
     """The regression itself: `loggedIn: true` is no longer enough."""

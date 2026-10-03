@@ -126,8 +126,12 @@ def claude_probe(timeout=90, runner=None):
     if shutil.which("claude") is None:
         return DEAD, "claude CLI is not on PATH"
     run = runner or subprocess.run
+    # Not an agent turn: without AGENT_ID the lifecycle hooks stay silent, so a probe run from an
+    # agent's shell (the test suite) never writes that agent's status or pings the Boss "PONG".
+    env = {k: v for k, v in os.environ.items() if k != "AGENT_ID"}
     try:
-        r = run(["claude", "-p", PROBE_PROMPT], capture_output=True, text=True, timeout=timeout)
+        r = run(["claude", "-p", PROBE_PROMPT], capture_output=True, text=True, timeout=timeout,
+                env=env)
     except subprocess.TimeoutExpired:
         return UNKNOWN, "auth probe timed out after %ss" % timeout
     except OSError as exc:

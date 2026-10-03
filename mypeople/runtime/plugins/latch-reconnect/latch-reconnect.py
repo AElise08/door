@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""Latch reconnect: agents get their Latch tools back after Latch restarts, without anyone noticing.
+
+Claude Code retries a dropped MCP server ~5 times over ~31s, then gives up for the life of the
+session. Latch installs its updates when it quits and nothing reopens it, so after the 10-01 update
+(off 3h22m) every running agent silently lost Latch until a human typed /mcp. This watcher sees
+Latch come back and types `/mcp reconnect all` into each Claude agent's window, only when IDLE.
+
+Latch is UP when an MCP `ping` through the Plow relay (the URL + key the agents use, read from
+~/.claude.json) answers with a result. A reconnect is owed to every live Claude agent when Latch
+comes back up after being down, when a new Latch process appears, and once when this starts.
+
+IDLE, all re-checked right before typing (a busy agent stays owed until it is idle):
+  - its lifecycle hook status is "idle" and has been for IDLE_SECONDS (Stop fired, no new prompt);
+  - its pane is not in copy mode (keys would scroll, not type);
+  - the pane's bottom lines show no in-flight turn ("esc to interrupt", "waiting for response");
+  - the composer line is empty, so nothing half-typed (by a human or `mp send`) is touched.
+
+Turn it on with LATCH_RECONNECT=1 in queue.env; supervise.sh keeps it running.
+  latch-reconnect.py serve          run the watcher (supervise.sh entry point)
+  latch-reconnect.py status         Latch up/down, pid, agents still owed a reconnect
+  latch-reconnect.py once <agent>   reconnect one agent now, if it is idle
+"""
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
+INSTALL = Path(os.environ.get("INSTALL_DIR") or os.environ.get("MYPEOPLE_HOME")
+               or Path.home() / "mypeople")
+STATUS_DIR = INSTALL / "status"
+STATE = Path(os.environ.get("LATCH_RECONNECT_STATE")
+             or INSTALL / "state" / "latch-reconnect" / "state.json")
+CLAUDE_JSON = Path(os.environ.get("LATCH_RECONNECT_CLAUDE_JSON") or Path.home() / ".claude.json")
+HOST_ID = os.environ.get("HOST_ID") or os.uname().nodename.split(".")[0]
+POLL_SECONDS = float(os.environ.get("LATCH_RECONNECT_POLL_SECONDS", "20"))
+IDLE_SECONDS = float(os.environ.get("LATCH_RECONNECT_IDLE_SECONDS", "20"))
+# The main binary only: helpers are ".../MacOS/Plow Latch Helper ...".
+LATCH_PROCESS = os.environ.get("LATCH_RECONNECT_PROCESS", "MacOS/Plow Latch( |$)")
+COMMAND = "/mcp reconnect all"
+BUSY_MARKERS = ("esc to interrupt", "waiting for response", "ctrl+c:cancel")
+
+
+def log(msg):
+    print(f"[{datetime.now(timezone.utc).isoformat(timespec='seconds')}] latch-reconnect: {msg}",
+          flush=True)
+
+
+def tmux(*args):
+    env = dict(os.environ)
+    env.pop("TMUX", None)
+    return subprocess.run(["tmux", *args], env=env, capture_output=True, text=True)
+
+
+def relay_servers():
+    """(url, auth) of every Plow-relay MCP server any agent project uses. Read per tick, so a
+    new or removed connector needs no restart. The key is used, never logged."""
+    try:
+        cfg = json.loads(CLAUDE_JSON.read_text())
+    except Exception:
+        return []
+    scopes = [cfg.get("mcpServers") or {}]
+    scopes += [(p or {}).get("mcpServers") or {} for p in (cfg.get("projects") or {}).values()]
+    out = {}
+    for scope in scopes:
+        for s in scope.values():
+            url = (s or {}).get("url") or ""
+            if s.get("type") == "http" and "/v1/relay/devices/" in url:
+                out[url] = (s.get("headers") or {}).get("Authorization", "")
+    return list(out.items())
+
+
+def ping(url, auth):
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode()
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Authorization": auth, "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status == 200 and '"result"' in r.read(4096).decode(errors="ignore")
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def latch_up():
+    return any(ping(u, a) for u, a in relay_servers())
+
+
+def latch_pid():
+    r = subprocess.run(["pgrep", "-f", LATCH_PROCESS], capture_output=True, text=True)
+    return min((int(p) for p in r.stdout.split()), default=None)
+
+
+def claude_agents():
+    """{agent_id: status dict} for live Claude agents. /mcp is a Claude Code command."""
+    out = {}
+    for f in STATUS_DIR.glob("mc-*/*.json"):
+        try:
+            st = json.loads(f.read_text())
+        except Exception:
+            continue
+        if st.get("backend") == "claude" and st.get("state", "alive") == "alive":
+            out[f"{HOST_ID}/{f.parent.name[3:]}:{f.stem}"] = st
+    return out
+
+
+def target(aid):
+    sess, tab = aid.split("/", 1)[1].split(":", 1)
+    return f"mc-{sess}:{tab}"
+
+
+def why_busy(aid, st=None, now=None):
+    """None when the agent is idle enough to type into, else the reason it is not."""
+    st = st if st is not None else claude_agents().get(aid)
+    if not st:
+        return "gone"
+    if st.get("status") != "idle":
+        return "status %s" % st.get("status")
+    try:
+        if (now or time.time()) - float(st.get("timestamp") or 0) < IDLE_SECONDS:
+            return "idle too recently"
+    except ValueError:
+        return "no timestamp"
+    t = target(aid)
+    mode = tmux("display-message", "-p", "-t", t, "#{pane_in_mode}")
+    if mode.returncode != 0:
+        return "no pane"
+    if mode.stdout.strip() != "0":
+        return "pane in copy mode"
+    lines = [ln for ln in tmux("capture-pane", "-p", "-t", t).stdout.splitlines() if ln.strip()]
+    bottom = "\n".join(lines[-12:]).lower()
+    if any(m in bottom for m in BUSY_MARKERS):
+        return "turn in flight"
+    prompts = [ln for ln in lines[-12:] if ln.lstrip().startswith("❯")]
+    if not prompts:
+        return "no composer on screen"
+    if prompts[-1].strip().replace(" ", " ") != "❯":
+        return "composer not empty"
+    return None
+
+
+def reconnect(aid):
+    """Type the reconnect into an idle agent. True when typed."""
+    reason = why_busy(aid)
+    if reason:
+        return False
+    # One tmux invocation for text + Enter, so no other client's keys land between them.
+    r = tmux("send-keys", "-t", target(aid), "-l", COMMAND, ";", "send-keys", "-t", target(aid), "Enter")
+    if r.returncode != 0:
+        log(f"{aid}: send-keys failed: {r.stderr.strip()[:120]}")
+        return False
+    time.sleep(4)
+    tail = [ln for ln in tmux("capture-pane", "-p", "-t", target(aid)).stdout.splitlines() if "Reconnected" in ln]
+    log(f"{aid}: reconnected ({tail[-1].strip()[:100] if tail else 'no result line seen'})")
+    return True
+
+
+def load_state():
+    try:
+        return json.loads(STATE.read_text())
+    except Exception:
+        return {}
+
+
+def save_state(s):
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = STATE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(s, indent=1))
+    tmp.replace(STATE)
+
+
+def tick(s, up, pid, agents):
+    """One pass: decide who is owed a reconnect, then serve the idle ones. Mutates s."""
+    owed = set(s.get("owed", []))
+    if not up:
+        s["down_since"] = s.get("down_since") or time.time()
+    else:
+        cause = ("back after %ds down" % (time.time() - s["down_since"])) if s.get("down_since") else (
+            "new Latch process" if pid and s.get("pid") and pid != s["pid"] else (
+                "watcher start" if not s.get("started") else ""))
+        if cause:
+            log(f"Latch {cause}: {len(agents)} Claude agents owed a reconnect")
+            owed |= set(agents)
+        s["down_since"] = None
+        s["started"] = True
+        for aid in sorted(owed):
+            reason = why_busy(aid, agents.get(aid))
+            if reason in ("gone", "no pane") or (reason is None and reconnect(aid)):
+                owed.discard(aid)
+    s["pid"] = pid or s.get("pid")
+    s["owed"] = sorted(owed)
+    return s
+
+
+def serve():
+    log(f"watching Latch every {POLL_SECONDS:.0f}s ({len(relay_servers())} relay connectors)")
+    s = load_state()
+    s["started"] = False
+    while True:
+        try:
+            save_state(tick(s, latch_up(), latch_pid(), claude_agents()))
+        except Exception as e:  # a bad tick must never kill the watcher
+            log(f"tick failed: {e}")
+        time.sleep(POLL_SECONDS)
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "status"
+    if cmd == "serve":
+        serve()
+    elif cmd == "status":
+        s = load_state()
+        print(json.dumps({"latch_up": latch_up(), "latch_pid": latch_pid(),
+                          "down_since": s.get("down_since"),
+                          "owed": {a: why_busy(a) or "idle, next tick" for a in s.get("owed", [])}},
+                         indent=1))
+    elif cmd == "once" and len(argv) > 2:
+        reason = why_busy(argv[2])
+        if reason:
+            print(f"not typed: {reason}")
+            return 1
+        return 0 if reconnect(argv[2]) else 1
+    else:
+        print(__doc__)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
