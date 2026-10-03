@@ -85,6 +85,10 @@ class LatchReconnectTest(unittest.TestCase):
         self.assertIsNone(self.m.why_busy(ok))
         self.assertEqual(self.m.why_busy(self.agent("w", status="working")), "status working")
         self.assertEqual(self.m.why_busy(self.agent("new", age=3)), "idle too recently")
+        # Started and never prompted: at its prompt for good, so it is served too, but not
+        # in its first seconds, while the TUI may still be coming up.
+        self.assertIsNone(self.m.why_busy(self.agent("never-prompted", status="starting")))
+        self.assertEqual(self.m.why_busy(self.agent("booting", status="starting", age=3)), "starting too recently")
         self.assertEqual(self.m.why_busy(self.agent("scroll", mode=True)), "pane in copy mode")
         spinner = IDLE_PANE.replace("✻ Worked for 2s", "✻ Thinking… (3s · esc to interrupt)")
         self.assertEqual(self.m.why_busy(self.agent("spin", pane=spinner)), "turn in flight")

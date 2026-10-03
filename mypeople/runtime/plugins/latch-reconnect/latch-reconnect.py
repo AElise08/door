@@ -16,7 +16,8 @@ RELAUNCH_AFTER seconds, at most once per RELAUNCH_AFTER). A quit with no new ver
 owner's choice and is left alone.
 
 IDLE, all re-checked right before typing (a busy agent stays owed until it is idle):
-  - its lifecycle hook status is "idle" and has been for IDLE_SECONDS (Stop fired, no new prompt);
+  - its lifecycle hook status is "idle" (Stop fired, no new prompt), or "starting" (a session
+    never prompted since it started: it sits at its prompt), unchanged for IDLE_SECONDS;
   - its pane is not in copy mode (keys would scroll, not type);
   - the pane's bottom lines show no in-flight turn ("esc to interrupt", "waiting for response");
   - the composer line is empty, so nothing half-typed (by a human or `mp send`) is touched.
@@ -157,11 +158,13 @@ def why_busy(aid, st=None, now=None, panes=None):
     pane, mode = (panes if panes is not None else live_panes()).get(target(aid), (None, None))
     if not pane:
         return "no pane"
-    if st.get("status") != "idle":
+    # "starting" is a session never prompted since it began: it sits at its prompt for good,
+    # and leaving it out left those agents cut off from Latch after every restart.
+    if st.get("status") not in ("idle", "starting"):
         return "status %s" % st.get("status")
     try:
         if (now or time.time()) - float(st.get("timestamp") or 0) < IDLE_SECONDS:
-            return "idle too recently"
+            return "%s too recently" % st.get("status")
     except ValueError:
         return "no timestamp"
     if mode != "0":
