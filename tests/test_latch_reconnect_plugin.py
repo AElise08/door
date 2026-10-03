@@ -94,6 +94,9 @@ class LatchReconnectTest(unittest.TestCase):
         self.assertEqual(self.m.why_busy(self.agent("spin", pane=spinner)), "turn in flight")
         typing = IDLE_PANE.replace("❯ \n", "❯ half a message\n")
         self.assertEqual(self.m.why_busy(self.agent("typing", pane=typing)), "composer not empty")
+        # Claude Code's suggested next prompt: dimmed, word by word, in an empty composer.
+        hint = "❯\u00a0\x1b[2mwhat's\x1b[0m \x1b[2mthe\x1b[0m \x1b[2mstatus\x1b[0m\n"
+        self.assertIsNone(self.m.why_busy(self.agent("hint", pane=IDLE_PANE.replace("❯ \n", hint))))
         menu = IDLE_PANE.replace("❯ \n", "❯ 1. Yes\n  2. No\n")
         self.assertEqual(self.m.why_busy(self.agent("menu", pane=menu)), "composer not empty")
         self.assertEqual(self.m.why_busy(self.agent("nopane", pane=None)), "no pane")

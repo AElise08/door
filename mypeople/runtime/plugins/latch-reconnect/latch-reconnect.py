@@ -21,6 +21,7 @@ IDLE, all re-checked right before typing (a busy agent stays owed until it is id
   - its pane is not in copy mode (keys would scroll, not type);
   - the pane's bottom lines show no in-flight turn ("esc to interrupt", "waiting for response");
   - the composer line is empty, so nothing half-typed (by a human or `mp send`) is touched.
+    Claude Code's suggested next prompt is drawn there DIMMED and is not input: it is ignored.
 
 Turn it on with LATCH_RECONNECT=1 in queue.env; supervise.sh keeps it running.
   latch-reconnect.py serve          run the watcher (supervise.sh entry point)
@@ -30,6 +31,7 @@ Turn it on with LATCH_RECONNECT=1 in queue.env; supervise.sh keeps it running.
 import json
 import os
 import plistlib
+import re
 import subprocess
 import sys
 import time
@@ -53,6 +55,9 @@ LATCH_PROCESS = os.environ.get("LATCH_RECONNECT_PROCESS", r"Plow Latch\.app/Cont
 LATCH_APP = Path(os.environ.get("LATCH_RECONNECT_APP", "/Applications/Plow Latch.app"))
 RELAUNCH_AFTER = float(os.environ.get("LATCH_RECONNECT_RELAUNCH_AFTER", "60"))
 COMMAND = "/mcp reconnect all"
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+# A dimmed span (SGR 2) up to its reset: how the composer draws a suggestion, never typed text.
+DIM = re.compile(r"\x1b\[2m.*?(?:\x1b\[(?:0|22)?m|$)")
 BUSY_MARKERS = ("esc to interrupt", "waiting for response", "ctrl+c:cancel")
 
 
@@ -169,14 +174,14 @@ def why_busy(aid, st=None, now=None, panes=None):
         return "no timestamp"
     if mode != "0":
         return "pane in copy mode"
-    lines = [ln for ln in tmux("capture-pane", "-p", "-t", pane).stdout.splitlines() if ln.strip()]
-    bottom = "\n".join(lines[-12:]).lower()
-    if any(m in bottom for m in BUSY_MARKERS):
+    rows = [(raw, ANSI.sub("", raw)) for raw in tmux("capture-pane", "-e", "-p", "-t", pane).stdout.splitlines()]
+    rows = [r for r in rows if r[1].strip()][-12:]
+    if any(m in "\n".join(plain for _, plain in rows).lower() for m in BUSY_MARKERS):
         return "turn in flight"
-    prompts = [ln for ln in lines[-12:] if ln.lstrip().startswith("❯")]
+    prompts = [raw for raw, plain in rows if plain.lstrip().startswith("❯")]
     if not prompts:
         return "no composer on screen"
-    if prompts[-1].strip().replace(" ", " ") != "❯":
+    if ANSI.sub("", DIM.sub("", prompts[-1])).replace("\u00a0", " ").strip() != "❯":
         return "composer not empty"
     return None
 
