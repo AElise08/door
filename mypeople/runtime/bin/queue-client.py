@@ -136,10 +136,11 @@ def dispatch(task):
             msg = payload.get("message", "")
             tgt = C.tmux_target(ta)
             route_token = C.enqueue_notification_route(ta, payload.get("reply_to", ""))
-            ok = C.tmux_send_message(tgt, msg)
+            # Notifications to an agent that is restarting wait for it instead of vanishing.
+            result = C.send_when_ready(tgt, msg, 20)
+            ok = result == "sent"
             if not ok and route_token:
                 C.cancel_notification_route(ta, route_token)
-            result = "sent" if ok else "no_pane"
         elif typ == "peek":
             out = C.tmux_capture(C.tmux_target(ta))
             ok, result = True, out

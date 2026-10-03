@@ -834,14 +834,12 @@ def do_spawn(argv, resume_session=None, locked_role_ref=None, expected_role_dige
 
     if is_master and not resume_session:
         # send the onboarding prompt (doctrine internalized) after the TUI comes up
-        if not ready_how:
-            time.sleep(6)
         doc = ""
         if os.path.exists(BOSS_DOC):
             doc = open(BOSS_DOC).read()
         prompt = ("You are the MyPlow Boss (agent %s). Read your doctrine below and internalize it, "
                   "then wait for [todo] pings. Reply concisely that you are ready.\n\n%s" % (aid, doc[:6000]))
-        C.tmux_send_message("mc-%s:%s" % (sess, tab), prompt)
+        C.send_when_ready("mc-%s:%s" % (sess, tab), prompt, 60)
     print("spawned %s" % aid)
     return 0
 
@@ -896,11 +894,14 @@ def do_send(argv):
         print(result)
         return 0 if ok else 1
     route_token = C.enqueue_notification_route(aid, reply_to)
-    ok = C.tmux_send_message(C.tmux_target(aid), msg)
+    # A Claude session still starting (or behind a dialog) is waited for briefly, then REFUSED
+    # with rc 3: a paste there could vanish while this printed "sent". Retrying senders retry.
+    why = C.send_when_ready(C.tmux_target(aid), msg, float(os.environ.get("MP_SEND_READY_WAIT", "10")))
+    ok = why == "sent"
     if not ok and route_token:
         C.cancel_notification_route(aid, route_token)
-    print("sent" if ok else "no_pane")
-    return 0 if ok else 1
+    print(why)
+    return 0 if ok else (3 if why == "not_ready" else 1)
 
 
 def classify(pane, backend=None):
@@ -1179,11 +1180,11 @@ def reap_birth_zombie(aid, rr):
     if not sid and not pane_looks_ready(aid):
         return False, "respawned-still-not-ready"
     if latest.get("owner_task_id"):
-        C.tmux_send_message(
+        C.send_when_ready(
             C.tmux_target(aid),
             "Recovered after birth-zombie (empty session_id / stuck starting). "
             "Read owner task %s on the TODO board, post a concise recovery status, "
-            "and continue from the card context." % latest["owner_task_id"])
+            "and continue from the card context." % latest["owner_task_id"], 60)
     return True, "respawned session_id=%s reaps=%d" % (sid or "(pending-prompt)", reaps + 1)
 
 
@@ -1289,10 +1290,10 @@ def do_reconcile(argv):
             if fresh and rr.get("owner_task_id"):
                 # A resumed agent still has its context; a FRESH one lost it, so only that one
                 # needs pointing back at its card. readiness is already gated inside do_spawn.
-                C.tmux_send_message(C.tmux_target(aid),
+                C.send_when_ready(C.tmux_target(aid),
                     "Recovered after a tmux crash. Read owner task %s on the TODO board, post a "
                     "concise recovery status, and continue from the card context." %
-                    rr["owner_task_id"])
+                    rr["owner_task_id"], 60)
         else:
             failed.append(aid)
         roster = load_roster()

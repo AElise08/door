@@ -2,6 +2,7 @@
 """MyPlow shared helpers: config, auth/session, json io, tmux delivery, http proxy.
 Python 3 stdlib only."""
 import os, sys, json, hmac, hashlib, base64, time, socket, subprocess, threading, urllib.request, urllib.parse
+import re
 import mimetypes
 import shlex, signal
 import copy
@@ -609,6 +610,63 @@ def export_repo_path(cfg=None):
     return os.path.expanduser("~/.mypeople/board-backup/%s-%s-%s" % (host, port, disc))
 
 # ---------- tmux message delivery (bracketed paste via buffer, with retry) ----------
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def claude_composer_ready(screen):
+    """True when a Claude Code screen shows its input box: a `❯` line directly under a
+    horizontal rule, with the box's closing rule somewhere below it. Nothing else is a safe
+    place to paste. A session still starting has no box
+    yet, and text pasted then can vanish without trace; a dialog has none either, and the Enter
+    that follows a paste would pick one of its options (the exit dialog's Enter is "review &
+    send" for queued feedback drafts; an unanswered question's Enter picks its highlighted
+    option). Menus draw `❯` too; a menu's last option can sit under a separator rule, but no
+    rule closes it below, only "Enter to select".
+    """
+    lines = [l for l in (_ANSI.sub("", raw).rstrip() for raw in screen.splitlines()) if l.strip()][-25:]
+    rule = [l.lstrip().startswith("\u2500" * 8) for l in lines]
+    return any(
+        lines[i].lstrip().startswith("\u276f") and rule[i - 1] and any(rule[i + 1:])
+        for i in range(1, len(lines)))
+
+
+def _target_backend(target):
+    """The backend recorded for the agent behind mc-<sess>:<tab>, or None for any other pane."""
+    if not (target.startswith("mc-") and ":" in target):
+        return None
+    sess, tab = target[3:].split(":", 1)
+    st = read_json(os.path.join(CFG["INSTALL_DIR"], "status", "mc-%s" % sess, "%s.json" % tab), None)
+    return (st or {}).get("backend") or None
+
+
+def pane_input_state(target):
+    """"no_pane", "not_ready" (a Claude agent with no input box on screen: still starting, or a
+    dialog is up), or "ready". A pane that is not a Claude agent (Codex, Grok, a test receiver)
+    reads "ready": there is no composer shape to hold it to."""
+    env = dict(os.environ)
+    env.pop("TMUX", None)
+    if subprocess.run(["tmux", "list-panes", "-t", target], env=env, capture_output=True).returncode != 0:
+        return "no_pane"
+    if _target_backend(target) != "claude":
+        return "ready"
+    screen = subprocess.run(["tmux", "capture-pane", "-e", "-p", "-t", target],
+                            env=env, capture_output=True, text=True).stdout or ""
+    return "ready" if claude_composer_ready(screen) else "not_ready"
+
+
+def send_when_ready(target, message, wait):
+    """tmux_send_message, after waiting up to `wait` seconds for a Claude target to reach its
+    input box. Returns "sent", "not_ready" or "no_pane", so a caller that can retry later knows
+    to, and one that cannot at least says why instead of printing "sent"."""
+    deadline = time.time() + wait
+    while pane_input_state(target) == "not_ready" and time.time() < deadline:
+        time.sleep(1)
+    if tmux_send_message(target, message):
+        return "sent"
+    state = pane_input_state(target)
+    return "not_ready" if state == "not_ready" else "no_pane"
+
+
 def tmux_send_message(target, message):
     """Deliver a message into a tmux pane's composer and submit it.
     target = mc-<sess>:<tab>. Returns True on success.
@@ -642,9 +700,14 @@ def tmux_send_message(target, message):
         return subprocess.run(["tmux"] + list(args), env=env, capture_output=True, **kw)
 
     for attempt in range(3):
-        if tmux("list-panes", "-t", target).returncode != 0:
+        state = pane_input_state(target)
+        if state == "no_pane":
             time.sleep(0.3)
             continue
+        if state == "not_ready":
+            # Refuse rather than paste into a session that is starting or behind a dialog: the
+            # sender learns it failed and can retry, instead of a "sent" that never arrived.
+            return False
         if tmux("load-buffer", "-b", buf, "-", input=message.encode("utf-8")).returncode != 0:
             time.sleep(0.3)
             continue
