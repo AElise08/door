@@ -123,8 +123,9 @@ class LatchReconnectTest(unittest.TestCase):
         self.assertEqual(self.typed_into(), ["mc-main:a"])
 
     def test_dead_agent_is_dropped_not_retried_forever(self):
-        aid = self.agent("ghost", pane=None)
-        s = self.m.tick({"started": True, "pid": 1, "owed": [aid]}, up=True, pid=1,
+        # A status file outlives its agent, frozen at "working": the missing pane must win.
+        ghosts = [self.agent("ghost", pane=None), self.agent("ghost2", status="working", pane=None)]
+        s = self.m.tick({"started": True, "pid": 1, "owed": ghosts}, up=True, pid=1,
                         agents=self.m.claude_agents())
         self.assertEqual(s["owed"], [])
 

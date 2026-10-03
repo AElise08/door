@@ -119,6 +119,11 @@ def why_busy(aid, st=None, now=None):
     st = st if st is not None else claude_agents().get(aid)
     if not st:
         return "gone"
+    # Pane first: a status file outlives its agent, frozen at whatever it last said.
+    t = target(aid)
+    mode = tmux("display-message", "-p", "-t", t, "#{pane_in_mode}")
+    if mode.returncode != 0:
+        return "no pane"
     if st.get("status") != "idle":
         return "status %s" % st.get("status")
     try:
@@ -126,10 +131,6 @@ def why_busy(aid, st=None, now=None):
             return "idle too recently"
     except ValueError:
         return "no timestamp"
-    t = target(aid)
-    mode = tmux("display-message", "-p", "-t", t, "#{pane_in_mode}")
-    if mode.returncode != 0:
-        return "no pane"
     if mode.stdout.strip() != "0":
         return "pane in copy mode"
     lines = [ln for ln in tmux("capture-pane", "-p", "-t", t).stdout.splitlines() if ln.strip()]
