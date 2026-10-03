@@ -96,6 +96,9 @@ fi
 export CLAUDE_CODE_OAUTH_TOKEN
 n="$("$R/claude-login.sh" skills 2>>"$LOG/claude-login.log")"
 beacon "owner skills: ${n:-none}"
+# The owner's Mac re-packs them daily, and a VM can run for weeks: fetch again daily, so the age in
+# ~/.claude/skills/.synced is the Mac's sync, never this VM's uptime.
+( while sleep 86400; do "$R/claude-login.sh" skills >/dev/null 2>>"$LOG/claude-login.log"; done ) &
 
 "$R/agent-index.sh" "$INDEX_AGENT_ID" >>"$LOG/agent-index.log" 2>&1 &
 python3 "$R/update.py" loop >>"$LOG/update.log" 2>&1 &
