@@ -94,6 +94,8 @@ if ! CLAUDE_CODE_OAUTH_TOKEN="$("$R/claude-login.sh" fetch 2>>"$LOG/claude-login
   exec python3 -c "import signal; signal.pause()"
 fi
 export CLAUDE_CODE_OAUTH_TOKEN
+n="$("$R/claude-login.sh" skills 2>>"$LOG/claude-login.log")"
+beacon "owner skills: ${n:-none}"
 
 "$R/agent-index.sh" "$INDEX_AGENT_ID" >>"$LOG/agent-index.log" 2>&1 &
 python3 "$R/update.py" loop >>"$LOG/update.log" 2>&1 &

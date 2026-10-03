@@ -51,5 +51,41 @@ class CloudTools(unittest.TestCase):
         self.assertTrue(servers["browser"]["command"].startswith(self.rel))
 
 
+LOGIN = (ROOT / "cloud/claude-login.sh").read_text()
+SKILLS = re.search(r'python3 - "\$pack" "\$HOME/.claude/skills" <<\'EOF\'\n(.*?)\nEOF\n', LOGIN, re.S).group(1)
+
+
+class OwnerSkills(unittest.TestCase):
+    """The owner's skill pack replaces only what it owns: a skill they dropped goes, the agent's own stays."""
+
+    def install(self, dest, skills, extra=()):
+        import io
+        import tarfile
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            for name in [*("%s/SKILL.md" % s for s in skills), *extra]:
+                info = tarfile.TarInfo(name)
+                info.size = 2
+                tar.addfile(info, io.BytesIO(b"hi"))
+        pack = os.path.join(tempfile.mkdtemp(), "p.tgz")
+        open(pack, "wb").write(buf.getvalue())
+        subprocess.run([sys.executable, "-", pack, dest], input=SKILLS, text=True, check=True, capture_output=True)
+        return sorted(n for n in os.listdir(dest) if not n.startswith("."))
+
+    def test_replaces_only_its_own(self):
+        dest = os.path.join(tempfile.mkdtemp(), "skills")
+        self.assertEqual(self.install(dest, ["a", "b"]), ["a", "b"])
+        os.makedirs(os.path.join(dest, "agents-own"))
+        self.assertEqual(self.install(dest, ["a"]), ["a", "agents-own"])
+
+    def test_refuses_paths_outside(self):
+        # The pack is unpacked in a scratch dir under the temp root, so that is where '..' would land.
+        escaped = os.path.join(tempfile.gettempdir(), "escaped.txt")
+        if os.path.exists(escaped):
+            os.remove(escaped)
+        self.install(os.path.join(tempfile.mkdtemp(), "skills"), ["a"], extra=["../escaped.txt"])
+        self.assertFalse(os.path.exists(escaped))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -62,5 +62,36 @@ answer. Restart me once they have."; exit 1 ;;
         say_once unreachable "I couldn't reach my owner's login server when I started (answer: ${code:-none}), \
 so I can't answer. Restart me once it's back and I'll log in."; exit 1 ;;
     esac ;;
-  *) echo "usage: claude-login.sh fetch" >&2; exit 2 ;;
+  skills)
+    # The owner's personal skills, from the same server under the same check (lease/sync-skills.py
+    # packs them on the owner's Mac). Private to the owner, so never in this public image. Best
+    # effort: an agent without them still answers, so nothing here blocks the boot or texts anyone.
+    a=$(curl -fsS -m 20 "${AUTH[@]}" "$PLOW_API_BASE/v1/auth/index-identity" | python3 -c 'import json,sys;print(json.load(sys.stdin)["assertion"])' 2>/dev/null) || a=""
+    pack="$(mktemp)"
+    code=$(curl -sS -m 60 -o "$pack" -w '%{http_code}' -X POST -H "Content-Type: application/json" \
+           -H "X-Plow-Index-Assertion: $a" -d '{"holder": "'"$(hostname)"'"}' "$BANK/skills" 2>/dev/null)
+    beacon "skills http=${code:-none}"
+    [ "$code" = 200 ] && python3 - "$pack" "$HOME/.claude/skills" <<'EOF'
+import os, shutil, sys, tarfile, tempfile
+pack, dest = sys.argv[1], sys.argv[2]
+managed = os.path.join(dest, ".from-owner")   # the skills this pack owns; any other skill is the agent's own
+stage = tempfile.mkdtemp()
+with tarfile.open(pack) as t:
+    members = [m for m in t.getmembers() if (m.isfile() or m.isdir()) and not m.name.startswith(("/", "..")) and "/../" not in m.name]
+    t.extractall(stage, members=members, **({"filter": "data"} if hasattr(tarfile, "data_filter") else {}))
+new = sorted(os.listdir(stage))
+os.makedirs(dest, exist_ok=True)
+try:
+    old = open(managed).read().split()
+except OSError:
+    old = []
+for name in set(old) | set(new):              # replace each skill whole; drop what the owner dropped
+    shutil.rmtree(os.path.join(dest, name), ignore_errors=True)
+for name in new:
+    shutil.move(os.path.join(stage, name), os.path.join(dest, name))
+open(managed, "w").write("\n".join(new) + "\n")
+print(len(new))
+EOF
+    rm -f "$pack" ;;
+  *) echo "usage: claude-login.sh fetch|skills" >&2; exit 2 ;;
 esac
