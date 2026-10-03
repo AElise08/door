@@ -33,8 +33,15 @@ export MYPLOW_SLUG="${MYPLOW_SLUG:-$INDEX_AGENT_ID}"
 # kept home silently keeps the old CLI and the old model.
 mkdir -p "$HOME/.local/bin" "$HOME/.claude"
 ln -sfn "$R/bin/claude" "$HOME/.local/bin/claude"
-python3 - "$R/claude-settings.json" <<'EOF'
-import json, os, sys
+# The owner's Mac, through Plow Latch: Plow hands this agent a relay URL (null when the owner has no
+# Latch) and its proxy adds the credential, so nothing here is a secret. Asked on every boot: the
+# owner can connect or remove a Mac at any time.
+LATCH_URL="$(curl -s -m 15 "$PLOW_API_BASE/v1/agents/cloud/me" -H "Authorization: Bearer $PLOW_AGENT_TOKEN" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("mcp_url") or "")' 2>/dev/null)"
+beacon "latch $([ -n "$LATCH_URL" ] && echo connected || echo none)"
+python3 - "$R/claude-settings.json" "$R" "$LATCH_URL" <<'EOF'
+import glob, json, os, re, sys
+rel, latch = sys.argv[2], sys.argv[3]
 mine = json.load(open(sys.argv[1]))
 p = os.path.expanduser("~/.claude/settings.json")
 try:
@@ -50,7 +57,31 @@ try:
 except (OSError, ValueError):
     cfg = {}
 cfg.update(hasCompletedOnboarding=True, bypassPermissionsModeAccepted=True)
+# Two browsers, user scope so every agent sees them: this machine's own headless Chromium (the one
+# the base image installed; this release's Playwright is pinned to it) and the owner's Mac.
+servers = cfg.setdefault("mcpServers", {})
+chrome = sorted(glob.glob("/ms-playwright/chromium-*/chrome-linux/chrome"))
+if chrome:
+    servers["browser"] = {"type": "stdio",
+                          "command": os.path.join(rel, "browser-mcp/node_modules/.bin/mcp-server-playwright"),
+                          "args": ["--headless", "--browser", "chromium", "--no-sandbox", "--isolated",
+                                   "--executable-path", chrome[-1]]}
+if latch:
+    servers["plow-latch"] = {"type": "http", "url": latch}
+else:
+    servers.pop("plow-latch", None)
 json.dump(cfg, open(p, "w"))
+# Which browser for what, in the instructions every agent reads; the block is this release's, the
+# rest of the file is the owner's.
+p = os.path.expanduser("~/.claude/CLAUDE.md")
+try:
+    text = open(p).read()
+except OSError:
+    text = ""
+block = "<!-- myplow-cloud-tools -->\n" + open(os.path.join(rel, "cloud-tools.md")).read().rstrip() + "\n<!-- /myplow-cloud-tools -->"
+text = re.sub(r"<!-- myplow-cloud-tools -->.*?<!-- /myplow-cloud-tools -->", lambda _: block, text, flags=re.S) \
+    if "<!-- myplow-cloud-tools -->" in text else (text.rstrip() + "\n\n" + block if text.strip() else block)
+open(p, "w").write(text + "\n")
 EOF
 
 # The owner's Claude login, fetched from the owner's login server on every start, update restarts

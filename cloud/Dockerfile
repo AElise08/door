@@ -36,8 +36,10 @@ ARG AGENTSVIEW_SHA256=037ea7a46d52e06b20363b4aa7cd7f28e32f31d8215803d6e9a0c96bac
 ARG CLIENT_REV=edf196031803e204cdbcd81ce574e1f54fd75f65
 ARG CLIENT_SHA256=970caf7534cd7d3b71ffee8f1a576f9da4dc494a508e8ab1998ee2ce6f4a2ac4
 COPY --from=wheel /dist /dist
-COPY cloud/run.sh cloud/update.py cloud/agent-index.sh cloud/claude-login.sh cloud/claude-settings.json /tmp/rel/
+COPY cloud/run.sh cloud/update.py cloud/agent-index.sh cloud/claude-login.sh cloud/claude-settings.json cloud/cloud-tools.md /tmp/rel/
+COPY cloud/browser-mcp/package.json cloud/browser-mcp/package-lock.json /tmp/rel/browser-mcp/
 RUN set -eux; \
+    (cd /tmp/rel/browser-mcp && npm ci --omit=dev --no-audit --no-fund --silent); \
     test -n "${MYPLOW_RELEASE}"; \
     R="/opt/myplow/releases/${MYPLOW_RELEASE}"; mkdir -p "$R/bin" "$R/py"; \
     pip install --no-cache-dir --no-deps --target "$R/py" /dist/mypeople-*.whl; \
