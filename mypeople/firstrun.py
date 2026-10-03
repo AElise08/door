@@ -476,18 +476,52 @@ def write_queue_env(install, backend):
 
 
 # ---------------------------------------------------------------- step 4: backend hooks
+_HOOK_TAIL = "/plugins/tmux-boss-hooks/emit-event.sh"
+
+
 def _mypeople_hook_group(group):
     for handler in group.get("hooks", []) if isinstance(group, dict) else []:
         command = handler.get("command", "") if isinstance(handler, dict) else ""
-        if "/plugins/tmux-boss-hooks/emit-event.sh" in command:
+        if _HOOK_TAIL in command:
             return True
     return False
 
 
+def daemons_running(install):
+    """True while INSTALL's daemons are up."""
+    pat = os.path.join(install, "bin", "todo-server.py")
+    return subprocess.run(["pgrep", "-f", pat], capture_output=True).returncode == 0
+
+
+def _hook_installs(hooks):
+    """The install dirs whose emit-event.sh the MyPlow hooks in HOOKS call."""
+    found = set()
+    for groups in hooks.values():
+        for group in groups if isinstance(groups, list) else []:
+            for handler in group.get("hooks", []) if _mypeople_hook_group(group) else []:
+                try:
+                    script = shlex.split(handler.get("command", ""))[0]
+                except (ValueError, IndexError, AttributeError):
+                    continue
+                if script.endswith(_HOOK_TAIL):
+                    found.add(script[:-len(_HOOK_TAIL)])
+    return found
+
+
 def _replace_mypeople_hooks(hooks, hook):
-    """Remove every prior MyPlow hook, including retired events, then install current ones."""
+    """Remove every prior MyPlow hook, including retired events, then install current ones.
+
+    Unless they belong to another install that is RUNNING: ~/.claude and ~/.codex serve every agent
+    on the machine, so a second install (a smoke test, a stray app with its own INSTALL_DIR) would
+    aim every live agent's hooks at itself, and at nothing once it is deleted (card 8f490e73e5).
+    """
     if not isinstance(hooks, dict):
         hooks = {}
+    mine = os.path.realpath(hook[:-len(_HOOK_TAIL)])
+    held = sorted(i for i in _hook_installs(hooks) if os.path.realpath(i) != mine and daemons_running(i))
+    if held:
+        _echo("[myplow] agent hooks belong to the running install at %s; leaving them" % held[0])
+        return hooks
     for event in list(hooks):
         groups = hooks.get(event, [])
         if not isinstance(groups, list):

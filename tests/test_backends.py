@@ -147,6 +147,21 @@ class HookConfigTests(unittest.TestCase):
              if any(firstrun._mypeople_hook_group(group) for group in groups)},
         )
 
+    def test_a_second_install_leaves_a_running_installs_hooks_alone(self):
+        """A smoke test or a stray app with its own INSTALL_DIR must not aim every live agent's
+        hooks at itself (card 8f490e73e5). Once that install is down, the new one takes them."""
+        live = "/live/plugins/tmux-boss-hooks/emit-event.sh"
+        hooks = {"Stop": [{"hooks": [{"type": "command", "command": live + " Stop"}]}]}
+        smoke = "/tmp/smoke/plugins/tmux-boss-hooks/emit-event.sh"
+        with mock.patch.object(firstrun, "daemons_running", lambda i: i == "/live"):
+            kept = firstrun._replace_mypeople_hooks(json.loads(json.dumps(hooks)), smoke)
+            again = firstrun._replace_mypeople_hooks(json.loads(json.dumps(hooks)), live)
+        self.assertEqual(hooks, kept)
+        self.assertIn(live, json.dumps(again), "the live install still refreshes its own hooks")
+        with mock.patch.object(firstrun, "daemons_running", lambda i: False):
+            taken = firstrun._replace_mypeople_hooks(json.loads(json.dumps(hooks)), smoke)
+        self.assertNotIn(live, json.dumps(taken))
+
     def test_claude_and_codex_receive_the_same_three_hooks(self):
         with tempfile.TemporaryDirectory() as td, mock.patch.dict(os.environ, {"HOME": td}):
             home = Path(td)

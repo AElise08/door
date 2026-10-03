@@ -76,9 +76,7 @@ def _serving_version_path(install):
     return os.path.join(install, "run", "serving.version")
 
 
-def _daemons_running(install):
-    pat = os.path.join(install, "bin", "todo-server.py")
-    return subprocess.run(["pgrep", "-f", pat], capture_output=True).returncode == 0
+_daemons_running = firstrun.daemons_running
 
 
 def restart_if_serving_stale(cfg, install):
