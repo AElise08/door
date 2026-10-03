@@ -2,9 +2,10 @@ name: Desktop release (signed DMG)
 
 # Builds MyPlow.app, signs it with the Plow Developer ID, notarizes it and uploads the DMG.
 #
-# The certificate and notary credentials are the SAME ones Plow Latch ships with, read from
-# the "GitHub Actions Release Secrets" 1Password item (see plow-pbc/latch
-# build-release-candidate.yml). This repo needs one secret for that: OP_SERVICE_ACCOUNT_TOKEN.
+# The certificate and notary login are the SAME ones Plow Latch ships with (1Password item
+# "Domo signing (mirrored from terraform)"), stored as this repo's own secrets: APPLE_CERTIFICATE,
+# APPLE_CERTIFICATE_PASSWORD, APPLE_ID, APPLE_PASSWORD. Not a 1Password service-account token: the
+# only one agents hold reads every agent credential, and CI needs just these four.
 #
 # Tauri signs and notarizes the .app itself from APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY /
 # APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID. bundle-runtime.sh signs the carried binaries
@@ -21,20 +22,14 @@ jobs:
   dmg:
     runs-on: macos-14   # arm64: the carried binaries are built for the runner's arch
     timeout-minutes: 60
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: 3559PD337Z
     steps:
       - uses: actions/checkout@v4
-
-      - name: Load signing secrets from 1Password
-        uses: 1password/load-secrets-action@v2
-        with:
-          export-env: true
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          APPLE_CERTIFICATE: op://terraform/GitHub Actions Release Secrets/APPLE_CERTIFICATE_P12_BASE64
-          APPLE_CERTIFICATE_PASSWORD: op://terraform/GitHub Actions Release Secrets/APPLE_CERTIFICATE_PASSWORD  # pragma: allowlist secret
-          APPLE_ID: op://terraform/GitHub Actions Release Secrets/APPLE_NOTARY_APPLE_ID
-          APPLE_TEAM_ID: op://terraform/GitHub Actions Release Secrets/APPLE_NOTARY_TEAM_ID
-          APPLE_PASSWORD: op://terraform/GitHub Actions Release Secrets/APPLE_NOTARY_PASSWORD  # pragma: allowlist secret
 
       # Build-machine only: the binaries are copied out of Homebrew and vendored into the app.
       # Nothing here is needed on the machine that installs the DMG.
