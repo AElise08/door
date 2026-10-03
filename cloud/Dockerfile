@@ -36,6 +36,14 @@ RUN set -eux; mkdir -p /opt/myplow; \
 COPY cloud/entrypoint.sh cloud/agent-index.sh cloud/claude-login.sh /opt/myplow/
 RUN chmod 0755 /opt/myplow/*.sh
 
+# The owner's model choice. The Boss is spawned without --model, so on a Mac it follows the
+# owner's own ~/.claude/settings.json; that file never travels into this image, and without it
+# Claude Code fell back to its default (Sonnet). firstrun merges its hooks into this file and
+# keeps these keys.
+RUN install -d -o mypeople -g mypeople /home/mypeople/.claude \
+ && printf '{\n  "model": "claude-opus-5-5",\n  "effortLevel": "xhigh"\n}\n' > /home/mypeople/.claude/settings.json \
+ && chown mypeople:mypeople /home/mypeople/.claude/settings.json
+
 ENV PLOW_CHAT=1 \
     DEFAULT_CLAUDE_MODEL=claude-opus-5-5 \
     DEFAULT_ENG_MODEL=claude-opus-5-5 \

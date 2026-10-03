@@ -53,7 +53,7 @@ RUN set -eux; \
     chmod 0755 /usr/local/bin/grok
 
 # Agent CLIs are installed in the image, but credentials are never baked into an image layer.
-ARG CLAUDE_VERSION=2.1.205
+ARG CLAUDE_VERSION=2.1.288
 ARG CODEX_VERSION=0.144.1
 USER mypeople
 RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_VERSION}" \
