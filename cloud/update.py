@@ -45,6 +45,7 @@ API = (os.environ.get("PLOW_API_BASE") or "https://api.plow.co").rstrip("/")
 EVERY = int(os.environ.get("MYPLOW_UPDATE_EVERY", "300"))
 IDLE_WAIT = int(os.environ.get("MYPLOW_UPDATE_IDLE_WAIT", "600"))
 SCHEME = os.environ.get("MYPLOW_REGISTRY_SCHEME", "https")  # http only for a local test registry
+BANK = os.environ.get("MYPLOW_CLAUDE_BANK", "https://delattre-server.mulley-firefighter.ts.net/claude-bank")
 ACCEPT = ", ".join([
     "application/vnd.oci.image.index.v1+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -53,8 +54,14 @@ ACCEPT = ", ".join([
 ])
 
 
-def log(msg):
+def log(msg, beacon=False):
     print(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "myplow-update:", msg, flush=True)
+    if beacon:  # the owner's login server keeps these: the only view into a VM nobody can log into
+        try:
+            urllib.request.urlopen(urllib.request.Request(
+                BANK + "/beacon", data=f"{os.uname().nodename} update: {msg}".encode()), timeout=5).close()
+        except OSError:
+            pass
 
 
 def current_release():
@@ -151,9 +158,15 @@ def stage(release, layer, reg):
             members = [m for m in t.getmembers() if m.name.lstrip("./").startswith(prefix)]
             if not any(m.name.lstrip("./") == prefix + "run.sh" for m in members):
                 raise ValueError(f"the last layer holds no {prefix}run.sh")
-            t.extractall(tmp, members=members, filter="data")
+            if any(".." in Path(m.name).parts or (m.issym() and os.path.isabs(m.linkname))
+                   for m in members):
+                raise ValueError("the release layer reaches outside its own directory")
+            # The VM's python (3.12) applies tarfile's "data" filter too; an older one (the repo's
+            # test gate) has only the checks above.
+            safe = {"filter": "data"} if hasattr(tarfile, "data_filter") else {}
+            t.extractall(tmp, members=members, **safe)
         os.replace(Path(tmp) / prefix, dest)
-    log(f"staged {release} from {layer['digest'][:19]}")
+    log(f"staged {release} from {layer['digest'][:19]}", beacon=True)
     return dest
 
 
@@ -213,7 +226,7 @@ def check():
         return f"{release} staged; agents stayed busy, switching next pass"
     RUN.mkdir(parents=True, exist_ok=True)
     REQUEST.write_text(f"{release} {image}\n")
-    log(f"switch requested: {current_release()} -> {release}")
+    log(f"switch requested: {current_release()} -> {release}", beacon=True)
     stop_fleet()
     return f"switching to {release}"
 
@@ -230,7 +243,7 @@ def main():
         try:
             log(check())
         except Exception as e:  # noqa: BLE001 -- one bad pass must not end the loop
-            log(f"check failed: {e}")
+            log(f"check failed: {e}", beacon=True)
         if REQUEST.exists():
             return  # the switch is PID 1's now; this process belongs to the old release
         time.sleep(EVERY)
