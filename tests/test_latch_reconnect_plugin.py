@@ -30,24 +30,27 @@ def load(install):
 
 
 class FakeTmux:
-    """Panes by target: text on screen and copy mode. Records every send-keys call."""
+    """Windows by exact name, each one pane (%N). Commands take only a pane id, like the
+    real watcher; a window name passed to -t is an error here (tmux would prefix-match it)."""
 
     def __init__(self):
         self.panes, self.sent = {}, []
 
     def __call__(self, *args):
         r = mock.Mock(returncode=0, stdout="", stderr="")
-        tgt = args[args.index("-t") + 1]
-        if tgt not in self.panes:
-            r.returncode = 1
+        if args[0] == "list-windows":
+            r.stdout = "".join("%s\t%s\t%d\n" % (name, p["id"], 1 if p.get("mode") else 0)
+                               for name, p in self.panes.items())
             return r
-        if args[0] == "display-message":
-            r.stdout = "1\n" if self.panes[tgt].get("mode") else "0\n"
-        elif args[0] == "capture-pane":
-            r.stdout = self.panes[tgt]["text"]
+        by_id = {p["id"]: p for p in self.panes.values()}
+        pane = by_id.get(args[args.index("-t") + 1])
+        if pane is None:
+            raise AssertionError("tmux -t must be a pane id: %r" % (args,))
+        if args[0] == "capture-pane":
+            r.stdout = pane["text"]
         elif args[0] == "send-keys":
             self.sent.append(args)
-            self.panes[tgt]["text"] += "  ⎿  Reconnected 1 of 1 MCP servers\n"
+            pane["text"] += "  ⎿  Reconnected 1 of 1 MCP servers\n"
         return r
 
 
@@ -68,11 +71,13 @@ class LatchReconnectTest(unittest.TestCase):
         (d / f"{tab}.json").write_text(json.dumps({
             "status": status, "timestamp": str(time.time() - age), "backend": backend, "state": "alive"}))
         if pane is not None:
-            self.tmux.panes[f"mc-main:{tab}"] = {"text": pane, "mode": mode}
+            self.tmux.panes[f"mc-main:{tab}"] = {"text": pane, "mode": mode,
+                                                  "id": "%%%d" % len(self.tmux.panes)}
         return f"node/main:{tab}"
 
     def typed_into(self):
-        return [a[a.index("-t") + 1] for a in self.tmux.sent]
+        names = {p["id"]: name for name, p in self.tmux.panes.items()}
+        return [names[a[a.index("-t") + 1]] for a in self.tmux.sent]
 
     def test_idle_only(self):
         ok = self.agent("ok")
@@ -91,8 +96,8 @@ class LatchReconnectTest(unittest.TestCase):
     def test_text_and_enter_go_in_one_tmux_call(self):
         self.assertTrue(self.m.reconnect(self.agent("ok")))
         (call,) = self.tmux.sent
-        self.assertEqual(call, ("send-keys", "-t", "mc-main:ok", "-l", "/mcp reconnect all", ";",
-                                "send-keys", "-t", "mc-main:ok", "Enter"))
+        self.assertEqual(call, ("send-keys", "-t", "%0", "-l", "/mcp reconnect all", ";",
+                                "send-keys", "-t", "%0", "Enter"))
 
     def test_latch_back_after_outage_reconnects_idle_now_busy_later(self):
         idle, busy = self.agent("idle"), self.agent("busy", status="working")
@@ -128,6 +133,18 @@ class LatchReconnectTest(unittest.TestCase):
         s = self.m.tick({"started": True, "pid": 1, "owed": ghosts}, up=True, pid=1,
                         agents=self.m.claude_agents())
         self.assertEqual(s["owed"], [])
+
+    def test_a_dead_agent_never_reaches_a_live_one_with_a_longer_name(self):
+        """tmux resolves `mc-main:eng-95` to eng-950 when eng-95 is gone; keys must not follow."""
+        live = self.agent("eng-950")
+        dead = self.agent("eng-95", pane=None)          # status file frozen at idle
+        self.assertEqual(self.m.why_busy(dead), "no pane")
+        self.assertFalse(self.m.reconnect(dead))
+        s = self.m.tick({"started": True, "pid": 1, "owed": [dead]}, up=True, pid=1,
+                        agents=self.m.claude_agents())
+        self.assertEqual(self.typed_into(), [])
+        self.assertEqual(s["owed"], [])
+        self.assertIsNone(self.m.why_busy(live))
 
     def test_relay_servers_read_from_claude_json_without_logging_the_key(self):
         cj = Path(self.tmp.name) / "claude.json"

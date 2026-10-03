@@ -114,15 +114,26 @@ def target(aid):
     return f"mc-{sess}:{tab}"
 
 
-def why_busy(aid, st=None, now=None):
+def live_panes():
+    """{"mc-main:eng-1": (pane_id, in_mode)} by EXACT window name. Never `-t mc-main:eng-1`:
+    tmux resolves a missing window by name prefix, and display-message even falls back to the
+    current window, so a dead agent's checks (and keys) would land on another agent's pane."""
+    r = tmux("list-windows", "-a", "-F", "#{session_name}:#{window_name}\t#{pane_id}\t#{pane_in_mode}")
+    out = {}
+    for line in r.stdout.splitlines():
+        name, pane, mode = (line.split("\t") + ["", ""])[:3]
+        out[name] = (pane, mode)
+    return out
+
+
+def why_busy(aid, st=None, now=None, panes=None):
     """None when the agent is idle enough to type into, else the reason it is not."""
     st = st if st is not None else claude_agents().get(aid)
     if not st:
         return "gone"
     # Pane first: a status file outlives its agent, frozen at whatever it last said.
-    t = target(aid)
-    mode = tmux("display-message", "-p", "-t", t, "#{pane_in_mode}")
-    if mode.returncode != 0:
+    pane, mode = (panes if panes is not None else live_panes()).get(target(aid), (None, None))
+    if not pane:
         return "no pane"
     if st.get("status") != "idle":
         return "status %s" % st.get("status")
@@ -131,9 +142,9 @@ def why_busy(aid, st=None, now=None):
             return "idle too recently"
     except ValueError:
         return "no timestamp"
-    if mode.stdout.strip() != "0":
+    if mode != "0":
         return "pane in copy mode"
-    lines = [ln for ln in tmux("capture-pane", "-p", "-t", t).stdout.splitlines() if ln.strip()]
+    lines = [ln for ln in tmux("capture-pane", "-p", "-t", pane).stdout.splitlines() if ln.strip()]
     bottom = "\n".join(lines[-12:]).lower()
     if any(m in bottom for m in BUSY_MARKERS):
         return "turn in flight"
@@ -147,16 +158,17 @@ def why_busy(aid, st=None, now=None):
 
 def reconnect(aid):
     """Type the reconnect into an idle agent. True when typed."""
-    reason = why_busy(aid)
-    if reason:
+    panes = live_panes()
+    if why_busy(aid, panes=panes):
         return False
+    pane = panes[target(aid)][0]
     # One tmux invocation for text + Enter, so no other client's keys land between them.
-    r = tmux("send-keys", "-t", target(aid), "-l", COMMAND, ";", "send-keys", "-t", target(aid), "Enter")
+    r = tmux("send-keys", "-t", pane, "-l", COMMAND, ";", "send-keys", "-t", pane, "Enter")
     if r.returncode != 0:
         log(f"{aid}: send-keys failed: {r.stderr.strip()[:120]}")
         return False
     time.sleep(4)
-    tail = [ln for ln in tmux("capture-pane", "-p", "-t", target(aid)).stdout.splitlines() if "Reconnected" in ln]
+    tail = [ln for ln in tmux("capture-pane", "-p", "-t", pane).stdout.splitlines() if "Reconnected" in ln]
     log(f"{aid}: reconnected ({tail[-1].strip()[:100] if tail else 'no result line seen'})")
     return True
 
@@ -181,16 +193,18 @@ def tick(s, up, pid, agents):
     if not up:
         s["down_since"] = s.get("down_since") or time.time()
     else:
+        panes = live_panes()
         cause = ("back after %ds down" % (time.time() - s["down_since"])) if s.get("down_since") else (
             "new Latch process" if pid and s.get("pid") and pid != s["pid"] else (
                 "watcher start" if not s.get("started") else ""))
         if cause:
-            log(f"Latch {cause}: {len(agents)} Claude agents owed a reconnect")
-            owed |= set(agents)
+            alive = {a for a in agents if target(a) in panes}
+            log(f"Latch {cause}: {len(alive)} Claude agents owed a reconnect")
+            owed |= alive
         s["down_since"] = None
         s["started"] = True
         for aid in sorted(owed):
-            reason = why_busy(aid, agents.get(aid))
+            reason = why_busy(aid, agents.get(aid), panes=panes)
             if reason in ("gone", "no pane") or (reason is None and reconnect(aid)):
                 owed.discard(aid)
     s["pid"] = pid or s.get("pid")
