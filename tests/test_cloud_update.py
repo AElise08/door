@@ -107,5 +107,28 @@ class CloudUpdatePull(unittest.TestCase):
         self.assertFalse((self.root / "releases/9.9.9").exists())
 
 
+class CloudUpdateIdleGate(unittest.TestCase):
+    """A turn is never cut, but a resumed agent nobody has prompted yet is not mid-turn."""
+
+    def busy(self, statuses):
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch.dict(os.environ, {"MYPEOPLE_HOME": td, "MYPLOW_ROOT": td}):
+            spec = importlib.util.spec_from_file_location("update", ROOT / "cloud" / "update.py")
+            u = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(u)
+            for win, (status, age) in statuses.items():
+                d = Path(td) / "status" / "mc-main"
+                d.mkdir(parents=True, exist_ok=True)
+                (d / f"{win}.json").write_text(json.dumps({"status": status, "timestamp": u.time.time() - age}))
+            windows = "".join(f"main\t{w}\n" for w in statuses)
+            with mock.patch.object(u.subprocess, "run", return_value=mock.Mock(stdout=windows)):
+                return u.busy_agents()
+
+    def test_working_and_a_fresh_start_are_busy_an_old_start_and_idle_are_not(self):
+        self.assertEqual(["main:Boss", "main:eng-1"], self.busy({
+            "Boss": ("working", 900), "eng-1": ("starting", 30),
+            "eng-2": ("starting", 1200), "eng-3": ("idle", 5)}))
+
+
 if __name__ == "__main__":
     unittest.main()

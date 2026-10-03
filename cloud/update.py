@@ -172,8 +172,14 @@ def stage(release, layer, reg):
 
 # --- the fleet: never cut a turn ---
 
+STARTING_GRACE = 180  # a revived agent stays "starting" until its next prompt: only a young one is busy
+
+
 def busy_agents():
-    """Live agents (a tmux window exists) whose status is not idle."""
+    """Live agents (a tmux window exists) that are mid-turn: "working", or "starting" for under
+    STARTING_GRACE. An agent resumed after a restart sits at "starting" until something prompts it,
+    so an old "starting" is an idle agent -- counting it as busy would block every update after the
+    first one."""
     out = subprocess.run(["tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_name}"],
                          capture_output=True, text=True).stdout
     busy = []
@@ -183,7 +189,8 @@ def busy_agents():
             st = json.loads((DATA / "status" / f"mc-{sess}" / f"{win}.json").read_text())
         except (OSError, ValueError):
             continue
-        if st.get("status") in ("working", "starting"):
+        status, age = st.get("status"), time.time() - float(st.get("timestamp") or 0)
+        if status == "working" or (status == "starting" and age < STARTING_GRACE):
             busy.append(f"{sess}:{win}")
     return busy
 
