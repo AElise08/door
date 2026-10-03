@@ -10,7 +10,12 @@ Usage:
   plow-chat.py reply "text"           reply in the owner's own chat
   plow-chat.py reply cht_x "text"     reply in that chat (groups)
   plow-chat.py reply cht_x --file a.jpg "text"   send photos/files too (up to 4)
+  plow-chat.py react cht_x msg_y like tapback a message (love, laugh, an emoji, remove...)
   plow-chat.py status                 print activation/bridge state
+
+The Boss is told what plain text loses: the message a text replies to, who it
+mentions, and tapbacks people left. A tapback never wakes the Boss on its own;
+it rides along with the next text.
 
 One account covers every chat: the owner can add the Plow line to group
 threads, and each group is its own chat that reaches the Boss and is answered
@@ -100,18 +105,89 @@ def listing(data) -> list:
 
 # --- Boss ---
 
-def envelope(who: str, text: str, chat_uid: str, files=()) -> str:
+def envelope(who: str, text: str, chat_uid: str, files=(), context=(), mid: str = "") -> str:
     # Plow seats whoever the carrier reports in the thread, so the Boss is told
     # who actually spoke and which thread — in a group these differ per message.
     sent = "".join(f"\n[attached, open it: {f}]" for f in files)
+    said = "".join(f"\n({c})" for c in context)
+    tap = (f" To tapback this message, run: python3 {SELF} react {chat_uid} {mid} like "
+           f"(or love, laugh, emphasize, question, dislike, or one emoji).") if mid else ""
     return (
-        f"[plowchat] from {who} in {chat_uid}: {text}{sent}\n"
+        f"[plowchat] from {who} in {chat_uid}: {text}{sent}{said}\n"
         f"(This is the owner's Plow messages line. The owner texts here, and so "
         f"does anyone they added to this thread. To answer, run: "
         f"python3 {SELF} reply {chat_uid} \"your reply\" — it goes back to that "
         f"same thread, which may be a group. Plain text only, no markdown. To send "
-        f"photos or files, add --file PATH before the text, up to 4.)"
+        f"photos or files, add --file PATH before the text, up to 4.{tap})"
     )
+
+
+TAPBACKS = {"love": "loved", "like": "liked", "dislike": "disliked", "laugh": "laughed at",
+            "emphasize": "emphasized", "question": "questioned"}
+
+
+def speaker(sender: dict) -> str:
+    if sender.get("type") == "agent" and sender.get("relationship") == "self":
+        return "you"  # this line, i.e. the Boss
+    return sender.get("display_name") or sender.get("provider_key") or "chat member"
+
+
+def whose(m: dict) -> str:
+    """`your message msg_x: "..."` or `Dan's message msg_x: "..."`."""
+    who = speaker(m.get("sender") or {})
+    text = " ".join((m.get("body") or "").split())
+    text = (text[:500] + "…" if len(text) > 500 else text) or "(a photo or file)"
+    owner = "your" if who == "you" else f"{who}'s"
+    return f"{owner} message {m.get('uid')}: \"{text}\""
+
+
+def context(message: dict) -> list:
+    """What plain text loses: the message this one answers, and who it tags. [] for neither."""
+    lines = []
+    if (message.get("reply_to") or {}).get("message"):
+        lines.append(f"in reply to {whose(message['reply_to']['message'])}")
+    tags = [("you" if t.get("is_me") else t.get("handle") or "someone")
+            for t in message.get("mentions") or []]
+    if tags:
+        lines.append("mentions: " + ", ".join(dict.fromkeys(tags)))
+    return lines
+
+
+def note_tapbacks(msgs: list, chat_uid: str, seed: bool = True) -> int:
+    """Hold new tapbacks from people for the Boss's next message; never wake it for one.
+
+    A thumbs-up is not someone writing to the Boss: waking it would make every
+    acknowledgement a turn. So it rides along with the next real text, tied to
+    the message it landed on.
+    ponytail: only the page each poll already fetches (the newest 20 messages)
+    is read, so a tapback on an older message is never seen. Upgrade path: the
+    reaction_added frames on the account websocket.
+    """
+    live = {}
+    for m in msgs:
+        for r in m.get("reactions") or []:
+            actor = r.get("actor") or {}
+            if actor.get("type") != "member":
+                continue  # the Boss's own tapbacks come back on the page too
+            verb = TAPBACKS.get(r.get("type")) or f"reacted {r.get('custom_emoji') or ''} to"
+            # The type is in the key: turning a like into a heart may keep the reaction's uid.
+            key = f"{r.get('uid')}:{r.get('type')}:{r.get('custom_emoji') or ''}"
+            live[key] = (f"tapback in {chat_uid}, not a new message: "
+                         f"{speaker(actor)} {verb} {whose(m)}")
+    with STATE_LOCK:
+        st = read_json(STATE, {})
+        chats = st.get("tapback_chats", [])
+        seen = st.get("seen_tapbacks", [])
+        new = [k for k in live if k not in seen]
+        if not new and chat_uid in chats:
+            return 0
+        # First sight of a chat with seeding on: its tapbacks are history, not news.
+        news = [live[k] for k in new] if chat_uid in chats or not seed else []
+        st["pending_tapbacks"] = (st.get("pending_tapbacks", []) + news)[-20:]
+        st["seen_tapbacks"] = (seen + new)[-1000:]
+        st["tapback_chats"] = sorted(set(chats) | {chat_uid})
+        write_json(STATE, st)
+    return len(news)
 
 
 def send_to_boss(message: str) -> bool:
@@ -160,8 +236,7 @@ def route_message(message: dict) -> str:
         st["seen_ids"] = (seen + [mid])[-1000:]
         write_json(STATE, st)
 
-    sender = message.get("sender") or {}
-    who = sender.get("display_name") or sender.get("provider_key") or "chat member"
+    who = speaker(message.get("sender") or {})
     chat_uid = message.get("chat_uid") or ""
     files = []
     for a in atts:
@@ -170,7 +245,14 @@ def route_message(message: dict) -> str:
         except (OSError, ValueError) as e:
             log(f"attachment {a.get('uid')} not saved: {e}")
             files.append(f"(could not download {a.get('filename') or 'attachment'}: {e})")
-    if send_to_boss(envelope(who, text, chat_uid, files)):
+    with STATE_LOCK:
+        taps = read_json(STATE, {}).get("pending_tapbacks", [])
+    if send_to_boss(envelope(who, text, chat_uid, files, context(message) + taps, mid)):
+        if taps:
+            with STATE_LOCK:
+                st = read_json(STATE, {})
+                st["pending_tapbacks"] = [t for t in st.get("pending_tapbacks", []) if t not in taps]
+                write_json(STATE, st)
         return f"ROUTE {chat_uid} {who}: {text[:60]}"
     with STATE_LOCK:  # release the claim so the next pass retries it
         st = read_json(STATE, {})
@@ -251,6 +333,27 @@ def send_message(text: str, chat_uid: str = "", creds=None, files=()) -> dict:
     status, data = api("POST", f"/v1/chats/{chat_uid}/messages", body, token=creds["token"])
     if status >= 400:
         raise SystemExit(f"send failed {status}: {json.dumps(data)[:200]}")
+    return data
+
+
+def react(chat_uid: str, message_uid: str, kind: str, creds=None) -> dict:
+    """Tapback one message (a TAPBACKS name or one emoji), or `remove` this line's tapback."""
+    if kind == "remove":
+        body = {"operation": "remove"}
+    elif kind in TAPBACKS:
+        body = {"operation": "add", "type": kind}
+    elif kind and not kind.isascii() and len(kind) <= 8:  # an emoji, not a misspelt name
+        body = {"operation": "add", "type": "custom", "custom_emoji": kind}
+    else:
+        body = None
+    if not (body and chat_uid.startswith("cht_") and message_uid.startswith("msg_")):
+        raise SystemExit(f"usage: {SELF} react cht_x msg_y "
+                         f"{'|'.join(TAPBACKS)}|EMOJI|remove")
+    creds = creds or load_creds()
+    status, data = api("POST", f"/v1/chats/{chat_uid}/messages/{message_uid}/reactions",
+                       body, token=creds["token"])
+    if status >= 400:
+        raise SystemExit(f"tapback failed {status}: {json.dumps(data)[:200]}")
     return data
 
 
@@ -354,6 +457,7 @@ def poll_chat(creds: dict, chat_uid: str, seed: bool = True) -> int:
             st["seen_ids"] = seen[-1000:]
             st["seeded_chats"] = sorted(seeded | {chat_uid})
             write_json(STATE, st)
+    note_tapbacks(msgs, chat_uid, seed)
     if first:
         log(f"seeded {len(msgs)} existing message(s) in {chat_uid} as already handled")
         if creds.get("cloud"):
@@ -398,6 +502,9 @@ def main():
         if not args and not files:
             raise SystemExit(f"usage: {SELF} reply [cht_x] [--file PATH ...] \"text\"")
         print(json.dumps(send_message(" ".join(args), chat_uid, files=files)))
+    elif cmd == "react":
+        args = sys.argv[2:] + ["", "", ""]
+        print(json.dumps(react(*args[:3])))
     elif cmd == "status":
         creds, act = load_creds(), read_json(ACTIVATION, {})
         print(json.dumps({

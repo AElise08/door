@@ -53,6 +53,58 @@ class PlowChatTest(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
         self.assertIn("[plowchat] from Dan in cht_a: hi boss", self.sent[0])
         self.assertIn("reply cht_a", self.sent[0])
+        # Plain text keeps today's two-part envelope: no reply, mention or tapback lines.
+        self.assertTrue(self.sent[0].split("\n")[1].startswith("(This is the owner's"))
+        self.assertEqual(len(self.sent[0].split("\n")), 2)
+
+    def test_a_reply_carries_what_it_answers_and_who_it_mentions(self):
+        self.pc.poll_chat(self.creds, "cht_a")
+        self.msgs.append({
+            "uid": "msg_2", "direction": "inbound", "body": "yes that one", "chat_uid": "cht_a",
+            "created_at": "2", "sender": {"type": "member", "display_name": "Dan"},
+            "mentions": [{"handle": "+15550001", "is_me": True}, {"handle": "+15550002", "is_me": False}],
+            "reply_to": {"part_index": 0, "message": {
+                "uid": "msg_1", "body": "Deploy\n now?", "sender": {"type": "agent", "relationship": "self"}}}})
+        self.pc.poll_chat(self.creds, "cht_a")
+        self.assertIn('\n(in reply to your message msg_1: "Deploy now?")', self.sent[0])
+        self.assertIn("\n(mentions: you, +15550002)", self.sent[0])
+        self.assertIn("react cht_a msg_2 like", self.sent[0])
+
+    def test_a_tapback_never_wakes_the_boss_and_rides_with_the_next_text_once(self):
+        dan = {"type": "member", "display_name": "Dan"}
+        self.msgs[0]["reactions"] = [{"uid": "rx_old", "type": "like", "actor": dan}]
+        self.pc.poll_chat(self.creds, "cht_a")  # seeding: the old tapback is history
+        self.msgs.append({"uid": "msg_b", "direction": "outbound", "body": "Deploy now?",
+                          "chat_uid": "cht_a", "created_at": "2",
+                          "sender": {"type": "agent", "relationship": "self"},
+                          "reactions": [{"uid": "rx_1", "type": "love", "actor": dan},
+                                        {"uid": "rx_2", "type": "like",
+                                         "actor": {"type": "agent", "relationship": "self"}}]})
+        self.assertEqual(self.pc.poll_chat(self.creds, "cht_a"), 0)
+        self.pc.poll_chat(self.creds, "cht_a")
+        self.assertEqual(self.sent, [], "a tapback is not a turn")
+        self.msgs.append({"uid": "msg_c", "direction": "inbound", "body": "and?",
+                          "chat_uid": "cht_a", "created_at": "3", "sender": dan})
+        self.pc.poll_chat(self.creds, "cht_a")
+        self.assertIn('\n(tapback in cht_a, not a new message: Dan loved your message msg_b: '
+                      '"Deploy now?")', self.sent[0])
+        self.assertNotIn("liked", self.sent[0], "history and the Boss's own tapback stay out")
+        self.msgs.append({"uid": "msg_d", "direction": "inbound", "body": "?",
+                          "chat_uid": "cht_a", "created_at": "4", "sender": dan})
+        self.pc.poll_chat(self.creds, "cht_a")
+        self.assertNotIn("tapback in", self.sent[1])
+
+    def test_react_sends_a_tapback_and_refuses_a_misspelt_one(self):
+        calls = []
+        self.pc.api = lambda method, path, body=None, token=None: calls.append((path, body)) or (200, {})
+        for kind in ("love", "🔥", "remove"):
+            self.pc.react("cht_a", "msg_1", kind, self.creds)
+        with self.assertRaises(SystemExit):
+            self.pc.react("cht_a", "msg_1", "thumbsup", self.creds)
+        self.assertEqual(calls, [("/v1/chats/cht_a/messages/msg_1/reactions", b) for b in (
+            {"operation": "add", "type": "love"},
+            {"operation": "add", "type": "custom", "custom_emoji": "🔥"},
+            {"operation": "remove"})])
 
     def test_chat_that_appears_while_running_is_routed_not_swallowed(self):
         self.assertEqual(self.pc.poll_chat(self.creds, "cht_a", seed=False), 1)
