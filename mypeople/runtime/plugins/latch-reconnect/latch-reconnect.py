@@ -10,6 +10,11 @@ Latch is UP when an MCP `ping` through the Plow relay (the URL + key the agents 
 ~/.claude.json) answers with a result. A reconnect is owed to every live Claude agent when Latch
 comes back up after being down, when a new Latch process appears, and once when this starts.
 
+Latch's updater installs on QUIT and never reopens it. So when Latch is gone and the installed
+app's version differs from the one last seen running, this reopens it in the background (after
+RELAUNCH_AFTER seconds, at most once per RELAUNCH_AFTER). A quit with no new version is the
+owner's choice and is left alone.
+
 IDLE, all re-checked right before typing (a busy agent stays owed until it is idle):
   - its lifecycle hook status is "idle" and has been for IDLE_SECONDS (Stop fired, no new prompt);
   - its pane is not in copy mode (keys would scroll, not type);
@@ -23,6 +28,7 @@ Turn it on with LATCH_RECONNECT=1 in queue.env; supervise.sh keeps it running.
 """
 import json
 import os
+import plistlib
 import subprocess
 import sys
 import time
@@ -40,8 +46,11 @@ CLAUDE_JSON = Path(os.environ.get("LATCH_RECONNECT_CLAUDE_JSON") or Path.home() 
 HOST_ID = os.environ.get("HOST_ID") or os.uname().nodename.split(".")[0]
 POLL_SECONDS = float(os.environ.get("LATCH_RECONNECT_POLL_SECONDS", "20"))
 IDLE_SECONDS = float(os.environ.get("LATCH_RECONNECT_IDLE_SECONDS", "20"))
-# The main binary only: helpers are ".../MacOS/Plow Latch Helper ...".
-LATCH_PROCESS = os.environ.get("LATCH_RECONNECT_PROCESS", "MacOS/Plow Latch( |$)")
+# The main process only: its argv is the bare binary. Helpers (".../MacOS/Plow Latch Helper (GPU)")
+# and Latch's own Node children (the same binary plus a script path) come and go on their own.
+LATCH_PROCESS = os.environ.get("LATCH_RECONNECT_PROCESS", r"Plow Latch\.app/Contents/MacOS/Plow Latch$")
+LATCH_APP = Path(os.environ.get("LATCH_RECONNECT_APP", "/Applications/Plow Latch.app"))
+RELAUNCH_AFTER = float(os.environ.get("LATCH_RECONNECT_RELAUNCH_AFTER", "60"))
 COMMAND = "/mcp reconnect all"
 BUSY_MARKERS = ("esc to interrupt", "waiting for response", "ctrl+c:cancel")
 
@@ -89,6 +98,19 @@ def ping(url, auth):
 
 def latch_up():
     return any(ping(u, a) for u, a in relay_servers())
+
+
+def latch_version():
+    try:
+        with open(LATCH_APP / "Contents" / "Info.plist", "rb") as f:
+            return plistlib.load(f).get("CFBundleVersion")
+    except (OSError, plistlib.InvalidFileException):
+        return None
+
+
+def relaunch():
+    r = subprocess.run(["open", "-g", "-a", str(LATCH_APP)], capture_output=True, text=True)
+    log("reopened Latch after its update" if r.returncode == 0 else f"reopen failed: {r.stderr.strip()[:120]}")
 
 
 def latch_pid():
@@ -187,8 +209,20 @@ def save_state(s):
     tmp.replace(STATE)
 
 
-def tick(s, up, pid, agents):
-    """One pass: decide who is owed a reconnect, then serve the idle ones. Mutates s."""
+def tick(s, up, pid, agents, version=None, now=None):
+    """One pass: reopen Latch after an update, decide who is owed a reconnect, then serve the idle
+    ones. Mutates s."""
+    now = now or time.time()
+    if pid:
+        s["gone_since"] = None
+        s["running_version"] = version or s.get("running_version")
+    else:
+        s["gone_since"] = s.get("gone_since") or now
+        updated = version and s.get("running_version") and version != s["running_version"]
+        if (updated and now - s["gone_since"] >= RELAUNCH_AFTER
+                and now - (s.get("relaunched_at") or 0) >= RELAUNCH_AFTER):
+            s["relaunched_at"] = now
+            relaunch()
     owed = set(s.get("owed", []))
     if not up:
         s["down_since"] = s.get("down_since") or time.time()
@@ -218,7 +252,7 @@ def serve():
     s["started"] = False
     while True:
         try:
-            save_state(tick(s, latch_up(), latch_pid(), claude_agents()))
+            save_state(tick(s, latch_up(), latch_pid(), claude_agents(), latch_version()))
         except Exception as e:  # a bad tick must never kill the watcher
             log(f"tick failed: {e}")
         time.sleep(POLL_SECONDS)
@@ -231,6 +265,7 @@ def main(argv):
     elif cmd == "status":
         s = load_state()
         print(json.dumps({"latch_up": latch_up(), "latch_pid": latch_pid(),
+                          "latch_version": latch_version(), "running_version": s.get("running_version"),
                           "down_since": s.get("down_since"),
                           "owed": {a: why_busy(a) or "idle, next tick" for a in s.get("owed", [])}},
                          indent=1))

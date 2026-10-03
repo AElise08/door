@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import time
 import unittest
@@ -145,6 +146,34 @@ class LatchReconnectTest(unittest.TestCase):
         self.assertEqual(self.typed_into(), [])
         self.assertEqual(s["owed"], [])
         self.assertIsNone(self.m.why_busy(live))
+
+    def test_reopens_latch_only_when_an_update_landed_while_it_was_gone(self):
+        opened = []
+        self.m.relaunch = lambda: opened.append(1)
+        s = self.m.tick({"started": True}, up=True, pid=100, agents={}, version="1", now=0)
+        s = self.m.tick(s, up=False, pid=None, agents={}, version="1", now=10)
+        s = self.m.tick(s, up=False, pid=None, agents={}, version="1", now=500)
+        self.assertEqual(opened, [], "quit with no new version: the owner's choice, left alone")
+        s = self.m.tick(s, up=False, pid=None, agents={}, version="2", now=520)
+        self.assertEqual(opened, [1], "the updater installed on quit and never reopened it")
+        s = self.m.tick(s, up=False, pid=None, agents={}, version="2", now=540)
+        self.assertEqual(opened, [1], "at most once per RELAUNCH_AFTER")
+        s = self.m.tick(s, up=False, pid=None, agents={}, version="2", now=600)
+        self.assertEqual(opened, [1, 1], "still gone a minute later: try again")
+        s = self.m.tick(s, up=True, pid=200, agents={}, version="2", now=610)
+        self.m.tick(s, up=False, pid=None, agents={}, version="2", now=2000)
+        self.assertEqual(opened, [1, 1], "the new version now ran: a later quit is respected")
+
+    def test_process_pattern_matches_only_latchs_main_process(self):
+        app = "/Applications/Plow Latch.app/Contents"
+        seen = {
+            f"{app}/MacOS/Plow Latch": True,
+            f"{app}/MacOS/Plow Latch {app}/Resources/app.asar/node_modules/@domo/browser/x.js": False,
+            f"{app}/Frameworks/Plow Latch Helper (GPU).app/Contents/MacOS/Plow Latch Helper (GPU) --type=gpu": False,
+            f"{app}/Frameworks/Plow Latch Helper.app/Contents/MacOS/Plow Latch Helper --type=utility": False,
+        }
+        for argv, main in seen.items():
+            self.assertEqual(bool(re.search(self.m.LATCH_PROCESS, argv)), main, argv)
 
     def test_relay_servers_read_from_claude_json_without_logging_the_key(self):
         cj = Path(self.tmp.name) / "claude.json"
