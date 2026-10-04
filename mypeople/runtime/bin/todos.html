@@ -37,12 +37,12 @@ kbd{font:500 10.5px/1 var(--mono);color:var(--faint);border:1px solid var(--dark
   background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");}
 /* No title row (CEO c6a13ce248): the add bar shares the top row with the fixed Board/Graph nav and
    stops short of it, so the page spends no height on chrome. */
-.wrap{position:relative;z-index:1;max-width:1028px;margin:0 auto;padding:18px 24px 96px;}
+.wrap{position:relative;z-index:1;max-width:928px;margin:0 auto;padding:18px 24px 120px;}
 .subt{font:400 12px/1.4 var(--mono);color:var(--faint);}
 .eyebrow{margin:0;font:500 12px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
 
 /* ---- add ---- */
-.addbar{display:flex;gap:8px;align-items:center;height:44px;margin:0 max(0px,calc(190px - (100vw - 1028px) / 2)) 22px 0;padding:0 6px 0 14px;
+.addbar{display:flex;gap:8px;align-items:center;height:44px;margin:0 max(0px,calc(190px - (100vw - 928px) / 2)) 28px 0;padding:0 6px 0 14px;
   background:var(--dark-card);border:1px solid var(--dark-border);border-radius:12px;transition:border-color .15s,box-shadow .15s}
 .addbar:focus-within{border-color:rgba(213,239,138,.45);box-shadow:0 0 0 4px rgba(213,239,138,.07)}
 .addbar>.i{color:var(--faint)}
@@ -52,6 +52,8 @@ kbd{font:500 10.5px/1 var(--mono);color:var(--faint);border:1px solid var(--dark
   display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:box-shadow .15s,filter .15s,opacity .15s}
 .btn-volt:hover:not(:disabled){box-shadow:0 4px 20px var(--volt-glow);filter:brightness(1.04)}
 .btn-volt:disabled{opacity:.3;cursor:default}
+.addbar #addBtn{transition:opacity .15s,transform .15s var(--ease)}
+.addbar #addBtn:disabled{opacity:0;transform:scale(.94);pointer-events:none}
 
 /* ---- buttons ---- */
 .btn{height:30px;padding:0 11px;border-radius:9px;border:1px solid var(--dark-border);background:rgba(255,255,255,.04);color:var(--ink-2);
@@ -63,30 +65,24 @@ kbd{font:500 10.5px/1 var(--mono);color:var(--faint);border:1px solid var(--dark
 .btn.danger-solid{background:var(--danger);color:#fff;border-color:transparent;font-weight:600}
 .btn.danger-solid:hover{filter:brightness(1.08)}
 
-/* ---- the Boss: one object, presence + conversation + lifecycle ---- */
-.boss{position:relative;display:flex;align-items:center;gap:14px;padding:14px 16px;margin:0 0 30px;cursor:pointer;border-radius:16px;
-  background:linear-gradient(180deg,rgba(213,239,138,.06),rgba(213,239,138,.015));border:1px solid rgba(213,239,138,.22);transition:border-color .2s,background .2s}
-.boss:hover{border-color:rgba(213,239,138,.42)}
-.boss-av{position:relative;width:42px;height:42px;border-radius:12px;background:var(--volt);color:var(--midnight);display:grid;place-items:center;
-  font:400 28px/1 var(--serif);flex:0 0 auto;transition:background .2s,color .2s}
-.boss-av::after{content:"";position:absolute;right:-3px;bottom:-3px;width:12px;height:12px;border-radius:50%;background:#55554f;border:2.5px solid #191a16}
+/* ---- the Boss: one quiet bar. Presence is the dot; it speaks up only when it has news or is down ---- */
+.boss{position:relative;display:flex;align-items:center;gap:12px;height:56px;padding:0 12px 0 10px;margin:0 0 40px;cursor:pointer;border-radius:14px;
+  background:var(--dark-card);border:1px solid var(--dark-border);transition:border-color .2s,background .2s}
+.boss:hover{border-color:var(--border2)}
+.boss-av{position:relative;width:34px;height:34px;border-radius:10px;background:var(--volt);color:var(--midnight);display:grid;place-items:center;
+  font:400 26px/1 var(--serif);flex:0 0 auto;transition:background .2s,color .2s}
+.boss-av::after{content:"";position:absolute;right:-3px;bottom:-3px;width:11px;height:11px;border-radius:50%;background:#55554f;border:2.5px solid var(--dark-card)}
 [data-state="up"]>.boss-av::after{background:var(--success)}
 [data-state="down"]>.boss-av::after{background:var(--danger)}
 [data-state="busy"]>.boss-av::after{background:var(--warning)}
-.boss-main{flex:1;min-width:0}
-.boss-top{display:flex;align-items:baseline;gap:10px}
-.boss-name{font:600 15.5px/1.3 var(--sans)}
-.boss-state{font:500 12.5px/1 var(--sans);color:var(--faint);white-space:nowrap}
-.boss-state.up{color:rgba(82,216,115,.9)}
+.boss-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:10px}
+.boss-name{font:600 15px/1 var(--sans)}
+.boss-state{font:500 13px/1 var(--sans);color:var(--faint);white-space:nowrap}
+.boss[data-state="up"] .boss-state{display:none}
 .boss-state.down{color:#ff7a70}
-.boss-top .row-ago{margin-left:auto}
-.boss-top .count{align-self:center}
-.boss-preview,.boss-down{margin-top:4px;font-size:14px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.boss-preview b{font-weight:500;color:var(--text-dark)}
-.boss-down{display:none;white-space:normal;color:#ffb4ae}
-.boss[data-state="down"]{background:linear-gradient(180deg,rgba(255,59,48,.08),rgba(255,59,48,.02));border-color:rgba(255,59,48,.35)}
+.boss-down{display:none;min-width:0;font-size:13.5px;color:#ffb4ae;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.boss[data-state="down"]{height:auto;min-height:56px;padding:10px 12px 10px 10px;background:rgba(255,59,48,.06);border-color:rgba(255,59,48,.35)}
 .boss[data-state="down"] .boss-av{background:#2a2a27;color:var(--muted-dark)}
-.boss[data-state="down"] .boss-preview{display:none}
 .boss[data-state="down"] .boss-down{display:block}
 .boss-side{display:flex;align-items:center;gap:10px;flex:0 0 auto}
 .boss-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
@@ -94,19 +90,28 @@ kbd{font:500 10.5px/1 var(--mono);color:var(--faint);border:1px solid var(--dark
 .boss[data-state="up"] #bossKill{opacity:0;transition:opacity .15s,background .15s,border-color .15s,color .15s}
 .boss:hover #bossKill,.boss #bossKill:focus-visible{opacity:1}
 @media (hover:none){.boss[data-state="up"] #bossKill{opacity:1}}
-.boss-msg{position:absolute;right:16px;bottom:-22px;font:400 12px/1 var(--mono);color:var(--faint);white-space:nowrap}
-.count{min-width:20px;height:20px;padding:0 6px;border-radius:100px;background:var(--volt);color:var(--midnight);font:700 11px/20px var(--sans);text-align:center;font-variant-numeric:tabular-nums}
+.boss-msg{position:absolute;right:14px;bottom:-22px;font:400 12px/1 var(--mono);color:var(--faint);white-space:nowrap}
+.boss-msg:empty{display:none}
+.newpill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:100px;background:rgba(213,239,138,.12);color:var(--volt);font:600 12.5px/1 var(--sans);white-space:nowrap}
+.newpill::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--volt)}
 
-/* ---- list head: what you are looking at, and the three view controls ---- */
-.listhead{display:flex;align-items:center;gap:10px;margin:0 0 8px;padding:0 12px 0 10px;min-height:32px}
-.listhead .eyebrow{margin-right:auto}
-.viewbar{display:flex;gap:6px}
-.vbtn{height:28px;padding:0 10px;border-radius:8px;border:1px solid transparent;background:none;color:var(--faint);font:500 12.5px/1 var(--sans);
-  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:background .15s,color .15s,border-color .15s}
-.vbtn:hover{color:var(--text-dark);background:var(--surface)}
-.vbtn.active{color:var(--volt);background:rgba(213,239,138,.08);border-color:rgba(213,239,138,.25)}
-.vbtn .n{font:500 11px/1 var(--mono);color:inherit;opacity:.75}
-.vb-sep{width:1px;height:16px;background:var(--dark-border);margin:0 2px}
+/* ---- list head: a name and two quiet icons; the view options live in a menu ---- */
+.listhead{position:relative;display:flex;align-items:center;gap:2px;height:32px;margin:0 0 4px;padding:0 4px 0 12px}
+.lh-title{margin:0 auto 0 0;font:600 13px/1 var(--sans);color:var(--muted-dark)}
+.ibtn{position:relative;width:32px;height:32px;display:grid;place-items:center;border-radius:9px;border:0;background:none;color:var(--faint);transition:background .15s,color .15s}
+.ibtn:hover,.ibtn[aria-expanded="true"]{background:var(--surface);color:var(--text-dark)}
+.ibtn.active{color:var(--volt)}
+.ibtn.active::after{content:"";position:absolute;right:6px;top:6px;width:6px;height:6px;border-radius:50%;background:var(--volt)}
+.menu{position:absolute;right:4px;top:38px;z-index:30;min-width:220px;padding:5px;border-radius:12px;background:#1F1F1D;border:1px solid var(--border2);
+  box-shadow:0 18px 50px rgba(0,0,0,.5);transform-origin:top right;transition:opacity .14s,transform .14s var(--ease)}
+.menu{visibility:visible}
+.menu.closed{opacity:0;transform:scale(.97) translateY(-4px);pointer-events:none;visibility:hidden;transition:opacity .14s,transform .14s var(--ease),visibility 0s linear .14s}
+.vbtn{width:100%;height:34px;display:flex;align-items:center;gap:10px;padding:0 10px;border:0;background:none;border-radius:8px;color:var(--ink-2);font:500 13.5px/1 var(--sans);text-align:left;transition:background .12s,color .12s}
+.vbtn:hover{background:var(--surface2);color:var(--text-dark)}
+.vbtn .tick{width:14px;color:var(--volt);opacity:0}
+.vbtn.active{color:var(--text-dark)}
+.vbtn.active .tick{opacity:1}
+.vbtn .n{margin-left:auto;font:400 12px/1 var(--mono);color:var(--faint)}
 .searchbar{display:none;align-items:center;gap:10px;height:40px;margin:0 0 10px;padding:0 12px;background:var(--dark-card);border:1px solid rgba(213,239,138,.35);border-radius:11px}
 .searchbar.on{display:flex;}
 .searchbar>.i{color:var(--faint)}
@@ -115,60 +120,51 @@ kbd{font:500 10.5px/1 var(--mono);color:var(--faint);border:1px solid var(--dark
 #search::-webkit-search-cancel-button{display:none}
 #searchN{white-space:nowrap;}
 
-/* ---- rows ---- */
+/* ---- rows: a row answers "does this need me?" The ring and the title are the row; detail is in the card ---- */
 ul#list{list-style:none;margin:0;padding:0;}
-li.task{position:relative;border-radius:12px;cursor:pointer;transition:background .15s,opacity .22s var(--ease),transform .22s var(--ease)}
-li.task+li.task::before{content:"";position:absolute;left:54px;right:12px;top:0;height:1px;background:var(--line);transition:opacity .15s}
+li.sec{list-style:none;padding:22px 12px 8px;font:600 13px/1 var(--sans);color:var(--muted-dark)}
+li.sec:first-child{padding-top:6px}
+li.sec.you{color:#8fdcff}
+li.task{position:relative;border-radius:10px;cursor:pointer;transition:background .15s,opacity .22s var(--ease),transform .22s var(--ease)}
+li.task+li.task::before{content:"";position:absolute;left:52px;right:12px;top:0;height:1px;background:var(--line);transition:opacity .15s}
 li.task:hover{background:rgba(255,255,255,.035)}
 li.task:hover::before,li.task:hover+li.task::before{opacity:0}
 li.task.enter{opacity:0;transform:translateY(8px)}
 li.task.completing{opacity:.45}
 li.task.done .task-text,li.task.cancelled .task-text{color:var(--muted-dark)}
 li.task.done .task-text{text-decoration:line-through;text-decoration-color:rgba(240,240,232,.25)}
-.task-top{display:flex;gap:12px;align-items:flex-start;padding:13px 12px 13px 10px}
-.check{width:32px;height:32px;margin:-4px 0;display:grid;place-items:center;border-radius:9px;flex:0 0 auto;transition:background .15s}
+.task-top{display:flex;gap:12px;align-items:center;min-height:54px;padding:8px 8px 8px 10px}
+.check{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;flex:0 0 auto;transition:background .15s}
 .check:hover{background:rgba(255,255,255,.06)}
 .check.disabled{opacity:.3;cursor:not-allowed;}
 .si .ck{stroke:var(--success);opacity:0;transition:opacity .15s}
 .si .fill{transition:opacity .15s}
 .check:hover .si .ck{opacity:1}
 .check:hover .si .fill{opacity:0}
-.task-main{flex:1;min-width:0}
-/* clamp preview titles to 2 lines so a giant title can't blow out the homepage list; full title is in the card modal */
-.task-text{font:500 16px/1.4 var(--sans);letter-spacing:-.005em;color:var(--text-dark);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;word-break:break-word;overflow-wrap:anywhere;}
-.task-text.editing,.m-title.editing{display:block;-webkit-line-clamp:unset;max-height:none;outline:0;border-radius:6px;box-shadow:0 0 0 2px rgba(213,239,138,.5);background:rgba(255,255,255,.04);padding:0 4px;margin:0 -4px;cursor:text}
-.cat{display:inline-block;vertical-align:2px;margin-right:8px;font:500 10.5px/1 var(--mono);letter-spacing:.06em;text-transform:lowercase;color:var(--ink-2);
-  background:rgba(255,255,255,.045);border:1px solid var(--dark-border);border-radius:6px;padding:3px 6px}
-.bot{display:inline-block;vertical-align:-2px;margin-right:6px;color:var(--faint)}
-.meta{display:flex;align-items:center;gap:8px;margin-top:5px;min-width:0;font-size:13.5px;color:var(--muted-dark)}
-.handle{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;max-width:220px;font:500 11px/1 var(--mono);letter-spacing:.04em;text-transform:lowercase;color:var(--ink-2);
-  background:rgba(255,255,255,.045);border:1px solid var(--dark-border);border-radius:6px;padding:3px 7px;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.handle .dot{width:6px;height:6px;border-radius:50%;background:var(--c,#A5B2A7);flex:0 0 auto}
-a.handle:hover{color:var(--text-dark);border-color:var(--border2);background:var(--surface2)}
-.handle.none{color:var(--faint);font-style:italic;text-transform:none}
-.prev{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.prev b{font-weight:500;color:var(--ink-2)}
-.badge{flex:0 0 auto;font:700 10.5px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;border-radius:100px;padding:4px 8px 3px}
-.st-review{color:#8fdcff;background:rgba(90,200,250,0.14);}
-.st-blocked{color:#ff8a82;background:rgba(255,59,48,0.15);}
+.task-main{flex:1;min-width:0;display:flex;align-items:center;gap:10px}
+/* one line: the full title is in the card */
+.task-text{min-width:0;font:500 15.5px/1.35 var(--sans);letter-spacing:-.005em;color:var(--text-dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.task-text.editing,.m-title.editing{white-space:normal;display:block;-webkit-line-clamp:unset;max-height:none;outline:0;border-radius:6px;box-shadow:0 0 0 2px rgba(213,239,138,.5);background:rgba(255,255,255,.04);padding:0 4px;margin:0 -4px;cursor:text}
+.badge{flex:0 0 auto;font:600 12px/1 var(--sans);border-radius:100px;padding:5px 9px}
+.st-review{color:#8fdcff;background:rgba(90,200,250,0.13);}
+.st-blocked{color:#ff8a82;background:rgba(255,59,48,0.14);}
 .st-done{color:rgb(98,222,128);background:rgba(52,199,89,0.14);}
 .st-cancelled{color:var(--muted-dark);background:rgba(142,142,147,0.16);}
 .st-recurring{color:var(--iris);background:rgba(196,191,255,0.12);}
-.ver{display:inline-flex;align-items:center;gap:4px}
-.task-aside{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:0 0 auto;min-width:64px}
-span.row-ago{font:400 11.5px/20px var(--mono);color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap}
-.aside-row{display:flex;align-items:center;gap:4px;height:24px}
-.new{display:inline-flex;align-items:center;gap:5px;font:600 11.5px/1 var(--sans);color:var(--volt);font-variant-numeric:tabular-nums}
-.new::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--volt)}
-.star{width:26px;height:26px;display:grid;place-items:center;border:0;background:none;border-radius:7px;color:var(--faint);opacity:0;transition:opacity .15s,color .15s,background .15s}
+.ver{flex:0 0 auto;color:var(--success);display:inline-flex}
+.dotnew{flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:var(--volt)}
+.task-aside{display:flex;align-items:center;gap:2px;flex:0 0 auto}
+span.row-ago{min-width:34px;text-align:right;font:400 12px/1 var(--mono);color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap;opacity:0;transition:opacity .15s}
+li.task:hover span.row-ago{opacity:1}
+.star{width:28px;height:28px;display:grid;place-items:center;border:0;background:none;border-radius:8px;color:var(--faint);opacity:0;transition:opacity .15s,color .15s,background .15s}
 li.task:hover .star,.star:focus-visible,.star.on{opacity:1}
 .star:hover{color:var(--text-dark);background:var(--surface2)}
 .star.on{color:var(--volt)}
 .star.on svg{fill:currentColor}
-@media (hover:none){.star{opacity:.55}}
-li.skel{display:flex;gap:14px;align-items:flex-start;padding:16px 12px}
+@media (hover:none){.star{opacity:.5}}
+li.skel{display:flex;gap:14px;align-items:center;height:54px;padding:0 12px}
 li.skel i{display:block;border-radius:6px;background:rgba(255,255,255,.045)}
-li.empty{padding:56px 12px 24px}
+li.empty{padding:64px 12px 24px}
 li.empty h3{margin:0;font:400 34px/1.1 var(--serif);letter-spacing:-.015em}
 li.empty h3 em{color:rgba(240,240,232,.5)}
 .no-match{list-style:none;padding:28px 12px;color:var(--ink-2);font-size:14.5px}
@@ -176,6 +172,15 @@ li.empty h3 em{color:rgba(240,240,232,.5)}
 .net{position:fixed;left:50%;bottom:22px;z-index:40;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:100px;
   background:#2a2418;border:1px solid rgba(254,188,46,.35);color:#ffd98a;font:500 13px/1 var(--sans);box-shadow:0 12px 40px rgba(0,0,0,.45)}
 .net::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--warning)}
+/* an agent, by its short name (card owner, owner history) */
+.handle{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;max-width:220px;font:500 12px/1 var(--mono);color:var(--ink-2);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.handle .dot{width:7px;height:7px;border-radius:50%;background:var(--c,#A5B2A7);flex:0 0 auto}
+a.handle:hover{color:var(--text-dark)}
+.handle.none{color:var(--faint);font:400 13px var(--sans)}
+/* the agent avatar (thread and card owner) */
+.own{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;flex:0 0 auto;font:500 10px/1 var(--mono);text-decoration:none;
+  color:var(--c,#A5B2A7);background:rgba(255,255,255,.06);background:color-mix(in srgb,var(--c,#A5B2A7) 17%,transparent)}
+.own.none{background:none;border:1px dashed var(--border2)}
 
 /* ---- card ---- */
 #modalbg{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;background:rgba(1,0,10,.6);
@@ -187,10 +192,13 @@ body.modal-shown #modalbg{opacity:1}
 body.modal-shown #modal{transform:none}
 .m-head{padding:22px 24px 14px 28px;display:flex;align-items:flex-start;gap:16px;}
 .m-title-wrap{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px;}
-.m-eyebrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font:500 11.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
-.m-eyebrow .sep{opacity:.5}
-.m-eyebrow .id{text-transform:none;letter-spacing:.02em}
-.m-eyebrow .badge{letter-spacing:.06em}
+.m-cat{font:500 13px/1 var(--sans);color:var(--faint)}
+.m-actions{display:flex;gap:6px;flex:0 0 auto}
+.m-close.on{color:var(--text-dark);background:var(--surface2)}
+.m-details{margin:0;padding:2px 24px 16px 28px;display:grid;grid-template-columns:max-content 1fr;gap:9px 22px;font-size:13px;color:var(--ink-2);border-bottom:1px solid var(--dark-border)}
+.m-details dt{color:var(--faint)}
+.m-details dd{margin:0;min-width:0}
+.m-details code{font:400 12.5px var(--mono);color:var(--text-dark);user-select:all}
 .m-title{font:400 32px/1.12 var(--serif);letter-spacing:-.015em;word-break:break-word;overflow-wrap:anywhere;}
 /* clamp a giant multi-paragraph title so it can never push the comment thread off-screen */
 .m-title.clamped{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;max-height:3.4em;}
@@ -200,20 +208,21 @@ body.modal-shown #modal{transform:none}
 .m-close:hover{background:var(--surface2);color:var(--text-dark)}
 .m-head.bare{border-bottom:1px solid var(--dark-border);padding-bottom:18px}
 .m-boss{display:flex;align-items:center;gap:14px}
+.m-boss .m-cat{color:#ff7a70}
 .m-boss .boss-av{width:44px;height:44px}
 .m-row{padding:0 24px 16px 28px;border-bottom:1px solid var(--dark-border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
 .prop{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 10px;border:1px solid var(--dark-border);border-radius:9px;background:rgba(255,255,255,.03);font-size:13px;color:var(--ink-2);transition:border-color .15s}
 .prop:focus-within{border-color:rgba(213,239,138,.45)}
 .prop.grow{flex:1;min-width:220px}
-.prop-label{font:500 10.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+.prop>.i{color:var(--faint)}
 .prop select{-webkit-appearance:none;appearance:none;background:transparent url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23f0f0e8' stroke-opacity='.5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>") no-repeat right center;
   border:0;outline:0;padding:0 18px 0 0;font:500 13px var(--sans);color:var(--text-dark);cursor:pointer}
 .prop .handle{padding:3px 7px}
 .inline-field{flex:1;min-width:120px;background:none;border:0;outline:0;font:400 13.5px var(--sans);color:var(--text-dark)}
 .inline-field::placeholder{color:var(--faint)}
-.btn-del{margin-left:auto;height:32px;padding:0 11px;border-radius:9px;border:1px solid transparent;background:none;color:var(--faint);font:500 13px/1 var(--sans);display:inline-flex;align-items:center;gap:6px;transition:background .15s,color .15s,border-color .15s}
+.btn-del{margin-left:auto;width:34px;height:32px;padding:0;justify-content:center;border-radius:9px;border:1px solid transparent;background:none;color:var(--faint);font:500 13px/1 var(--sans);display:inline-flex;align-items:center;gap:6px;transition:background .15s,color .15s,border-color .15s}
 .btn-del:hover{color:#ff7a70;background:rgba(255,59,48,.10);border-color:rgba(255,59,48,.35)}
-.owner-history{padding:10px 24px 10px 28px;border-bottom:1px solid var(--dark-border);font-size:12.5px;color:var(--faint);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.owner-history{display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center}
 .owner-history .handle{font-size:10.5px;padding:2px 6px}
 .thread{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:6px 28px 28px;min-height:360px;}
 .thread::-webkit-scrollbar{width:12px}
@@ -277,7 +286,6 @@ body.modal-shown #modal{transform:none}
 #composer{flex:1;font-size:16px;font-family:var(--sans);line-height:1.5;background:none;border:0;outline:0;padding:5px 0;color:var(--text-dark);resize:none;min-height:34px;max-height:220px;}
 #composer::placeholder{color:var(--faint)}
 .composer .btn-volt{width:34px;height:34px;padding:0;flex:0 0 auto}
-.composer-hint{display:flex;gap:6px;align-items:center;margin-top:7px;padding-left:2px;font:400 11px/1 var(--mono);color:var(--faint)}
 .jump{position:absolute;right:28px;top:-50px;z-index:5;height:34px;padding:0 13px 0 10px;border-radius:17px;border:1px solid var(--border2);background:#262624;color:var(--text-dark);
   display:flex;align-items:center;gap:6px;font:500 12.5px/1 var(--sans);box-shadow:0 10px 30px rgba(0,0,0,.45);opacity:0;transform:translateY(6px);pointer-events:none;transition:opacity .16s,transform .16s var(--ease)}
 .jump.show{opacity:1;transform:none;pointer-events:auto}
@@ -308,27 +316,26 @@ body.modal-open #mp-version-badge{display:none}
 @media (max-width:640px){
   .wrap{padding:62px 14px 80px;}   /* the fixed Board/Graph nav floats over the first 56px */
   .addbar{margin-right:0;}
-  .listhead{flex-wrap:wrap;padding:0 4px}
-  .viewbar{order:3;width:100%;overflow-x:auto}
+  .boss-down{display:none!important}
   #modalbg{align-items:flex-start;justify-content:flex-start;}
   #modal{position:fixed;left:0;top:var(--vvtop,0);width:100vw;height:var(--vvh,100dvh);max-height:none;border-radius:0;border:0;transform:none;}
   .thread{min-height:0;padding:4px 16px 20px;}   /* min-height:0 lets the thread shrink so the composer stays pinned above the keyboard */
   .m-head{padding:56px 16px 12px;}   /* 56px top clears the fixed Board/Graph nav floating over the full-screen modal */
   /* smaller, denser type so long comment threads read comfortably on a phone (CEO 302dae6fb9) */
-  .task-text{font-size:15px;}
+  .task-text{font-size:15px;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;}
+  span.row-ago{display:none}
+  .star:not(.on){opacity:.3}
   .m-title{font-size:19px;font-family:var(--sans);font-weight:600;letter-spacing:0;line-height:1.3}   /* below 26px the brand serif gives way to DM Sans */
   .m-title.clamped{max-height:3.9em}
   .m-row{padding:0 16px 12px;}
-  .owner-history{padding:8px 16px}
+  .m-details{padding:2px 16px 12px}
   .ev{gap:10px;}
   .av{width:26px;height:26px;font-size:10px;}
   .ev-text{font-size:15px;line-height:1.5;}
   .ev-me .ev-body{max-width:88%}
   .composer{padding:10px 12px 12px;}   /* #composer stays 16px so iOS never tap-zooms */
-  .composer-hint{display:none}
   .jump{right:14px}
   li.empty h3{font-size:28px}
-  #bossAgo{display:none}
 }
 </style>
 </head>
@@ -344,16 +351,12 @@ body.modal-open #mp-version-badge{display:none}
   <section class="boss" id="bossHero" data-state="loading" tabindex="0" aria-label="Open the conversation with the Boss">
     <div class="boss-av" aria-hidden="true">B</div>
     <div class="boss-main">
-      <div class="boss-top">
-        <span class="boss-name">Boss</span>
-        <span class="boss-state" id="bossState">Checking</span>
-        <span class="ev-ago row-ago" id="bossAgo"></span>
-        <span class="count" id="bossUnread" hidden></span>
-      </div>
-      <div class="boss-preview" id="bossPreview">Ask the Boss anything. It runs the team.</div>
-      <div class="boss-down">The Boss is down. Revive it to resume its session and memory, or start a new one.</div>
+      <span class="boss-name">Boss</span>
+      <span class="boss-state" id="bossState">Checking</span>
+      <span class="boss-down">Revive it to resume its memory, or start a new one.</span>
     </div>
     <div class="boss-side">
+      <span class="newpill" id="bossUnread" hidden></span>
       <div class="boss-actions">
         <button class="btn quiet" id="bossKill" title="Stop the Boss. It stays down until you bring one back from here." disabled>Kill</button>
         <button class="btn primary" id="bossRevive" title="Bring the SAME Boss back, resuming its session and memory" disabled>Revive</button>
@@ -366,17 +369,18 @@ body.modal-open #mp-version-badge{display:none}
   </section>
 
   <div class="listhead">
-    <h2 class="eyebrow" id="listLabel">Priorities</h2>
-    <div class="viewbar" id="viewbar">
-      <button class="vbtn" data-toggle="done" aria-pressed="false">Show done</button>
-      <button class="vbtn" data-toggle="cancelled" aria-pressed="false">Show cancelled</button>
-      <button class="vbtn" data-lens="recurring" aria-pressed="false">Recurring <span class="n" id="recurN">0</span></button>
-    </div>
-    <span class="vb-sep"></span>
-    <button class="vbtn" id="searchBtn" title="Filter tasks (⌘F)">
-      <svg class="i" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <kbd>⌘F</kbd>
+    <h2 class="lh-title" id="listLabel">Priorities</h2>
+    <button class="ibtn" id="searchBtn" title="Search (⌘F)" aria-label="Search">
+      <svg class="i" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
     </button>
+    <button class="ibtn" id="viewBtn" title="View" aria-label="View options" aria-haspopup="true" aria-expanded="false">
+      <svg class="i" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/></svg>
+    </button>
+    <div class="menu closed" id="viewbar" role="menu">
+      <button class="vbtn" data-toggle="done" aria-pressed="false"><svg class="i tick" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Show done</button>
+      <button class="vbtn" data-toggle="cancelled" aria-pressed="false"><svg class="i tick" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Show cancelled</button>
+      <button class="vbtn" data-lens="recurring" aria-pressed="false"><svg class="i tick" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Recurring only <span class="n" id="recurN">0</span></button>
+    </div>
   </div>
   <div class="searchbar" id="searchbar">
     <svg class="i" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -385,10 +389,10 @@ body.modal-open #mp-version-badge{display:none}
     <kbd>esc</kbd>
   </div>
   <ul id="list" aria-busy="true">
-    <li class="skel"><i style="width:22px;height:22px;border-radius:50%"></i><span style="flex:1"><i style="width:62%;height:14px"></i><i style="width:38%;height:11px;margin-top:10px"></i></span></li>
-    <li class="skel"><i style="width:22px;height:22px;border-radius:50%"></i><span style="flex:1"><i style="width:48%;height:14px"></i><i style="width:44%;height:11px;margin-top:10px"></i></span></li>
-    <li class="skel"><i style="width:22px;height:22px;border-radius:50%"></i><span style="flex:1"><i style="width:70%;height:14px"></i><i style="width:30%;height:11px;margin-top:10px"></i></span></li>
-    <li class="skel"><i style="width:22px;height:22px;border-radius:50%"></i><span style="flex:1"><i style="width:55%;height:14px"></i><i style="width:40%;height:11px;margin-top:10px"></i></span></li>
+    <li class="skel"><i style="width:20px;height:20px;border-radius:50%;margin-left:6px"></i><i style="width:58%;height:13px"></i></li>
+    <li class="skel"><i style="width:20px;height:20px;border-radius:50%;margin-left:6px"></i><i style="width:44%;height:13px"></i></li>
+    <li class="skel"><i style="width:20px;height:20px;border-radius:50%;margin-left:6px"></i><i style="width:66%;height:13px"></i></li>
+    <li class="skel"><i style="width:20px;height:20px;border-radius:50%;margin-left:6px"></i><i style="width:51%;height:13px"></i></li>
   </ul>
 </div>
 
@@ -446,6 +450,8 @@ const ICONS={
   bot:'<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
   check:'<path d="M20 6 9 17l-5-5"/>',
   image:'<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  flag:'<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
   link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
 };
 function icon(name,size,w){ size=size||16; return '<svg class="i" width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="'+(w||1.5)+'" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+ICONS[name]+'</svg>'; }
@@ -461,7 +467,7 @@ function statusIcon(s,size){
   if(s==="blocked") return ring("#ff3b30")+'<g class="fill"><path d="M10 6.3v4.4" stroke="#ff3b30" stroke-width="1.8" stroke-linecap="round"/><circle cx="10" cy="13.5" r="1.05" fill="#ff3b30"/></g>'+ck+'</svg>';
   if(s==="cancelled") return ring("rgba(240,240,232,.32)")+'<path d="M7.2 12.8l5.6-5.6" stroke="rgba(240,240,232,.42)" stroke-width="1.6" stroke-linecap="round"/></svg>';
   if(s==="recurring") return ring("#C4BFFF",' stroke-dasharray="2.6 2.4"')+ck+'</svg>';
-  return ring("#febc2e")+'<path class="fill" d="M10 5.5a4.5 4.5 0 0 1 0 9z" fill="#febc2e"/>'+ck+'</svg>';
+  return ring("rgba(240,240,232,.42)")+'<path class="fill" d="M10 5.5a4.5 4.5 0 0 1 0 9z" fill="rgba(240,240,232,.42)"/>'+ck+'</svg>';
 }
 
 // Who said it, in words a person reads: "eng-968", "Boss", "You". The full agent id stays one
@@ -624,16 +630,14 @@ function lastSaid(task){
   for(const p of task.proofs||[]) if(!best||tsMs(p.ts)>tsMs(best.ts)) best={by:"proof",body:p.note||p.body||("Proof: "+(p.kind||"file")),ts:p.ts};
   return best;
 }
-function plain(s){ return String(s||"").slice(0,600).replace(/```[\s\S]*?(```|$)/g," ").replace(/!?\[([^\]]*)\]\([^)]*\)/g,"$1")
-  .replace(/\*\*|`/g,"").replace(/(^|\n)\s*(#{1,6}|>|[-*]|\d+\.)\s+/g," ").replace(/\s+/g," ").trim().slice(0,240); }
 function lastActivity(task){ const s=lastSaid(task); return Math.max(tsMs(task.updated), s?tsMs(s.ts):0) || null; }
-function sayLine(el, said, owner){
-  el.replaceChildren(); if(!said) return;
-  const w=who(said.by);
-  if(said.by!==owner && !(owner==="Boss" && w.kind==="boss")){ const b=document.createElement("b"); b.textContent=w.name+": "; el.appendChild(b); }
-  el.appendChild(document.createTextNode(plain(said.body)));
-}
 
+function relShort(ts){ const t=relTime(ts); return t==="just now"?"now":t.replace(" ago",""); }
+function refreshRowTimes(){ for(const e of document.querySelectorAll(".row-ago[data-ts]")){ const t=relShort(e.dataset.ts); if(e.textContent!==t) e.textContent=t; } }
+const needsYou=t=>t.state==="review"||t.state==="blocked";
+// A row answers one question at a glance: does this need me? The ring and the title are the row.
+// It speaks up only for news (needs you, blocked, new activity); owner, category, time and the
+// thread are one level down, in the card.
 function cardEl(task){
   const li=document.createElement("li"); li.className="task"+(task.state==="done"?" done":"")+(task.state==="cancelled"?" cancelled":"");
   li.dataset.id=task.id;
@@ -654,27 +658,23 @@ function cardEl(task){
   check.addEventListener("keydown", e=>{ if(e.key==="Enter"||e.key===" ") toggle(e); });
   const main=document.createElement("div"); main.className="task-main";
   const txt=document.createElement("div"); txt.className="task-text";
-  const paint=()=>paintTitle(txt,task); paint(); wireInlineText(txt,task,paint);
-  const meta=document.createElement("div"); meta.className="meta";
-  if(task.state!=="working" && !(lens==="recurring" && task.state==="recurring")){ const badge=document.createElement("span"); badge.className="badge st-"+task.state; badge.textContent=STATE_NAMES[task.state]||stateLabel(task.state); meta.appendChild(badge); }
-  if(task.verified){ const v=document.createElement("span"); v.className="badge st-done ver"; v.innerHTML=icon("check",11,2.5); v.appendChild(document.createTextNode("Verified")); meta.appendChild(v); }
-  meta.appendChild(handleEl(task.assignee));
-  const prev=document.createElement("span"); prev.className="prev"; sayLine(prev,lastSaid(task),task.assignee); meta.appendChild(prev);
-  main.appendChild(txt); main.appendChild(meta);
+  const paint=()=>paintTitle(txt,task,false); paint(); wireInlineText(txt,task,paint);
+  txt.title=task.text||"";
+  main.appendChild(txt);
+  if(needsYou(task)){ const badge=document.createElement("span"); badge.className="badge st-"+task.state; badge.textContent=task.state==="review"?"Needs you":"Blocked"; main.appendChild(badge); }
+  if(task.verified && task.state==="done"){ const v=document.createElement("span"); v.className="ver"; v.title="Verified"; v.innerHTML=icon("check",14,2.5); main.appendChild(v); }
+  if(hasUnread(task)){ const u=document.createElement("span"); u.className="dotnew"; u.title=task.unread+" new since you last opened it"; main.appendChild(u); }
   const aside=document.createElement("div"); aside.className="task-aside";
   const ts=lastActivity(task);
-  const ago=document.createElement("span"); ago.className="ev-ago row-ago"; if(ts){ ago.dataset.ts=ts; ago.textContent=relTime(ts); ago.title="Last activity "+new Date(ts).toLocaleString("en-US"); }
+  const ago=document.createElement("span"); ago.className="row-ago"; if(ts){ ago.dataset.ts=ts; ago.textContent=relShort(ts); ago.title="Last activity "+new Date(ts).toLocaleString("en-US"); }
   aside.appendChild(ago);
-  const ar=document.createElement("div"); ar.className="aside-row";
-  if(hasUnread(task)){ const u=document.createElement("span"); u.className="new"; const n=Number(task.unread); u.textContent=n>99?"99+":String(n); u.title=n+" new since you last opened it"; ar.appendChild(u); }
   const star=document.createElement("button"); star.type="button"; star.className="star"+(task.pinned?" on":"");
-  star.innerHTML=icon("star",16); star.title=task.pinned?"Unpin":"Pin to the top"; star.setAttribute("aria-pressed",task.pinned?"true":"false");
+  star.innerHTML=icon("star",15); star.title=task.pinned?"Unpin":"Pin to the top"; star.setAttribute("aria-pressed",task.pinned?"true":"false");
   star.addEventListener("click", async e=>{ e.stopPropagation(); star.classList.toggle("on");
     await api("/todo/update",{method:"POST",body:JSON.stringify({op:task.pinned?"unpin":"pin", id:task.id})});
     fetchBoard(true);
   });
-  ar.appendChild(star); aside.appendChild(ar);
-  if(task.pingsToBoss>0) aside.title=task.pingsToBoss+" pings to the Boss";
+  aside.appendChild(star);
   const top=document.createElement("div"); top.className="task-top";
   top.appendChild(check); top.appendChild(main); top.appendChild(aside);
   li.appendChild(top);
@@ -686,9 +686,8 @@ function renderBossChat(task){
   const hero=$("#bossHero");
   hero.hidden=!!(query && (!task || !matches(task)));
   hero.dataset.task=task?task.id:"";
-  const said=task&&lastSaid(task), ago=$("#bossAgo");
-  if(said){ sayLine($("#bossPreview"),said,"Boss"); ago.dataset.ts=said.ts; ago.textContent=relTime(said.ts); }
-  const u=$("#bossUnread"); u.hidden=!(task&&hasUnread(task)); if(task) u.textContent=Number(task.unread)>99?"99+":String(task.unread);
+  const n=task&&hasUnread(task)?Number(task.unread):0, u=$("#bossUnread");
+  u.hidden=!n; u.textContent=(n>99?"99+":n)+" new";
 }
 
 function render(){
@@ -698,12 +697,21 @@ function render(){
   const {boss, pins, normal}=orderedTasks();
   renderBossChat(boss);
   const shown=activeFirst([...pins.filter(visible), ...normal.filter(visible)]);
-  const before=drawn; drawn=new Set(shown.map(t=>t.id));
-  const fresh=before?shown.filter(t=>!before.has(t.id)):[];
+  // what needs him leads; everything else keeps the Boss's order
+  const yours=query?0:shown.filter(needsYou).length;
+  const ordered=yours?[...shown.filter(needsYou), ...shown.filter(t=>!needsYou(t))]:shown;
+  const before=drawn; drawn=new Set(ordered.map(t=>t.id));
+  const fresh=before?ordered.filter(t=>!before.has(t.id)):[];
   list.replaceChildren();
-  shown.forEach(t=>{ const li=cardEl(t); if(fresh.length<=3 && fresh.includes(t)) li.classList.add("enter"); list.appendChild(li); });
+  const sec=(text,cls)=>{ const h=document.createElement("li"); h.className="sec"+(cls?" "+cls:""); h.textContent=text; list.appendChild(h); };
+  ordered.forEach((t,i)=>{
+    if(yours && i===0) sec("Needs you","you");
+    if(yours && i===yours) sec(showDone||showCancelled?"Everything else":"In progress");
+    const li=cardEl(t); if(fresh.length<=3 && fresh.includes(t)) li.classList.add("enter");
+    if(i<yours){ const r=li.querySelector(".badge.st-review"); if(r) r.remove(); }   // the heading already says it
+    list.appendChild(li); });
   if(fresh.length && fresh.length<=3) requestAnimationFrame(()=>requestAnimationFrame(()=>list.querySelectorAll(".enter").forEach(li=>li.classList.remove("enter"))));
-  const n=shown.length;
+  const n=ordered.length;
   $("#searchN").textContent = query ? n+(n===1?" match":" matches") : "";
   $("#listLabel").textContent = query ? "Search" : lens==="recurring" ? "Recurring" : "Priorities";
   if(query && !n){ const li=document.createElement("li"); li.className="no-match"; li.textContent="No task matches “"+query+"”";
@@ -715,7 +723,13 @@ function render(){
   $("#recurN").textContent=Object.values(BOARD.tasks).filter(t=>t.state==="recurring").length;
   for(const [sel,on] of [["[data-toggle='done']",showDone],["[data-toggle='cancelled']",showCancelled],["[data-lens='recurring']",lens==="recurring"]]){
     const b=$(sel); b.classList.toggle("active",on); b.setAttribute("aria-pressed",on?"true":"false"); }
+  $("#viewBtn").classList.toggle("active", showDone||showCancelled||lens==="recurring");
 }
+// the view menu: three options, out of sight until asked for
+function viewMenu(open){ $("#viewbar").classList.toggle("closed",!open); $("#viewBtn").setAttribute("aria-expanded",open?"true":"false"); }
+$("#viewBtn").addEventListener("click",e=>{ e.stopPropagation(); viewMenu($("#viewbar").classList.contains("closed")); });
+document.addEventListener("click",e=>{ if(!$("#viewbar").contains(e.target)) viewMenu(false); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") viewMenu(false); });
 
 // ---- modal ----
 function timeline(task){
@@ -807,53 +821,61 @@ function renderModal(task, forceBottom){
   const ti=document.createElement("div"); ti.className="m-title clamped";
   const more=document.createElement("button"); more.className="m-title-more"; more.textContent="Show more"; more.style.display="none";
   more.onclick=()=>{ const clamped=ti.classList.toggle("clamped"); ti.classList.toggle("expanded", !clamped); more.textContent=clamped?"Show more":"Show less"; };
+  const acts=document.createElement("div"); acts.className="m-actions";
   if(task.bossChat){
     const wrapB=document.createElement("div"); wrapB.className="m-boss";
     wrapB.dataset.state=$("#bossHero").dataset.state;
-    const av=document.createElement("div"); av.className="boss-av"; av.textContent="B";
-    const col=document.createElement("div"); ti.textContent="Boss"; ti.className="m-title";
-    const st=document.createElement("div"); st.className="m-eyebrow"; st.textContent=$("#bossState").textContent+" · runs the team";
-    col.appendChild(ti); col.appendChild(st); wrapB.appendChild(av); wrapB.appendChild(col); titleWrap.appendChild(wrapB);
+    const av=document.createElement("div"); av.className="boss-av"; av.textContent="B"; av.title=$("#bossState").textContent;
+    ti.textContent="Boss"; ti.className="m-title";
+    wrapB.appendChild(av); wrapB.appendChild(ti);
+    if(wrapB.dataset.state!=="up"){ const st=document.createElement("span"); st.className="m-cat"; st.textContent=$("#bossState").textContent; wrapB.appendChild(st); }
+    titleWrap.appendChild(wrapB);
   } else {
-    const eb=document.createElement("div"); eb.className="m-eyebrow";
     const parts=splitTitle(task.text);
-    const stp=document.createElement("span"); stp.style.cssText="display:inline-flex;align-items:center;gap:7px"; stp.innerHTML=statusIcon(task.state,14);
-    stp.appendChild(document.createTextNode(STATE_NAMES[task.state]||task.state)); eb.appendChild(stp);
-    const add=(text,cls)=>{ const s=document.createElement("span"); s.className="sep"; s.textContent="·"; eb.appendChild(s); const x=document.createElement("span"); if(cls)x.className=cls; x.textContent=text; eb.appendChild(x); return x; };
-    if(parts.cat) add(parts.cat);
-    const idEl=add(""); idEl.textContent="TASK "; const code=document.createElement("span"); code.className="id"; code.textContent=task.id; idEl.appendChild(code); idEl.title="This card's id, for mp";
-    if(task.created) add("Opened "+relTime(task.created));
-    if(task.pingsToBoss>0) add(task.pingsToBoss+" pings to the Boss");
-    if(task.verified) add("Verified","badge st-done");
-    titleWrap.appendChild(eb);
+    if(parts.cat){ const c=document.createElement("div"); c.className="m-cat"; c.textContent=parts.cat; titleWrap.appendChild(c); }
     const paintM=()=>paintTitle(ti,task,false); paintM(); wireInlineText(ti,task,paintM);
     ti.title=task.text||"";   // full title on hover as a fallback
     titleWrap.appendChild(ti); titleWrap.appendChild(more);
+    // the facts nobody needs every time (id, age, pings, owner history) sit behind one icon
+    const info=document.createElement("button"); info.className="m-close"+(detailsOpen?" on":""); info.innerHTML=icon("info",16); info.title="Details"; info.setAttribute("aria-label","Details");
+    info.setAttribute("aria-expanded",detailsOpen?"true":"false");
+    info.onclick=()=>{ detailsOpen=!detailsOpen; info.classList.toggle("on",detailsOpen); info.setAttribute("aria-expanded",detailsOpen?"true":"false"); m.querySelector(".m-details").hidden=!detailsOpen; };
+    acts.appendChild(info);
   }
   const cl=document.createElement("button"); cl.className="m-close"; cl.innerHTML=icon("x",16); cl.title="Close (esc)"; cl.setAttribute("aria-label","Close"); cl.onclick=closeCard;
-  head.appendChild(titleWrap); head.appendChild(cl);
+  acts.appendChild(cl);
+  head.appendChild(titleWrap); head.appendChild(acts);
+  // State, owner and finish line as plain controls: each says what it is without a label
   const row=document.createElement("div"); row.className="m-row";
-  const prop=(label,cls)=>{ const p=document.createElement("label"); p.className="prop"+(cls?" "+cls:""); const l=document.createElement("span"); l.className="prop-label"; l.textContent=label; p.appendChild(l); row.appendChild(p); return p; };
+  const prop=(tip,cls)=>{ const p=document.createElement("label"); p.className="prop"+(cls?" "+cls:""); p.title=tip; row.appendChild(p); return p; };
   const stProp=prop("State");
-  const sel=document.createElement("select");
+  stProp.insertAdjacentHTML("afterbegin",statusIcon(task.state,16));
+  const sel=document.createElement("select"); sel.setAttribute("aria-label","State");
   ["working","review","done","blocked","cancelled","recurring"].forEach(s=>{
     const o=document.createElement("option"); o.value=s; o.textContent=STATE_NAMES[s]; if(task.state===s)o.selected=true; sel.appendChild(o);});
   sel.onchange=async ()=>{ await api("/todo/status",{method:"POST",body:JSON.stringify({task_id:task.id,state:sel.value})}); fetchBoard(true); };
   stProp.appendChild(sel);
   const owner=prop("Owner"); appendAgentLink(owner,task.assignee);
   const dcp=prop("Done when","grow");
-  const dc=document.createElement("input"); dc.className="inline-field"; dc.value=task.doneCondition||""; dc.placeholder="Describe what finished looks like";
+  dcp.insertAdjacentHTML("afterbegin",icon("flag",15));
+  const dc=document.createElement("input"); dc.className="inline-field"; dc.value=task.doneCondition||""; dc.placeholder="Done when…"; dc.setAttribute("aria-label","Done when");
   dc.addEventListener("change",()=>patchTask(task.id,{doneCondition:dc.value})); dcp.appendChild(dc);
-  const del=document.createElement("button"); del.className="btn-del"; del.innerHTML=icon("trash",14); del.appendChild(document.createTextNode("Delete task"));
+  const del=document.createElement("button"); del.className="btn-del"; del.innerHTML=icon("trash",16); del.title="Delete task"; del.setAttribute("aria-label","Delete task");
   del.onclick=async ()=>{ if(!await ask("Delete this task?","The card and its whole thread leave the board.","Delete task",true))return;
     await api("/todo/update",{method:"POST",body:JSON.stringify({op:"del",id:task.id})});
     closeCard(); fetchBoard(true); };
   row.appendChild(del);
-  const ownerHistory=document.createElement("div"); ownerHistory.className="owner-history";
-  ownerHistory.appendChild(document.createTextNode("Owner history"));
-  (task.ownerHistory||[]).forEach((it,i)=>{ownerHistory.appendChild(document.createTextNode(i?" · ":"  "));
-    const txt=document.createElement("span"); txt.style.cssText="display:inline-flex;align-items:center;gap:6px"; txt.appendChild(document.createTextNode((it.action||"owner").replace(/_/g," ")+" "));
-    appendAgentLink(txt,it.agent_id||it.previous); if(it.previous){txt.appendChild(document.createTextNode(" from "));appendAgentLink(txt,it.previous);} ownerHistory.appendChild(txt);});
+  const details=document.createElement("dl"); details.className="m-details"; details.hidden=!detailsOpen;
+  const fact=(k,v)=>{ const dt=document.createElement("dt"); dt.textContent=k; const dd=document.createElement("dd"); if(typeof v==="string") dd.textContent=v; else dd.appendChild(v); details.appendChild(dt); details.appendChild(dd); return dd; };
+  const idc=document.createElement("code"); idc.textContent=task.id; fact("Task",idc);
+  if(task.created) fact("Opened",relTime(task.created)+", "+new Date(tsMs(task.created)).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}));
+  if(task.pingsToBoss>0) fact("Pings to the Boss",String(task.pingsToBoss));
+  if(task.verified) fact("Verified","Yes");
+  if((task.ownerHistory||[]).length){ const oh=document.createElement("span"); oh.className="owner-history";
+    (task.ownerHistory||[]).forEach((it,i)=>{ if(i) oh.appendChild(document.createTextNode(" · "));
+      const txt=document.createElement("span"); txt.style.cssText="display:inline-flex;align-items:center;gap:6px"; txt.appendChild(document.createTextNode((it.action||"owner").replace(/_/g," ")+" "));
+      appendAgentLink(txt,it.agent_id||it.previous); if(it.previous){txt.appendChild(document.createTextNode(" from "));appendAgentLink(txt,it.previous);} oh.appendChild(txt);});
+    fact("Owner history",oh); }
   const thr=document.createElement("div"); thr.className="thread";
   const col=document.createElement("div"); col.className="thread-col"; thr.appendChild(col);
   const items=timeline(task);
@@ -888,11 +910,10 @@ function renderModal(task, forceBottom){
   send.onclick=post;
   ta.addEventListener("keydown",e=>{ if(e.key==="Enter"&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); post(); }});
   box.appendChild(ta); box.appendChild(send); ccol.appendChild(box);
-  const hint=document.createElement("div"); hint.className="composer-hint"; hint.innerHTML="<kbd>⌘</kbd><kbd>↵</kbd> to send"; ccol.appendChild(hint);
   const jump=document.createElement("button"); jump.className="jump"; jump.innerHTML=icon("down",15,2); jump.appendChild(document.createTextNode("Latest"));
   jump.onclick=()=>{ stickBottom=true; thr.scrollTo({top:thr.scrollHeight,behavior:"smooth"}); };
   comp.appendChild(jump); comp.appendChild(ccol);
-  m.appendChild(head); if(!task.bossChat){ m.appendChild(row); if((task.ownerHistory||[]).length) m.appendChild(ownerHistory); } m.appendChild(thr); m.appendChild(comp);
+  m.appendChild(head); if(!task.bossChat){ m.appendChild(row); m.appendChild(details); } m.appendChild(thr); m.appendChild(comp);
   requestAnimationFrame(grow);
   if(draftFocused){ ta.focus(); try{ ta.setSelectionRange(selStart,selEnd); }catch(e){} }   // keep the CEO's cursor where it was
   else if(forceBottom && seenCount<0 && matchMedia("(pointer:fine)").matches) ta.focus({preventScroll:true});   // a conversation opens ready to answer
@@ -917,8 +938,9 @@ function renderModal(task, forceBottom){
   } else if(wasAtBottom){ progScroll(thr); }
   else { thr.scrollTop=prevTop; jump.classList.add("show"); }
 }
-let closeT=null;
+let closeT=null, detailsOpen=false;
 function openCard(id, fromHistory){
+  if(openTaskId!==id) detailsOpen=false;
   openTaskId=id; const task=BOARD.tasks[id]; if(!task)return;
   readTasks[id]=Date.now(); localStorage.setItem(READ_KEY,JSON.stringify(readTasks));
   clearTimeout(closeT);
@@ -1103,6 +1125,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
   setInterval(loadAgents, 6000);
   setInterval(healthWatch, 3000);
   setInterval(refreshRelTimes, 30000);
+  setInterval(refreshRowTimes, 30000);
 });
 </script>
 </body>
