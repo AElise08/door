@@ -168,12 +168,13 @@ bd=$($CURL -H "$QS" "$TODO/todo/board")
 echo "$bd" | grep -q "$TID" && [ "$($CURL -o /dev/null -w '%{http_code}' "$TODO/")" = "200" ] && pass "J5 todo-roundtrip" || fail "J5 todo-roundtrip"
 
 # ---------- J6 cross-nav (relative hrefs) ----------
-$CURL "$TODO/" | grep -q 'href="/dashboard"' && $CURL "$HUD/dashboard" | grep -q 'href="/"' && pass "J6 cross-nav" || fail "J6 cross-nav"
+# the nav is Board / Graph only (the HUD is off the bar but still serves by URL)
+$CURL "$TODO/" | grep -q 'href="/terminal-graph"' && $CURL "$HUD/dashboard" | grep -q 'href="/"' && pass "J6 cross-nav" || fail "J6 cross-nav"
 
 # ---------- J6b port-shifted origin ----------
 python3 "$ID/verify/proxy.py" 38080 "${TODO_PORT:-9933}" >/dev/null 2>&1 &
 PXP=$!; sleep 1
-p1=$($CURL "http://127.0.0.1:38080/" | grep -c "<h1>MyPlow</h1>")
+p1=$($CURL "http://127.0.0.1:38080/" | grep -c 'id="addInput"')
 p2=$($CURL "http://127.0.0.1:38080/dashboard" | grep -c "MyPlow - HUD")
 kill $PXP 2>/dev/null
 [ "$p1" -ge 1 ] && [ "$p2" -ge 1 ] && pass "J6b port-shift-proxy" || fail "J6b port-shift-proxy p1=$p1 p2=$p2"
@@ -199,7 +200,8 @@ if echo "$TB$HB" | grep -Eq "@keyframes|animation:"; then fail "J29 no-animation
 echo "$TB" | grep -q "op:'reorder'" && fail "J14 no-reorder" || pass "J14 generative-no-reorder"
 
 # ---------- J9a titles ----------
-echo "$TB" | grep -q "<title>MyPlow - Priorities</title>" && echo "$TB" | grep -q "<h1>MyPlow</h1>" \
+# no title row at all since c6a13ce248 (CEO: "no need of the real estate"): the tab title names the page
+echo "$TB" | grep -q "<title>MyPlow - Priorities</title>" && ! echo "$TB" | grep -q "<h1>MyPlow</h1>" \
   && ! echo "$TB" | grep -q "source-of-truth" && ! echo "$TB" | grep -q 'class="mark"' \
   && echo "$HB" | grep -q "MyPlow - HUD" && ! echo "$TB" | grep -q "<h1>MyPlow - Priorities" \
   && pass "J9a titles" || fail "J9a titles"

@@ -22,7 +22,8 @@ for (const [engine, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
     let taskId = null;
     try {
       await page.goto(origin + "/", { waitUntil: "networkidle" });
-      await page.locator("h1", { hasText: "MyPlow" }).first().waitFor();
+      // the board has no title row since c6a13ce248: the add bar is its first control
+      await page.locator("#addInput").waitFor();
       // the board must actually paint the cards it already has: a throw inside
       // render() leaves an empty #list while every assertion below still passes
       await page.locator("#list li.task").first().waitFor();
@@ -35,17 +36,21 @@ for (const [engine, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
       await page.locator("body.modal-open").waitFor();
       await page.locator("#composer").fill("browser verification comment");
       await page.locator(".composer .btn-volt").click();
-      await page.locator(".ev-text", { hasText: "browser verification comment" }).waitFor();
+      // not the optimistic "Sending" bubble: the comment the server stored and returned
+      await page.locator(".ev:not(.pending) .ev-text", { hasText: "browser verification comment" }).waitFor();
       await page.keyboard.press("Escape");
       await page.locator("body:not(.modal-open)").waitFor();
-      await page.locator('a[href="/dashboard"]').first().click();
+      // Board <-> Graph is the nav; the HUD is off it and still serves by URL
+      await page.locator('#mp-nav a[href="/terminal-graph"]').click();
+      await page.locator("#taskSearch").waitFor();
+      await page.goto(origin + "/dashboard");
       await page.locator("h1", { hasText: "MyPlow - HUD" }).waitFor();
       const attachHref = await page.locator("a.attach").first().getAttribute("href");
       if (!attachHref || new URL(attachHref).port !== ttydBrowserPort) {
         throw new Error(`attach port ${attachHref || "missing"}; expected ${ttydBrowserPort}`);
       }
-      await page.locator('a[href="/"]').first().click();
-      await page.locator("h1", { hasText: "Priorities" }).waitFor();
+      await page.locator('#mp-nav a[href="/"]').click();
+      await page.locator("#addInput").waitFor();
       if (errors.length) throw new Error(errors.join(" | "));
     } catch (err) {
       failures.push(`${engine} ${origin}: ${err}`);

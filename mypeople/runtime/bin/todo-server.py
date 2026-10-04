@@ -25,6 +25,7 @@ INBOX_LOG = os.path.join(TODOS_DIR, "boss-inbox.log")
 HTML_DIR = os.path.dirname(os.path.abspath(__file__))
 TODOS_HTML = os.path.join(HTML_DIR, "todos.html")
 TERMINAL_GRAPH_HTML = os.path.join(HTML_DIR, "terminal-graph.html")
+FONT_TYPES = {".woff2": "font/woff2", ".css": "text/css; charset=utf-8"}
 STATUS_DIR = os.path.join(INSTALL_DIR, "status")
 
 VALID_STATES = {"working", "review", "done", "blocked", "cancelled", "recurring"}
@@ -715,6 +716,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"status": "ok", "build": build, "uptime": int(now() - START)})
         if p == "/favicon.ico":
             return self._send(204, raw=b"")
+        # Brand fonts (bin/fonts, SIL OFL). Public like the pages that link them; basename only.
+        if p.startswith("/fonts/"):
+            name = os.path.basename(p)
+            fp = os.path.join(HTML_DIR, "fonts", name)
+            ctype = FONT_TYPES.get(os.path.splitext(name)[1])
+            if not ctype or not os.path.isfile(fp):
+                return self._send(404, {"error": "no_file"})
+            with open(fp, "rb") as f:
+                return self._send(200, raw=f.read(), ctype=ctype,
+                                  extra={"Cache-Control": "public, max-age=86400"})
         if p in ("/", "/todos"):
             return self._serve_page(TODOS_HTML)
         if p == "/terminal-graph":

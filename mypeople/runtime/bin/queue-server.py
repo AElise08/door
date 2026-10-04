@@ -234,8 +234,8 @@ class Handler(BaseHTTPRequestHandler):
                 html = C.render_page("<h1>MyPlow - HUD</h1>")
             return self._send(200, raw=html, ctype="text/html; charset=utf-8",
                               extra_headers=self._page_headers())
-        # TODO routes -> proxy to todo-server (symmetric front doors)
-        if p in ("/", "/todos", "/terminal-graph") or p.startswith("/todo/"):
+        # TODO routes -> proxy to todo-server (symmetric front doors); /fonts/ is what every page links
+        if p in ("/", "/todos", "/terminal-graph") or p.startswith("/todo/") or p.startswith("/fonts/"):
             return C.proxy_request(self, "127.0.0.1", TODO_PORT)
         # gated JSON
         if p in ("/agents", "/clients", "/roster"):

@@ -133,11 +133,9 @@ def version():
 # ---------- page rendering (shared by both front doors) ----------
 _VERSION_BADGE = """
 <style>
-#mp-version-badge{position:fixed;right:8px;bottom:8px;z-index:2147483000;
- font:500 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em;
- color:#8b949e;background:rgba(22,27,34,.82);border:1px solid rgba(139,148,158,.22);
- border-radius:999px;padding:4px 8px;pointer-events:none;user-select:none;
- backdrop-filter:blur(4px);opacity:.75}
+#mp-version-badge{position:fixed;right:10px;bottom:9px;z-index:2147483000;
+ font:400 10.5px/1 'DM Mono',ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;
+ color:rgba(240,240,232,.3);pointer-events:none;user-select:none}
 @media print{#mp-version-badge{display:none}}
 </style>
 <div id="mp-version-badge" title="MyPlow version serving this page">__MP_VERSION__</div>
@@ -154,26 +152,31 @@ _NAV = """
 /* Brand tokens, read off the page itself. todos/dashboard and the graph name them differently
    (--muted-dark vs --muted, --text-dark vs --ink), so each one falls back to the other and then
    to a literal -- the nav must look native on a page that defines neither. */
-#mp-nav{position:fixed;right:22px;top:22px;z-index:2147483000;display:flex;gap:8px;
+/* A segmented control, the height of the board's add bar beside it (44px), in product-UI radii
+   (10px, not marketing pills). */
+#mp-nav{position:fixed;right:22px;top:18px;z-index:2147483000;display:flex;gap:2px;padding:3px;
  --mp-volt:var(--volt,#D5EF8A);
  --mp-ink:var(--text-dark,var(--ink,#F0F0E8));
  --mp-muted:var(--muted-dark,var(--muted,rgba(240,240,232,.45)));
  --mp-line:var(--dark-border,rgba(255,255,255,.09));
- font-family:var(--mono,'DM Mono','SF Mono',ui-monospace,monospace)}
-#mp-nav a{display:block;padding:6px 14px;border-radius:100px;text-decoration:none;
- font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;
- color:var(--mp-muted);background:rgba(255,255,255,.03);border:1px solid var(--mp-line);
- backdrop-filter:blur(6px);transition:color .15s,background .15s,border-color .15s}
-#mp-nav a:hover{color:var(--mp-ink);background:rgba(255,255,255,.08)}
-#mp-nav a:focus-visible{outline:2px solid var(--mp-volt);outline-offset:3px}
-#mp-nav a[aria-current="page"]{color:var(--mp-volt);font-weight:700;
- background:rgba(213,239,138,.10);border-color:rgba(213,239,138,.35)}
-@media(max-width:700px){#mp-nav{right:12px;top:12px;gap:6px}#mp-nav a{padding:5px 11px}}
+ border-radius:12px;background:rgba(26,26,24,.82);border:1px solid var(--mp-line);
+ -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 8px 30px rgba(0,0,0,.28);
+ font-family:'DM Sans',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+#mp-nav a{display:flex;align-items:center;gap:7px;height:36px;padding:0 13px 0 11px;border-radius:9px;
+ text-decoration:none;font-size:13px;font-weight:500;line-height:1;color:var(--mp-muted);
+ transition:color .15s,background .15s}
+#mp-nav a svg{flex:0 0 auto;opacity:.75;transition:opacity .15s,color .15s}
+#mp-nav a:hover{color:var(--mp-ink);background:rgba(255,255,255,.05)}
+#mp-nav a:focus-visible{outline:2px solid var(--mp-volt);outline-offset:2px}
+#mp-nav a[aria-current="page"]{color:var(--mp-ink);background:rgba(255,255,255,.09);
+ box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+#mp-nav a[aria-current="page"] svg{color:var(--mp-volt);opacity:1}
+@media(max-width:700px){#mp-nav{right:12px;top:12px}#mp-nav a{height:32px;padding:0 11px 0 9px}}
 @media print{#mp-nav{display:none}}
 </style>
 <nav id="mp-nav" aria-label="MyPlow surfaces">
- <a href="/" data-mp-path="/">Board</a>
- <a href="/terminal-graph" data-mp-path="/terminal-graph">Graph</a>
+ <a href="/" data-mp-path="/"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/></svg>Board</a>
+ <a href="/terminal-graph" data-mp-path="/terminal-graph"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>Graph</a>
 </nav>
 <script>
 (function(){
@@ -188,7 +191,7 @@ _NAV = """
   var nav=document.getElementById("mp-nav");
   function place(){
     var b=document.querySelector("[data-mp-banner]");
-    nav.style.top=(b?b.getBoundingClientRect().height+14:22)+"px";
+    nav.style.top=(b?b.getBoundingClientRect().height+14:18)+"px";
   }
   place();
   window.addEventListener("resize",place);
@@ -202,12 +205,12 @@ _NAV = """
 _LOGIN_BANNER_TMPL = """
 <style>
 #mp-login-banner{position:sticky;top:0;z-index:2147483001;
- font:500 13px/1.5 ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif;
- color:#f0d8a8;background:#4a3410;border-bottom:1px solid #8a6520;padding:10px 16px}
-#mp-login-banner b{color:#ffd479}
-#mp-login-banner code{display:inline-block;margin:2px 6px 0 0;padding:2px 7px;
- font:500 12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
- color:#ffe9bd;background:rgba(0,0,0,.35);border:1px solid rgba(255,212,121,.25);border-radius:5px;
+ font:400 13.5px/1.55 'DM Sans',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;
+ color:#F0F0E8;background:#231f14;border-bottom:1px solid rgba(254,188,46,.3);padding:12px 20px}
+#mp-login-banner b{font-weight:600;color:#ffd98a}
+#mp-login-banner code{display:inline-block;margin:3px 6px 0 0;padding:3px 8px;
+ font:400 12px/1.5 'DM Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+ color:#F0F0E8;background:rgba(0,0,0,.3);border:1px solid rgba(254,188,46,.22);border-radius:6px;
  user-select:all}
 </style>
 <div id="mp-login-banner" data-mp-banner>
@@ -246,10 +249,17 @@ def html_escape(s):
             .replace(">", "&gt;").replace('"', "&quot;"))
 
 
+_FONTS = '<link rel="stylesheet" href="/fonts/fonts.css">'
+
+
 def render_page(html):
     """Substitute the page placeholders every UI page shares, and make the running version
     visible on it. Injecting here (rather than in each .html) is what makes 'every page'
     true by construction — including pages added later."""
+    # The brand faces the pages name (Instrument Serif, DM Sans, DM Mono), served by the board
+    # server from bin/fonts. Without this every page fell back to Georgia and the system fonts.
+    if _FONTS not in html and "</head>" in html:
+        html = html.replace("</head>", _FONTS + "</head>", 1)
     banner = _login_banner()
     if banner and "id=\"mp-login-banner\"" not in html:
         if "<body" in html:
