@@ -94,6 +94,16 @@ for spec in "$HUD:HUD (python3)" "$TODO:board (python3)" "$TTYD:ttyd rw" "$((TTY
   esac
 done
 
+# The bundle is signed: nothing that runs it may write into it. Agents call this python3 off PATH
+# with no PYTHONDONTWRITEBYTECODE (run() above sets it, which is why this went unseen).
+echo "[smoke] running the carried python writes nothing into the bundle"
+touch "$PREFIX/before-bytecode"; sleep 1
+env -u PYTHONDONTWRITEBYTECODE "$RES/python/bin/python3" -c 'import urllib.request, json, email, http.client, ssl, base64' \
+  && env -u PYTHONDONTWRITEBYTECODE PYTHONPATH="$RES/pylib" "$RES/python/bin/python3" -c 'import mypeople.cli'
+wrote="$(find "$APP" -newer "$PREFIX/before-bytecode" -type f | head -3)"
+if [ -z "$wrote" ]; then printf '  ok    %-22s %s\n' "bundle unchanged" "after an unflagged run"
+else printf '  FAIL  %-22s %s\n' "bundle written" "$(echo $wrote)"; fail=1; fi
+
 # A version number is only worth something if it is the code that runs: the app's own label,
 # the install's VERSION and the daemons' serving.version must all be the package it carries.
 echo "[smoke] one version everywhere"

@@ -53,6 +53,12 @@ rm -rf "$OUT/pylib/mypeople/runtime/verify/node_modules" \
        "$OUT/pylib/mypeople/runtime/verify/videos" \
        "$OUT/pylib/mypeople/runtime/verify/browser.out"
 find "$OUT/pylib" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+# Bytecode ships precompiled and is never rewritten. Every agent on the owner's Mac runs this
+# python3 off PATH without PYTHONDONTWRITEBYTECODE, and it wrote __pycache__ into the signed bundle
+# within seconds of launch, breaking the seal that notarization vouched for (card 8f490e73e5).
+# unchecked-hash: the interpreter trusts these files and never writes a fresher one.
+say "bytecode (unchecked-hash)"
+"$OUT/python/bin/python3" -m compileall -q -j 0 --invalidation-mode unchecked-hash "$OUT/python/lib" "$OUT/pylib" >/dev/null
 
 # ---------------------------------------------------------------- native binaries
 # Recursively vendor a Mach-O file's non-system dylibs and repoint its load commands.
