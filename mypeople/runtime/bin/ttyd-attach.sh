@@ -20,6 +20,13 @@ export TMUX=
 if ! tmux has-session -t "$SESS" 2>/dev/null; then
   echo "session $SESS not found"; sleep 2; exit 1
 fi
-exec tmux new-session -t "$SESS" -s "_v_${TAB}_${UNIQ}" \; \
+V="_v_${TAB}_${UNIQ}"
+# destroy-unattached alone left viewers behind with nobody attached (card 8f490e73e5): ttyd can
+# kill a viewer before tmux reaches the set-option (a terminal-graph page closed within 2s), and a
+# failed select-window (the tab is gone) skips it outright. So the session goes when this script
+# does, however that happens; SIGHUP is how ttyd closes a viewer.
+trap 'tmux kill-session -t "=$V" 2>/dev/null' EXIT
+trap 'exit 1' HUP TERM INT
+tmux new-session -t "$SESS" -s "$V" \; \
      select-window -t "$TAB" \; \
      set-option destroy-unattached on
