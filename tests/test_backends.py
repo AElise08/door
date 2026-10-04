@@ -320,6 +320,45 @@ class HookHandlerTests(unittest.TestCase):
             self.assertNotIn("\n", status["summary"])
             self.assertEqual(status["summary"], "para one para two")
 
+    def _notices(self, td, payload, transcript=None):
+        """What one Stop would send: the handler loaded in-process with the queue mocked."""
+        import importlib.machinery, importlib.util
+        if transcript is not None:
+            tp = Path(td) / "t.jsonl"
+            tp.write_text("".join(json.dumps(e) + "\n" for e in transcript))
+            payload = dict(payload, transcript_path=str(tp))
+        with mock.patch.dict(os.environ, {"INSTALL_DIR": td, "AGENT_ID": "node/main:eng",
+                                          "BOSS_ID": "node/main:Boss", "MYPEOPLE_BACKEND": "claude",
+                                          "QUEUE_URL": "http://queue", "QUEUE_SECRET": "s"}):
+            loader = importlib.machinery.SourceFileLoader("hh_%d" % id(payload), str(HANDLER))
+            spec = importlib.util.spec_from_loader(loader.name, loader)
+            hh = importlib.util.module_from_spec(spec)
+            loader.exec_module(hh)
+        sent = []
+        hh.C = mock.Mock(claim_notification_route=lambda aid: "",
+                         http_json=lambda *a, **k: sent.append(a[2]["payload"]["message"]))
+        hh.time.sleep = lambda s: None
+        with mock.patch.object(sys, "stdin", __import__("io").StringIO(json.dumps(payload))), \
+                mock.patch.object(sys, "argv", ["hook-handler.py", "Stop"]):
+            hh.main()
+        return sent
+
+    def test_an_empty_reply_notifies_nobody(self):
+        """card 8f490e73e5: an empty reply fell back to the PREVIOUS turn's text and notified,
+        and each such notice woke an idle agent whose empty reply notified again."""
+        before = [{"type": "user", "message": {"content": "earlier ask"}},
+                  {"type": "assistant", "message": {"content": [{"type": "text", "text": "old news"}]}},
+                  {"type": "user", "message": {"content": "[AGENT NOTIFICATION] x finished: y"}}]
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual([], self._notices(td, {"last_assistant_message": ""}, before))
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual([], self._notices(td, {"last_assistant_message": "—"}, before))
+        with tempfile.TemporaryDirectory() as td:  # no payload field: the transcript's own turn
+            self.assertEqual([], self._notices(td, {}, before))
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(["[AGENT NOTIFICATION] node/main:eng finished: shipped it"],
+                             self._notices(td, {"last_assistant_message": "shipped it"}, before))
+
     def _run(self, td, event, payload, backend="claude"):
         env = dict(os.environ)
         env.update({"INSTALL_DIR": td, "AGENT_ID": "node/main:eng",

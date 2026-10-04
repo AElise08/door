@@ -135,10 +135,31 @@ def _flatten(text):
     return " ".join(text.strip().split())
 
 
+def _opens_turn(ev):
+    """A prompt that starts a turn: a user line carrying text, not just tool results."""
+    if ev.get("role") == "user":
+        return True
+    if ev.get("type") != "user":
+        return False
+    content = (ev.get("message") or {}).get("content")
+    return isinstance(content, str) or any(
+        isinstance(b, dict) and b.get("type") == "text" for b in content or [])
+
+
+def says_something(summary):
+    """An empty reply, or one of only punctuation like "—", tells nobody anything."""
+    return any(ch.isalnum() for ch in summary or "")
+
+
 def last_assistant_summary():
-    """Read the transcript, return the last assistant text (retry ~4x/0.5s for the flush race)."""
+    """THIS turn's last assistant text, flattened; "" when the turn said nothing.
+
+    The Stop payload's last_assistant_message is the answer whenever it is present, empty
+    included, and the transcript fallback stops at the prompt that opened the turn. Reading past
+    either handed an empty reply the PREVIOUS turn's summary, so silence still notified (card
+    8f490e73e5). Retries ~4x/0.5s for the transcript flush race."""
     last = DATA.get("last_assistant_message")
-    if isinstance(last, str) and last.strip():
+    if isinstance(last, str):
         return _flatten(last)
     for _ in range(4):
         tp = find_transcript()
@@ -151,7 +172,9 @@ def last_assistant_summary():
                             ev = json.loads(line)
                         except Exception:
                             continue
-                        if ev.get("type") == "assistant":
+                        if _opens_turn(ev):
+                            text = ""
+                        elif ev.get("type") == "assistant":
                             # claude nests blocks under .message.content[]; grok puts the
                             # reply text (or blocks) directly in .content
                             msg = ev.get("message", {})
@@ -168,12 +191,14 @@ def last_assistant_summary():
 
 
 def notify_completion(summary):
-    if not (QUEUE_URL and SECRET and C):
+    # A turn that said nothing is not news. Notifying for it made idle agents and the Boss wake
+    # each other: every empty reply fired a notice that woke the next (card 8f490e73e5).
+    if not (QUEUE_URL and SECRET and C) or not says_something(summary):
         return
     target = C.claim_notification_route(AGENT_ID) or BOSS_ID
     if not target:
         return
-    msg = "[AGENT NOTIFICATION] %s finished: %s" % (AGENT_ID, summary or "(no summary)")
+    msg = "[AGENT NOTIFICATION] %s finished: %s" % (AGENT_ID, summary)
     C.http_json("POST", QUEUE_URL + "/task/submit",
                 {"type": "send", "target_agent": target, "payload": {"message": msg}},
                 {"X-Queue-Secret": SECRET}, timeout=6)
@@ -215,7 +240,8 @@ def main():
         set_status(AGENT_ID, "working")   # status-file only; NOTHING to stdout
     elif event == "Stop":
         summary = last_assistant_summary()
-        set_status(AGENT_ID, "idle", summary=summary)
+        # an empty reply keeps the board's last real summary rather than blanking it
+        set_status(AGENT_ID, "idle", summary=summary if says_something(summary) else None)
         notify_completion(summary)
 
 
