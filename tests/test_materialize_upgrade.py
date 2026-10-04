@@ -108,5 +108,20 @@ class TmuxThemeTests(unittest.TestCase):
         self.assertEqual("tmux", ran.call_args_list[-1][0][0][0], "the conf is still loaded")
 
 
+class LiveDriftTests(unittest.TestCase):
+    def test_a_hand_copy_under_the_stamp_is_named(self):
+        """5.21.26-28 reached the CEO's Mac by cp/patch while VERSION still read 5.21.23. The
+        manifest materialize writes is what lets `mp status` say so (card 8f490e73e5)."""
+        from test_login_required import load_mpcommon
+        with tempfile.TemporaryDirectory() as td:
+            install = os.path.join(td, "install")
+            firstrun.materialize(install)
+            C = load_mpcommon(install)
+            self.assertEqual([], C.live_drift(), "a fresh install matches its own stamp")
+            mp = Path(install, "bin", "mp")
+            mp.write_text(mp.read_text() + "# patched by hand\n")
+            self.assertEqual(["bin/mp"], C.live_drift())
+
+
 if __name__ == "__main__":
     unittest.main()

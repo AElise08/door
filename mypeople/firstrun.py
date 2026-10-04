@@ -5,7 +5,7 @@ INSTALL_DIR from the packaged runtime, resolves the selected backend's auth, wri
 config file (~/.config/mypeople/queue.env, fresh QUEUE_SECRET per install), wires Claude/Codex
 lifecycle hooks, and installs the functional tmux.conf. Starting daemons + spawning the Boss is
 the CLI's job (see cli.up)."""
-import os, sys, json, shutil, secrets, socket, stat, subprocess, shlex, time
+import os, sys, json, shutil, secrets, socket, stat, subprocess, shlex, time, hashlib
 
 VALID_BACKENDS = ("claude", "codex", "grok")
 LIFECYCLE_EVENTS = ("SessionStart", "UserPromptSubmit", "Stop")
@@ -181,6 +181,21 @@ def materialize(install):
     # writable state skeletons — create empty, never overwrite existing board/roster/logs
     for sub in ("todos", "run", "status", "logs"):
         os.makedirs(os.path.join(install, sub), exist_ok=True)
+    # Fingerprint every file just installed under that VERSION, so a later hand copy or patch
+    # cannot hide behind it: `mp status` names any file that no longer matches (card 8f490e73e5).
+    # roles/registry.json is merged above and rewritten by role publishing, so it is not code we own.
+    files = {}
+    for sub in ("bin", "plugins", "plans", "verify", "config", "roles"):
+        for root, dirs, names in os.walk(os.path.join(rt, sub)):
+            dirs[:] = [d for d in dirs if d not in ("__pycache__", "node_modules")]
+            for name in names:
+                rel = os.path.relpath(os.path.join(root, name), rt)
+                dst = os.path.join(install, rel)
+                if rel != os.path.join("roles", "registry.json") and os.path.isfile(dst):
+                    with open(dst, "rb") as f:
+                        files[rel] = hashlib.sha256(f.read()).hexdigest()
+    _write_file(os.path.join(install, "run", "manifest.json"),
+                json.dumps({"version": __version__, "files": files}, indent=1, sort_keys=True) + "\n")
     # make scripts executable (package-data can lose the bit on some backends)
     bindir = os.path.join(install, "bin")
     for f in os.listdir(bindir):

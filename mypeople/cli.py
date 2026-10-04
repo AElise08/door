@@ -110,10 +110,12 @@ def restart_if_serving_stale(cfg, install):
 
 
 def _stamp_serving_version(install):
+    # What supervise runs is the install's code, which is THIS package only if materialize copied
+    # it. An older app that left a newer install alone stamped its own version here (card 8f490e73e5).
     try:
         os.makedirs(os.path.join(install, "run"), exist_ok=True)
         with open(_serving_version_path(install), "w") as f:
-            f.write(__version__ + "\n")
+            f.write((firstrun.installed_version(install) or __version__) + "\n")
     except OSError:
         pass
 

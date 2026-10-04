@@ -1322,6 +1322,11 @@ def do_status(argv):
     code, agents = C.http_json("GET", QUEUE_URL + "/agents", None, HDR, timeout=6)
     code2, clients = C.http_json("GET", QUEUE_URL + "/clients", None, HDR, timeout=6)
     roster = load_roster()
+    drift = C.live_drift()
+    if drift:
+        print("!! live install is NOT VERSION %s: %d file(s) changed by hand since it was stamped: %s"
+              " -- release through `make live`, never cp/patch into the install"
+              % (C.version(), len(drift), ", ".join(drift[:6]) + (" ..." if len(drift) > 6 else "")))
     print("== agents ==")
     print("%-45s %-8s %-22s %s" % ("agent", "state", "role", "status"))
     for a in (agents or []):

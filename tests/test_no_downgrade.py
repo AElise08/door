@@ -82,6 +82,14 @@ class RefuseDowngradeTests(unittest.TestCase):
             self.assertFalse(cli.restart_if_serving_stale({}, self.install))
         down.assert_not_called()
 
+    def test_serving_version_names_what_runs_not_the_app_that_ran_up(self):
+        """An older app that left a newer install alone stamped its OWN version into
+        run/serving.version: a label for code nobody was serving (card 8f490e73e5)."""
+        self.installed("5.13.1")
+        with self.running("5.8.0"), mock.patch.object(cli, "__version__", "5.8.0"):
+            cli._stamp_serving_version(self.install)
+        self.assertEqual("5.13.1", Path(self.install, "run", "serving.version").read_text().strip())
+
 
 if __name__ == "__main__":
     unittest.main()
