@@ -142,11 +142,20 @@ def materialize(install):
     # unspawnable). So keep the entries this release does not name; shipped names still move
     # forward to the versions this release carries.
     kept_roles = _read_registry_roles(os.path.join(install, "roles", "registry.json"))
+    # Bytecode never travels with the code, and none may stay. The app compiles its bundled runtime
+    # as unchecked-hash .pyc (5.21.31, so the signed bundle stays sealed), which Python never checks
+    # against the source: copied in here, they kept every daemon on the app's mpcommon after 5.22.0
+    # replaced mpcommon.py beside them. Imports rebuild a cache from the .py that is actually here.
     for sub in ("bin", "plugins", "plans", "verify", "config", "roles"):
         src = os.path.join(rt, sub)
         if os.path.isdir(src):
             shutil.copytree(src, os.path.join(install, sub), dirs_exist_ok=True,
-                            copy_function=_replace_file)
+                            copy_function=_replace_file,
+                            ignore=shutil.ignore_patterns("__pycache__"))
+        for root, dirs, _ in os.walk(os.path.join(install, sub)):
+            if "__pycache__" in dirs:
+                dirs.remove("__pycache__")
+                shutil.rmtree(os.path.join(root, "__pycache__"), ignore_errors=True)
     if kept_roles:
         reg_path = os.path.join(install, "roles", "registry.json")
         with open(reg_path, encoding="utf-8") as f:

@@ -50,6 +50,26 @@ class MaterializeOverExistingInstallTests(unittest.TestCase):
         firstrun.materialize(self.install)
         self.assertNotEqual(open(mp).read(), "# stale\n", "upgrade must refresh daemon code")
 
+    def test_bytecode_never_reaches_the_install(self):
+        """The app compiles its bundled runtime as unchecked-hash .pyc (5.21.31), and Python never
+        checks those against their source. Copied into the install, they kept every daemon on the
+        app's 5.21.33 mpcommon after 5.22.0 replaced mpcommon.py beside them: the release was
+        byte-identical on disk and not running. No cache may travel in, and none may stay."""
+        import shutil
+        rt = os.path.join(self.tmp.name, "runtime")
+        shutil.copytree(firstrun.runtime_dir(), rt, ignore=shutil.ignore_patterns("__pycache__", "node_modules"))
+        shipped = os.path.join(rt, "bin", "__pycache__", "mpcommon.cpython-313.pyc")
+        os.makedirs(os.path.dirname(shipped))
+        Path(shipped).write_bytes(b"app bytecode")
+        stale = os.path.join(self.install, "plugins", "plow-chat", "__pycache__", "plow-chat.cpython-313.pyc")
+        os.makedirs(os.path.dirname(stale))
+        Path(stale).write_bytes(b"older bytecode")
+        with mock.patch.object(firstrun, "runtime_dir", return_value=rt):
+            firstrun.materialize(self.install)
+        self.assertTrue(os.path.isfile(os.path.join(self.install, "bin", "mpcommon.py")))
+        left = [str(p) for sub in ("bin", "plugins") for p in Path(self.install, sub).rglob("__pycache__")]
+        self.assertEqual(left, [], "a .pyc in the install can outrank the .py next to it")
+
     def test_upgrade_never_clobbers_live_state(self):
         firstrun.materialize(self.install)
         board = os.path.join(self.install, "todos", "board.v2.sqlite3")
