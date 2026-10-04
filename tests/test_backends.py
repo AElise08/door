@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -223,8 +224,9 @@ class BackendCommandTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"AGENT_ID": parent}), \
                  mock.patch.object(mp.C, "tmux_send_message", return_value=True):
                 self.assertEqual(0, mp.do_send([target, "do work"]))
-            self.assertEqual(parent, mp.C.claim_notification_route(target))
-            self.assertEqual("", mp.C.claim_notification_route(target))
+            mp.C.open_notification_routes(target, "do work")  # the turn this message opens
+            self.assertEqual([parent], mp.C.claim_notification_routes(target))
+            self.assertEqual([], mp.C.claim_notification_routes(target))
 
     def test_failed_send_cancels_its_notification_route(self):
         with tempfile.TemporaryDirectory() as td:
@@ -233,7 +235,8 @@ class BackendCommandTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"AGENT_ID": "test-node/main:parent"}), \
                  mock.patch.object(mp.C, "tmux_send_message", return_value=False):
                 self.assertEqual(1, mp.do_send([target, "do work"]))
-            self.assertEqual("", mp.C.claim_notification_route(target))
+            mp.C.open_notification_routes(target, "do work")
+            self.assertEqual([], mp.C.claim_notification_routes(target))
 
     def test_remote_send_carries_reply_to(self):
         with tempfile.TemporaryDirectory() as td:
@@ -248,18 +251,35 @@ class BackendCommandTests(unittest.TestCase):
 
 
 class NotificationRouteTests(unittest.TestCase):
-    def test_routes_are_fifo_and_can_be_cancelled(self):
-        with tempfile.TemporaryDirectory() as td:
-            mp = load_mp(td)
-            target = "test-node/main:worker"
-            first = mp.C.enqueue_notification_route(target, "test-node/main:first")
-            second = mp.C.enqueue_notification_route(target, "test-node/main:second")
+    """card 8f490e73e5: routes popped oldest-first on every Stop, so a turn nobody asked for
+    (the Boss talking to the owner) reached whoever messaged it weeks ago."""
 
+    def test_a_turn_answers_only_the_senders_whose_message_reached_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            C = load_mp(td).C
+            w = "test-node/main:worker"
+            first = C.enqueue_notification_route(w, "test-node/main:first", "first ask")
+            C.enqueue_notification_route(w, "test-node/main:second", "second ask")
             self.assertTrue(first)
-            self.assertTrue(second)
-            self.assertTrue(mp.C.cancel_notification_route(target, first))
-            self.assertEqual("test-node/main:second", mp.C.claim_notification_route(target))
-            self.assertEqual("", mp.C.claim_notification_route(target))
+            self.assertEqual([], C.claim_notification_routes(w), "a turn no message opened")
+            C.open_notification_routes(w, "<pasted>\n  second   ask </pasted>")
+            self.assertEqual(["test-node/main:second"], C.claim_notification_routes(w))
+            self.assertTrue(C.cancel_notification_route(w, first))
+            C.open_notification_routes(w, "first ask")
+            self.assertEqual([], C.claim_notification_routes(w))
+
+    def test_a_route_expires_and_one_queued_before_pairing_is_still_answered(self):
+        with tempfile.TemporaryDirectory() as td:
+            C = load_mp(td).C
+            w = "test-node/main:worker"
+            path, _ = C._notification_route_paths(w)
+            now = time.time()
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text(json.dumps([
+                {"token": "a", "reply_to": "test-node/main:stale", "ts": now - C.ROUTE_TTL - 5},
+                {"token": "b", "reply_to": "test-node/main:waiting", "ts": now - 60}]))
+            self.assertEqual(["test-node/main:waiting"], C.claim_notification_routes(w))
+            self.assertEqual([], C.claim_notification_routes(w))
 
 
 class HookHandlerTests(unittest.TestCase):
@@ -320,7 +340,7 @@ class HookHandlerTests(unittest.TestCase):
             self.assertNotIn("\n", status["summary"])
             self.assertEqual(status["summary"], "para one para two")
 
-    def _notices(self, td, payload, transcript=None):
+    def _notices(self, td, payload, transcript=None, claimed=None, opened=None):
         """What one Stop would send: the handler loaded in-process with the queue mocked."""
         import importlib.machinery, importlib.util
         if transcript is not None:
@@ -335,13 +355,28 @@ class HookHandlerTests(unittest.TestCase):
             hh = importlib.util.module_from_spec(spec)
             loader.exec_module(hh)
         sent = []
-        hh.C = mock.Mock(claim_notification_route=lambda aid: "",
-                         http_json=lambda *a, **k: sent.append(a[2]["payload"]["message"]))
+        opened = [] if opened is None else opened
+        hh.C = mock.Mock(claim_notification_routes=lambda aid: claimed or [],
+                         open_notification_routes=lambda aid, text: opened.append(text),
+                         http_json=lambda *a, **k: sent.append((a[2]["target_agent"], a[2]["payload"]["message"])))
         hh.time.sleep = lambda s: None
         with mock.patch.object(sys, "stdin", __import__("io").StringIO(json.dumps(payload))), \
                 mock.patch.object(sys, "argv", ["hook-handler.py", "Stop"]):
             hh.main()
-        return sent
+        return [m for _, m in sent] if claimed is None else sent
+
+    def test_a_message_queued_mid_turn_is_answered_by_that_turn(self):
+        """A message that lands while the agent works never opens a turn of its own; Claude
+        records it as a queued_command, and the Stop that ends the turn must answer it."""
+        turn = [{"type": "user", "message": {"content": "work on the card"}},
+                {"type": "attachment", "attachment": {"type": "queued_command",
+                                                      "prompt": "peer asks: status?"}}]
+        opened = []
+        with tempfile.TemporaryDirectory() as td:
+            sent = self._notices(td, {"last_assistant_message": "done"}, turn,
+                                 claimed=["node/main:peer"], opened=opened)
+        self.assertIn("peer asks: status?", " ".join(opened))
+        self.assertEqual([("node/main:peer", "[AGENT NOTIFICATION] node/main:eng finished: done")], sent)
 
     def test_an_empty_reply_notifies_nobody(self):
         """card 8f490e73e5: an empty reply fell back to the PREVIOUS turn's text and notified,

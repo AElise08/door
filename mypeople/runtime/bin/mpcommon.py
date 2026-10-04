@@ -431,14 +431,22 @@ def _locked_notification_routes(target_agent, mutate):
         return result
 
 
-def enqueue_notification_route(target_agent, reply_to):
-    """Queue reply_to as the recipient of target_agent's next Stop. Returns a route token."""
+ROUTE_TTL = 24 * 3600  # a reply nobody claimed within a day was never coming
+
+
+def _route_head(message):
+    return " ".join((message or "").split())[:160]
+
+
+def enqueue_notification_route(target_agent, reply_to, message=""):
+    """Queue reply_to to hear how target_agent's turn on THIS message ends. Returns a token."""
     if not target_agent or not reply_to or target_agent == reply_to:
         return ""
     token = base64.urlsafe_b64encode(os.urandom(12)).decode().rstrip("=")
 
     def append(routes):
-        routes.append({"token": token, "reply_to": reply_to, "ts": time.time()})
+        routes.append({"token": token, "reply_to": reply_to, "ts": time.time(),
+                       "head": _route_head(message)})
         return token, routes
 
     return _locked_notification_routes(target_agent, append)
@@ -456,18 +464,42 @@ def cancel_notification_route(target_agent, token):
     return _locked_notification_routes(target_agent, cancel)
 
 
-def claim_notification_route(target_agent):
-    """Consume and return the oldest per-message reply target for this agent."""
+def open_notification_routes(target_agent, text):
+    """Mark the routes whose message reached this turn (it is in TEXT). Drops expired ones."""
     if not target_agent:
-        return ""
+        return 0
+    seen = " ".join((text or "").split())
+
+    def mark(routes):
+        now, kept, opened = time.time(), [], 0
+        for r in routes:
+            if not isinstance(r, dict) or now - r.get("ts", 0) > ROUTE_TTL:
+                continue
+            if r.get("head") and r["head"] in seen and not r.get("opened"):
+                r["opened"] = True
+                opened += 1
+            kept.append(r)
+        return opened, kept
+
+    return _locked_notification_routes(target_agent, mark)
+
+
+def claim_notification_routes(target_agent):
+    """Who asked to hear how this turn ended: the senders whose message reached it.
+
+    This used to pop the OLDEST route on every Stop, whatever the turn was about, so a turn
+    nobody asked for (the Boss talking to the owner) reached whoever messaged it weeks ago
+    (card 8f490e73e5). A route queued before pairing (no "head") is still honoured oldest-first,
+    one per turn, until it expires. [] when nobody asked."""
+    if not target_agent:
+        return []
 
     def claim(routes):
-        while routes:
-            route = routes.pop(0)
-            reply_to = route.get("reply_to", "") if isinstance(route, dict) else ""
-            if reply_to:
-                return reply_to, routes
-        return "", routes
+        now = time.time()
+        live = [r for r in routes if isinstance(r, dict) and r.get("reply_to")
+                and now - r.get("ts", 0) <= ROUTE_TTL]
+        mine = [r for r in live if r.get("opened")] or [r for r in live if "head" not in r][:1]
+        return list(dict.fromkeys(r["reply_to"] for r in mine)), [r for r in live if r not in mine]
 
     return _locked_notification_routes(target_agent, claim)
 

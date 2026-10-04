@@ -91,5 +91,18 @@ class RefuseDowngradeTests(unittest.TestCase):
         self.assertEqual("5.13.1", Path(self.install, "run", "serving.version").read_text().strip())
 
 
+class ChildEnvTests(unittest.TestCase):
+    def test_daemons_carry_no_agent_identity(self):
+        """card 8f490e73e5: the app, launched from eng-961's shell, handed every daemon
+        AGENT_ID=eng-961, so each `mp send` a daemon made claimed to come from that agent."""
+        agent = {"AGENT_ID": "n/main:eng-961", "BOSS_ID": "n/main:Boss", "TMUX": "/tmp/t,1,0",
+                 "TMUX_PANE": "%1", "CLAUDECODE": "1", "CLAUDE_CODE_SESSION_ID": "s",
+                 "MYPEOPLE_BACKEND": "claude", "MYPEOPLE_ROLE": "eng", "HOME": "/home/x"}
+        with mock.patch.dict(os.environ, agent, clear=True):
+            env = cli.child_env({"QUEUE_URL": "http://q"})
+        self.assertEqual(set(), set(agent) - {"HOME"} & set(env))
+        self.assertEqual(("/home/x", "http://q"), (env["HOME"], env["QUEUE_URL"]))
+
+
 if __name__ == "__main__":
     unittest.main()

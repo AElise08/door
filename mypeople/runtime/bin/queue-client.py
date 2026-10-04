@@ -135,7 +135,7 @@ def dispatch(task):
         if typ == "send":
             msg = payload.get("message", "")
             tgt = C.tmux_target(ta)
-            route_token = C.enqueue_notification_route(ta, payload.get("reply_to", ""))
+            route_token = C.enqueue_notification_route(ta, payload.get("reply_to", ""), msg)
             # Notifications to an agent that is restarting wait for it instead of vanishing.
             result = C.send_when_ready(tgt, msg, 20)
             ok = result == "sent"

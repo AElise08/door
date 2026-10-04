@@ -893,7 +893,7 @@ def do_send(argv):
         ok, result = remote_task("send", aid, payload, timeout=30)
         print(result)
         return 0 if ok else 1
-    route_token = C.enqueue_notification_route(aid, reply_to)
+    route_token = C.enqueue_notification_route(aid, reply_to, msg)
     # A Claude session still starting (or behind a dialog) is waited for briefly, then REFUSED
     # with rc 3: a paste there could vanish while this printed "sent". Retrying senders retry.
     why = C.send_when_ready(C.tmux_target(aid), msg, float(os.environ.get("MP_SEND_READY_WAIT", "10")))

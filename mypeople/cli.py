@@ -34,8 +34,18 @@ def load_cfg():
     return cfg
 
 
+# A daemon is nobody's agent. `up` runs from whatever launched it, and an agent's shell would lend
+# every daemon its AGENT_ID/BOSS_ID, tmux client and Claude session: each `mp send` a daemon made
+# then claimed to come from that agent (card 8f490e73e5: the iMessage bridge sent the Boss's
+# replies to eng-961). Stripped on the way out, whoever the caller is.
+AGENT_IDENTITY = ("AGENT_ID", "BOSS_ID", "MYPEOPLE_BACKEND", "TMUX", "TMUX_PANE",
+                  "CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT")
+AGENT_IDENTITY_PREFIXES = ("MYPEOPLE_ROLE", "CLAUDE_CODE_")
+
+
 def child_env(cfg):
-    e = dict(os.environ)
+    e = {k: v for k, v in os.environ.items()
+         if k not in AGENT_IDENTITY and not k.startswith(AGENT_IDENTITY_PREFIXES)}
     e.update(cfg)  # queue.env values available to daemons
     install = cfg.get("INSTALL_DIR", firstrun.install_dir())
     e["MYPEOPLE_CONFIG_PATH"] = CONFIG_PATH

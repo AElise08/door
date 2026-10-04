@@ -190,18 +190,48 @@ def last_assistant_summary():
     return ""
 
 
+def turn_inbound_text():
+    """What reached THIS turn from outside: the prompt that opened it, plus anything queued in
+    while it ran (Claude records those as queued_command attachments, with no new prompt)."""
+    tp = find_transcript()
+    parts = []
+    try:
+        with open(tp) as f:
+            for line in f:
+                try:
+                    ev = json.loads(line)
+                except Exception:
+                    continue
+                if _opens_turn(ev):
+                    c = ev.get("content") if ev.get("role") == "user" else (ev.get("message") or {}).get("content")
+                    parts = [c] if isinstance(c, str) else [
+                        b.get("text", "") for b in c or [] if isinstance(b, dict) and b.get("type") == "text"]
+                elif isinstance(ev.get("attachment"), dict) and ev["attachment"].get("type") == "queued_command":
+                    parts.append(str(ev["attachment"].get("prompt") or ""))
+    except Exception:
+        return ""
+    return " ".join(parts)
+
+
+def open_routes(text):
+    try:
+        if C and AGENT_ID and text:
+            C.open_notification_routes(AGENT_ID, text)
+    except Exception:
+        pass  # a hook must never fail the turn
+
+
 def notify_completion(summary):
     # A turn that said nothing is not news. Notifying for it made idle agents and the Boss wake
     # each other: every empty reply fired a notice that woke the next (card 8f490e73e5).
     if not (QUEUE_URL and SECRET and C) or not says_something(summary):
         return
-    target = C.claim_notification_route(AGENT_ID) or BOSS_ID
-    if not target:
-        return
+    # The senders whose message reached this turn hear how it ended; otherwise the agent's boss.
     msg = "[AGENT NOTIFICATION] %s finished: %s" % (AGENT_ID, summary)
-    C.http_json("POST", QUEUE_URL + "/task/submit",
-                {"type": "send", "target_agent": target, "payload": {"message": msg}},
-                {"X-Queue-Secret": SECRET}, timeout=6)
+    for target in C.claim_notification_routes(AGENT_ID) or [t for t in (BOSS_ID,) if t]:
+        C.http_json("POST", QUEUE_URL + "/task/submit",
+                    {"type": "send", "target_agent": target, "payload": {"message": msg}},
+                    {"X-Queue-Secret": SECRET}, timeout=6)
 
 
 def normalize(d):
@@ -238,7 +268,9 @@ def main():
             set_status(AGENT_ID, "starting")
     elif event == "UserPromptSubmit":
         set_status(AGENT_ID, "working")   # status-file only; NOTHING to stdout
+        open_routes(DATA.get("prompt") or "")
     elif event == "Stop":
+        open_routes(turn_inbound_text())
         summary = last_assistant_summary()
         # an empty reply keeps the board's last real summary rather than blanking it
         set_status(AGENT_ID, "idle", summary=summary if says_something(summary) else None)
