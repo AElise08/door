@@ -53,10 +53,10 @@ class PlowChatTest(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
         self.assertIn("[plowchat] from Dan in cht_a: hi boss", self.sent[0])
         self.assertIn("reply cht_a", self.sent[0])
-        # Plain text: the message, the mark-it-seen line, the instructions. No reply, mention or
+        # Plain text: the mark-it-seen line, the message, the instructions. No reply, mention or
         # tapback lines.
         lines = self.sent[0].split("\n")
-        self.assertIn("react cht_a m2 👀", lines[1])
+        self.assertIn("react cht_a m2 👀", lines[0])
         self.assertTrue(lines[2].startswith("(This is the owner's"))
         self.assertEqual(len(lines), 3)
 
@@ -104,10 +104,11 @@ class PlowChatTest(unittest.TestCase):
         self.msgs.append({"uid": "msg_his", "direction": "inbound", "body": "deploy it?",
                           "chat_uid": "cht_a", "created_at": "2", "sender": {"display_name": "Dan"}})
         self.pc.poll_chat(self.creds, "cht_a")
+        # The very first line, so it is the first command an agent runs, before it starts work.
         first, second = self.sent[0].split("\n")[:2]
-        self.assertEqual("[plowchat] from Dan in cht_a: deploy it?", first)
-        self.assertTrue(second.startswith("(Before anything else, mark it seen: "))
-        self.assertIn(" react cht_a msg_his 👀", second)
+        self.assertTrue(first.startswith("FIRST, before reading on: python3 "))
+        self.assertIn(" react cht_a msg_his 👀", first)
+        self.assertEqual("[plowchat] from Dan in cht_a: deploy it?", second)
 
     def test_react_sends_a_tapback_and_refuses_a_misspelt_one(self):
         calls = []
