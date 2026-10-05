@@ -122,6 +122,34 @@ class PlowChatTest(unittest.TestCase):
             {"operation": "add", "type": "custom", "custom_emoji": "👀"},
             {"operation": "remove"})])
 
+    def test_help_and_unknown_options_never_reach_the_chat(self):
+        """Two engineers' `reply --help` landed in the owner's chat as the text '--help' (10-05).
+        Help prints usage and sends nothing; any other leading option is refused, on every path."""
+        sent = []
+        self.pc.send_message = lambda text, chat_uid="", creds=None, files=(): sent.append(text) or {}
+        self.pc.react = lambda *a, **k: sent.append(a) or {}
+        self.pc.bridge_loop = lambda *a: sent.append("second bridge started")
+        out = []
+        def run(*argv):
+            with mock.patch.object(self.pc.sys, "argv", ["plow-chat.py", *argv]), \
+                    mock.patch("builtins.print", lambda *a, **k: out.append(" ".join(map(str, a)))):
+                try:
+                    self.pc.main()
+                    return "ok"
+                except SystemExit as e:
+                    return str(e)
+        for argv in (["reply", "--help"], ["reply", "-h"], ["reply", "cht_a", "--help"],
+                     ["reply", "cht_a", "--file", "a.png", "--help"], ["react", "--help"],
+                     ["react", "cht_a", "msg_1", "-h"], ["serve", "--help"], ["--help"]):
+            self.assertEqual("ok", run(*argv), argv)
+        self.assertTrue(out and all("Usage:" in o for o in out))
+        for argv in (["reply", "--verbose", "hi"], ["reply", "cht_a", "--dry-run", "hi"],
+                     ["reply", "cht_a", "--file"], ["react", "cht_a", "msg_1", "--like"]):
+            self.assertIn("nothing sent", run(*argv), argv)
+        self.assertEqual([], sent, "no help or unknown option may send anything")
+        self.assertEqual("ok", run("reply", "cht_a", "- a list line"))  # a dash-led message is text
+        self.assertEqual(["- a list line"], sent)
+
     def test_chat_that_appears_while_running_is_routed_not_swallowed(self):
         self.assertEqual(self.pc.poll_chat(self.creds, "cht_a", seed=False), 1)
         self.assertIn("[plowchat]", self.sent[0])

@@ -494,20 +494,43 @@ def bridge_loop(creds: dict):
         time.sleep(POLL_SECONDS)
 
 
+HELP = ("-h", "--help")
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "serve"
+    args = sys.argv[2:]
+    # An option is never message text: two engineers' `reply --help` reached the owner's chat as
+    # the literal text "--help" (10-05). -h/--help on any subcommand prints this and does nothing
+    # else (on `serve` it used to start a second bridge), and reply/react refuse any other leading
+    # "--" word instead of sending it.
+    if cmd in HELP or (args and args[0] in HELP):
+        print(__doc__.strip())
+        return
     if cmd == "reply":
-        args = sys.argv[2:]
         chat_uid = args.pop(0) if args and args[0].startswith("cht_") else ""
         files = []
-        while len(args) >= 2 and args[0] == "--file":
+        while args and (args[0] in HELP or args[0].startswith("--")):
+            if args[0] in HELP:
+                print(__doc__.strip())
+                return
+            if args[0] != "--file" or len(args) < 2:
+                raise SystemExit(f"{args[0]!r} is not an option of reply, nothing sent. "
+                                 f"usage: {SELF} reply [cht_x] [--file PATH ...] \"text\"")
             files.append(args[1])
             args = args[2:]
         if not args and not files:
             raise SystemExit(f"usage: {SELF} reply [cht_x] [--file PATH ...] \"text\"")
         print(json.dumps(send_message(" ".join(args), chat_uid, files=files)))
     elif cmd == "react":
-        args = sys.argv[2:] + ["", "", ""]
+        flag = next((a for a in args if a in HELP or a.startswith("--")), None)
+        if flag in HELP:
+            print(__doc__.strip())
+            return
+        if flag:
+            raise SystemExit(f"{flag!r} is not an option of react, nothing sent. "
+                             f"usage: {SELF} react cht_x msg_y like|love|...|EMOJI|remove")
+        args = args + ["", "", ""]
         print(json.dumps(react(*args[:3])))
     elif cmd == "status":
         creds, act = load_creds(), read_json(ACTIVATION, {})
