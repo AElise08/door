@@ -38,9 +38,15 @@ def load_cfg():
 # every daemon its AGENT_ID/BOSS_ID, tmux client and Claude session: each `mp send` a daemon made
 # then claimed to come from that agent (card 8f490e73e5: the iMessage bridge sent the Boss's
 # replies to eng-961). Stripped on the way out, whoever the caller is.
+# Named, never by a vendor prefix: a cloud MyPlow's Claude login (CLAUDE_CODE_OAUTH_TOKEN) and its
+# settings (CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC) live in CLAUDE_CODE_* variables too, and
+# stripping the prefix logged every cloud Boss out.
 AGENT_IDENTITY = ("AGENT_ID", "BOSS_ID", "MYPEOPLE_BACKEND", "TMUX", "TMUX_PANE",
-                  "CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT")
-AGENT_IDENTITY_PREFIXES = ("MYPEOPLE_ROLE", "CLAUDE_CODE_")
+                  "CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT",
+                  "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH",
+                  "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
+                  "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_SESSION_ID")
+AGENT_IDENTITY_PREFIXES = ("MYPEOPLE_ROLE",)
 
 
 def child_env(cfg):

@@ -70,7 +70,7 @@ stop_fleet(){
 
 # Healthy = the release is still running AND the board answers AND the chat bridge has stayed up
 # for 10s (the supervisor respawns a crashing one, so "a process exists" proves nothing) AND the
-# Boss runs Claude. All four at once, within HEALTH_WAIT.
+# Boss runs Claude and is logged in. All of it at once, within HEALTH_WAIT.
 bridge_up(){
   local pid; pid="$(pgrep -o -u mypeople -f "plugins/plow-chat/plow-chat.py serve")" || return 1
   [ "$(ps -o etimes= -p "$pid" | tr -d ' ')" -ge 10 ] 2>/dev/null
@@ -82,7 +82,8 @@ healthy(){
     if curl -fsS -m 3 "http://127.0.0.1:${TODO_PORT:-9933}/health" >/dev/null 2>&1 \
        && bridge_up \
        && me tmux list-panes -a -F '#{window_name} #{pane_current_command}' 2>/dev/null \
-            | grep -q '^Boss claude'; then
+            | grep -q '^Boss claude' \
+       && ! me tmux capture-pane -p -t mc-main:Boss 2>/dev/null | grep -q 'Not logged in'; then
       return 0
     fi
     sleep 5

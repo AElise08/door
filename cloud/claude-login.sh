@@ -1,8 +1,9 @@
 #!/bin/bash
-# The Claude login of this MyPlow's OWNER, fetched at boot from the owner's login server
-# (plow-seedlab-seedbed-substrate lease/lease-server.py, POST /token). Nothing is in the image: the
-# server hands the login only to agents on the owner's Plow account, so anyone else's install
-# boots without one and is told so by text instead of failing silently.
+# The Claude login of this MyPlow's OWNER, fetched at boot. Daniel's agents get his from his login
+# server (plow-seedlab-seedbed-substrate lease/lease-server.py, POST /token), which hands it only to
+# agents on his Plow account. Anyone else's install gets a 401 there and uses ITS OWN owner's Claude:
+# saved on this VM from an earlier boot, or asked for once by text (own-login.py). Nothing is in the
+# image, and nobody else's install ever runs on Daniel's plan.
 #
 #   claude-login.sh fetch   -> prints the token on stdout (exit 0), or texts why not (exit 1)
 #
@@ -13,6 +14,9 @@
 set -u
 BANK="${MYPLOW_CLAUDE_BANK:-https://delattre-server.mulley-firefighter.ts.net/claude-bank}"
 TOLD="${MYPEOPLE_HOME:-/var/lib/mypeople}/state/claude-login-told"
+# This VM's own owner's login (not Daniel's): theirs, on their VM, like ~/.claude on a laptop. Kept by
+# restarts and in-place updates (the data dir survives both); a new VM asks once more.
+OWN="${MYPEOPLE_HOME:-/var/lib/mypeople}/state/claude-login/own-token"
 AUTH=(-H "Authorization: Bearer ${PLOW_AGENT_TOKEN:-proxied}")
 beacon(){ (curl -s -m 5 -X POST --data-binary "$(hostname 2>/dev/null) $*" "$BANK/beacon" >/dev/null 2>&1 &); }
 
@@ -53,8 +57,13 @@ case "${1:-}" in
         if works "$tok"; then rm -rf "$TOLD"; printf '%s' "$tok"; exit 0; fi
         say_once expired "$EXPIRED"; exit 1 ;;
       401)
-        say_once not-owner "This MyPlow is a prototype that only works for its owner's Plow account. \
-It has no Claude login for you, so it can't answer here."; exit 1 ;;
+        # Not Daniel's account: this install runs on its own owner's Claude.
+        if [ -s "$OWN" ] && works "$(cat "$OWN")"; then beacon "own login (saved)"; cat "$OWN"; exit 0; fi
+        beacon "own login: texting the owner a Claude login link"
+        tok="$(python3 "$(dirname "$0")/own-login.py")" || { beacon "own login FAILED"; exit 1; }
+        works "$tok" || { beacon "own login did not work"; say "That login didn't work. Restart me and I'll send a new link."; exit 1; }
+        mkdir -p "$(dirname "$OWN")" && (umask 077; printf '%s' "$tok" > "$OWN.tmp") && mv "$OWN.tmp" "$OWN"
+        beacon "own login ok"; printf '%s' "$tok"; exit 0 ;;
       503)
         say_once no-login "My owner hasn't saved a Claude login on their login server yet, so I can't \
 answer. Restart me once they have."; exit 1 ;;

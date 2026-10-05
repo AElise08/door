@@ -103,6 +103,17 @@ class ChildEnvTests(unittest.TestCase):
         self.assertEqual(set(), set(agent) - {"HOME"} & set(env))
         self.assertEqual(("/home/x", "http://q"), (env["HOME"], env["QUEUE_URL"]))
 
+    def test_a_cloud_login_reaches_the_fleet(self):
+        """A cloud MyPlow's Claude login lives only in CLAUDE_CODE_OAUTH_TOKEN: stripping it with
+        the identity keys logged every cloud Boss out ("Not logged in")."""
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-x",
+                                          "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+                                          "CLAUDE_CODE_SESSION_ID": "s"}, clear=True):
+            env = cli.child_env({})
+        self.assertEqual("sk-ant-x", env.get("CLAUDE_CODE_OAUTH_TOKEN"))
+        self.assertEqual("1", env.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"))
+        self.assertNotIn("CLAUDE_CODE_SESSION_ID", env)
+
 
 if __name__ == "__main__":
     unittest.main()
