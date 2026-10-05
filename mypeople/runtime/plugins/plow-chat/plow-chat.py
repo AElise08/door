@@ -112,8 +112,11 @@ def envelope(who: str, text: str, chat_uid: str, files=(), context=(), mid: str 
     said = "".join(f"\n({c})" for c in context)
     tap = (f" To tapback this message, run: python3 {SELF} react {chat_uid} {mid} like "
            f"(or love, laugh, emphasize, question, dislike, or one emoji).") if mid else ""
+    # The owner's ask: feedback the moment we see a text, not after the slow turn (~30s).
+    seen = (f"\n(Before anything else, mark it seen: python3 {SELF} react {chat_uid} {mid} 👀"
+            f" -- the sender sees the eyes at once, then you work and reply.)") if mid else ""
     return (
-        f"[plowchat] from {who} in {chat_uid}: {text}{sent}{said}\n"
+        f"[plowchat] from {who} in {chat_uid}: {text}{sent}{said}{seen}\n"
         f"(This is the owner's Plow messages line. The owner texts here, and so "
         f"does anyone they added to this thread. To answer, run: "
         f"python3 {SELF} reply {chat_uid} \"your reply\" — it goes back to that "

@@ -53,9 +53,12 @@ class PlowChatTest(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
         self.assertIn("[plowchat] from Dan in cht_a: hi boss", self.sent[0])
         self.assertIn("reply cht_a", self.sent[0])
-        # Plain text keeps today's two-part envelope: no reply, mention or tapback lines.
-        self.assertTrue(self.sent[0].split("\n")[1].startswith("(This is the owner's"))
-        self.assertEqual(len(self.sent[0].split("\n")), 2)
+        # Plain text: the message, the mark-it-seen line, the instructions. No reply, mention or
+        # tapback lines.
+        lines = self.sent[0].split("\n")
+        self.assertIn("react cht_a m2 👀", lines[1])
+        self.assertTrue(lines[2].startswith("(This is the owner's"))
+        self.assertEqual(len(lines), 3)
 
     def test_a_reply_carries_what_it_answers_and_who_it_mentions(self):
         self.pc.poll_chat(self.creds, "cht_a")
@@ -94,16 +97,28 @@ class PlowChatTest(unittest.TestCase):
         self.pc.poll_chat(self.creds, "cht_a")
         self.assertNotIn("tapback in", self.sent[1])
 
+    def test_the_agent_is_told_to_mark_his_message_seen_before_anything_else(self):
+        """The owner wanted feedback the moment a text is seen, not after the ~30s turn: the line
+        right under his message tapbacks HIS message (its uid, not ours) with the eyes."""
+        self.pc.poll_chat(self.creds, "cht_a")
+        self.msgs.append({"uid": "msg_his", "direction": "inbound", "body": "deploy it?",
+                          "chat_uid": "cht_a", "created_at": "2", "sender": {"display_name": "Dan"}})
+        self.pc.poll_chat(self.creds, "cht_a")
+        first, second = self.sent[0].split("\n")[:2]
+        self.assertEqual("[plowchat] from Dan in cht_a: deploy it?", first)
+        self.assertTrue(second.startswith("(Before anything else, mark it seen: "))
+        self.assertIn(" react cht_a msg_his 👀", second)
+
     def test_react_sends_a_tapback_and_refuses_a_misspelt_one(self):
         calls = []
         self.pc.api = lambda method, path, body=None, token=None: calls.append((path, body)) or (200, {})
-        for kind in ("love", "🔥", "remove"):
+        for kind in ("love", "👀", "remove"):
             self.pc.react("cht_a", "msg_1", kind, self.creds)
         with self.assertRaises(SystemExit):
             self.pc.react("cht_a", "msg_1", "thumbsup", self.creds)
         self.assertEqual(calls, [("/v1/chats/cht_a/messages/msg_1/reactions", b) for b in (
             {"operation": "add", "type": "love"},
-            {"operation": "add", "type": "custom", "custom_emoji": "🔥"},
+            {"operation": "add", "type": "custom", "custom_emoji": "👀"},
             {"operation": "remove"})])
 
     def test_chat_that_appears_while_running_is_routed_not_swallowed(self):
