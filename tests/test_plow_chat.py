@@ -89,13 +89,16 @@ class PlowChatTest(unittest.TestCase):
         self.msgs.append({"uid": "msg_c", "direction": "inbound", "body": "and?",
                           "chat_uid": "cht_a", "created_at": "3", "sender": dan})
         self.pc.poll_chat(self.creds, "cht_a")
-        self.assertIn('\n(tapback in cht_a, not a new message: Dan loved your message msg_b: '
-                      '"Deploy now?")', self.sent[0])
+        self.assertIn('\n(earlier tapback in cht_a, separate from the new text above: Dan loved your message '
+                      'msg_b: "Deploy now?")', self.sent[0])
+        # The tapback rides with a real text, so it must never read as a verdict on it (10-06: "8*5" was skipped).
+        self.assertTrue(self.sent[0].split("\n")[1].startswith("[plowchat] from Dan in cht_a: and?"))
+        self.assertNotIn("not a new message", self.sent[0])
         self.assertNotIn("liked", self.sent[0], "history and the Boss's own tapback stay out")
         self.msgs.append({"uid": "msg_d", "direction": "inbound", "body": "?",
                           "chat_uid": "cht_a", "created_at": "4", "sender": dan})
         self.pc.poll_chat(self.creds, "cht_a")
-        self.assertNotIn("tapback in", self.sent[1])
+        self.assertNotIn("earlier tapback", self.sent[1])
 
     def test_the_agent_is_told_to_mark_his_message_seen_before_anything_else(self):
         """The owner wanted feedback the moment a text is seen, not after the ~30s turn: the line

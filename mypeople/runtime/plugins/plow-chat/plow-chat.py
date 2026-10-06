@@ -176,7 +176,9 @@ def note_tapbacks(msgs: list, chat_uid: str, seed: bool = True) -> int:
             verb = TAPBACKS.get(r.get("type")) or f"reacted {r.get('custom_emoji') or ''} to"
             # The type is in the key: turning a like into a heart may keep the reaction's uid.
             key = f"{r.get('uid')}:{r.get('type')}:{r.get('custom_emoji') or ''}"
-            live[key] = (f"tapback in {chat_uid}, not a new message: "
+            # It only ever rides along with a real text, so it must not read as a verdict on that text:
+            # "not a new message" under Patrick's "8*5" made the Boss skip a real question (10-06).
+            live[key] = (f"earlier tapback in {chat_uid}, separate from the new text above: "
                          f"{speaker(actor)} {verb} {whose(m)}")
     with STATE_LOCK:
         st = read_json(STATE, {})
