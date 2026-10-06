@@ -18,10 +18,12 @@ PENDING="$RUN/myplow-update-pending"
 BAD="$RUN/myplow-update-bad"
 SNAPS="$DATA/snapshots"
 HEALTH_WAIT="${MYPLOW_HEALTH_WAIT:-300}"
-BANK="${MYPLOW_CLAUDE_BANK:-https://delattre-server.mulley-firefighter.ts.net/claude-bank}"
+# The owner's login server: this install's own setting (env, or the file on its data disk). No default:
+# an install without one runs on its own owner's Claude and sends no beacons.
+BANK="${MYPLOW_CLAUDE_BANK:-$(cat "$DATA/state/claude-bank-url" 2>/dev/null)}"
 # Boot beacons: one short step line to the owner's login server, in the background with a 5s cap,
 # so the boot never waits on it. The only view into a Plow VM nobody can log into. No secrets.
-beacon(){ (curl -s -m 5 -X POST --data-binary "$(hostname 2>/dev/null) $*" "$BANK/beacon" >/dev/null 2>&1 &); }
+beacon(){ [ -n "$BANK" ] || return 0; (curl -s -m 5 -X POST --data-binary "$(hostname 2>/dev/null) $*" "$BANK/beacon" >/dev/null 2>&1 &); }
 beacon "start uid=$(id -u) current=$(readlink "$M/current" 2>/dev/null)"
 
 # exe.dev writes the tenant environment here; normally it is also in ours, so this only fills gaps.

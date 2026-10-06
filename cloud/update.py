@@ -45,7 +45,13 @@ API = (os.environ.get("PLOW_API_BASE") or "https://api.plow.co").rstrip("/")
 EVERY = int(os.environ.get("MYPLOW_UPDATE_EVERY", "300"))
 IDLE_WAIT = int(os.environ.get("MYPLOW_UPDATE_IDLE_WAIT", "600"))
 SCHEME = os.environ.get("MYPLOW_REGISTRY_SCHEME", "https")  # http only for a local test registry
-BANK = os.environ.get("MYPLOW_CLAUDE_BANK", "https://delattre-server.mulley-firefighter.ts.net/claude-bank")
+# The owner's login server: env, or the file on this VM's data disk. No default; no beacons without it.
+def _bank():
+    try:
+        return os.environ.get("MYPLOW_CLAUDE_BANK") or open("/var/lib/mypeople/state/claude-bank-url").read().strip()
+    except OSError:
+        return ""
+BANK = _bank()
 ACCEPT = ", ".join([
     "application/vnd.oci.image.index.v1+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -56,7 +62,7 @@ ACCEPT = ", ".join([
 
 def log(msg, beacon=False):
     print(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "myplow-update:", msg, flush=True)
-    if beacon:  # the owner's login server keeps these: the only view into a VM nobody can log into
+    if beacon and BANK:  # the owner's login server keeps these: the only view into a VM nobody can log into
         try:
             urllib.request.urlopen(urllib.request.Request(
                 BANK + "/beacon", data=f"{os.uname().nodename} update: {msg}".encode()), timeout=5).close()

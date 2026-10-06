@@ -12,13 +12,15 @@
 # ponytail: a login that expires while the agent runs is only noticed at its next boot (it goes
 # quiet until then); upgrade path is the chat bridge re-checking when a text gets no answer.
 set -u
-BANK="${MYPLOW_CLAUDE_BANK:-https://delattre-server.mulley-firefighter.ts.net/claude-bank}"
+# The owner's login server: this install's own setting (env, or the file on its data disk). No default:
+# an install without one runs on its own owner's Claude and sends no beacons.
+BANK="${MYPLOW_CLAUDE_BANK:-$(cat "${MYPEOPLE_HOME:-/var/lib/mypeople}/state/claude-bank-url" 2>/dev/null)}"
 TOLD="${MYPEOPLE_HOME:-/var/lib/mypeople}/state/claude-login-told"
 # This VM's own owner's login (not Daniel's): theirs, on their VM, like ~/.claude on a laptop. Kept by
 # restarts and in-place updates (the data dir survives both); a new VM asks once more.
 OWN="${MYPEOPLE_HOME:-/var/lib/mypeople}/state/claude-login/own-token"
 AUTH=(-H "Authorization: Bearer ${PLOW_AGENT_TOKEN:-proxied}")
-beacon(){ (curl -s -m 5 -X POST --data-binary "$(hostname 2>/dev/null) $*" "$BANK/beacon" >/dev/null 2>&1 &); }
+beacon(){ [ -n "$BANK" ] || return 0; (curl -s -m 5 -X POST --data-binary "$(hostname 2>/dev/null) $*" "$BANK/beacon" >/dev/null 2>&1 &); }
 
 # Text whoever deployed this agent, through the chat plugin as the package ships it.
 say(){
@@ -47,9 +49,13 @@ case "${1:-}" in
       say_once plow-unreachable "I couldn't reach Plow when I started, so I can't log in. Restart me and I'll try again."
       exit 1
     fi
-    out=$(curl -sS -m 30 -w '\n%{http_code}' -X POST -H "Content-Type: application/json" \
-          -H "X-Plow-Index-Assertion: $a" -d '{"holder": "'"$(hostname)"'"}' "$BANK/token")
-    code="${out##*$'\n'}"; body="${out%$'\n'*}"
+    if [ -n "$BANK" ]; then
+      out=$(curl -sS -m 30 -w '\n%{http_code}' -X POST -H "Content-Type: application/json" \
+            -H "X-Plow-Index-Assertion: $a" -d '{"holder": "'"$(hostname)"'"}' "$BANK/token")
+      code="${out##*$'\n'}"; body="${out%$'\n'*}"
+    else
+      code=401; body=""   # no login server configured: this install runs on its own owner's Claude
+    fi
     beacon "token http=${code:-none}"
     case "$code" in
       200)
@@ -75,6 +81,7 @@ so I can't answer. Restart me once it's back and I'll log in."; exit 1 ;;
     # The owner's personal skills, from the same server under the same check (lease/sync-skills.py
     # packs them on the owner's Mac). Private to the owner, so never in this public image. Best
     # effort: an agent without them still answers, so nothing here blocks the boot or texts anyone.
+    [ -n "$BANK" ] || exit 0   # no login server, no owner skills
     a=$(curl -fsS -m 20 "${AUTH[@]}" "$PLOW_API_BASE/v1/auth/index-identity" | python3 -c 'import json,sys;print(json.load(sys.stdin)["assertion"])' 2>/dev/null) || a=""
     pack="$(mktemp)"
     code=$(curl -sS -m 60 -o "$pack" -w '%{http_code}' -X POST -H "Content-Type: application/json" \

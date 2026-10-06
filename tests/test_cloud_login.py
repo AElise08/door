@@ -50,6 +50,30 @@ esac""")
         return subprocess.run(["bash", str(self.script), "fetch"], capture_output=True, text=True,
                               env=dict(self.env, BANK_STATUS=str(bank)), timeout=60)
 
+    def test_the_login_server_can_come_from_the_install_s_own_file(self):
+        """No built-in login server (the repo is public): an install names its own, by env or by a file on its
+        data disk that in-place updates keep. Daniel's cloud MyPlow carries the file."""
+        self.env.pop("MYPLOW_CLAUDE_BANK")
+        (self.td / "data" / "state").mkdir(parents=True, exist_ok=True)
+        (self.td / "data" / "state" / "claude-bank-url").write_text("http://bank\n")
+        r = self.fetch(200)
+        self.assertEqual(0, r.returncode)
+        self.assertTrue(r.stdout.startswith("sk-ant-oat01-daniels-"))
+
+    def test_without_a_login_server_an_install_uses_its_own_owner_s_login(self):
+        self.env.pop("MYPLOW_CLAUDE_BANK")
+        r = self.fetch(200)   # a /token answer would be Daniel's: it must never be asked for
+        self.assertEqual(0, r.returncode)
+        self.assertFalse(r.stdout.startswith("sk-ant-oat01-daniels-"))
+        self.assertTrue(Path(self.env["ASKED"]).exists())
+
+    def test_no_cloud_script_carries_a_login_server_default(self):
+        for f in (ROOT / "cloud").iterdir():
+            if f.is_file():
+                text = f.read_text(errors="replace")
+                self.assertNotRegex(text, r"MYPLOW_CLAUDE_BANK:-https?://", f.name)
+                self.assertNotIn(".ts.net", text, f.name)
+
     def test_daniels_agents_keep_his_login_and_never_ask(self):
         r = self.fetch(200)
         self.assertEqual(0, r.returncode)

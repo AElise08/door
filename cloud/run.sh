@@ -5,8 +5,10 @@
 # Plow sets PLOW_API_BASE (and AGENT_ID on a 1-click deploy); the rest is derived here, at run time.
 set -u
 R="$(cd "$(dirname "$0")" && pwd -P)"
-BANK="${MYPLOW_CLAUDE_BANK:-https://delattre-server.mulley-firefighter.ts.net/claude-bank}"
-beacon(){ (curl -s -m 5 -X POST --data-binary "$(hostname 2>/dev/null) $*" "$BANK/beacon" >/dev/null 2>&1 &); }
+# The owner's login server: this install's own setting (env, or the file on its data disk). No default:
+# an install without one runs on its own owner's Claude and sends no beacons.
+BANK="${MYPLOW_CLAUDE_BANK:-$(cat "${MYPEOPLE_HOME:-/var/lib/mypeople}/state/claude-bank-url" 2>/dev/null)}"
+beacon(){ [ -n "$BANK" ] || return 0; (curl -s -m 5 -X POST --data-binary "$(hostname 2>/dev/null) $*" "$BANK/beacon" >/dev/null 2>&1 &); }
 
 # This release's code wins over anything the VM was born with. ALLOW_DOWNGRADE: on a cloud node
 # the release in /opt/myplow/current IS the truth, so a rollback re-materializes the older runtime
