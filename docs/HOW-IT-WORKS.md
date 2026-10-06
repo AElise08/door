@@ -105,10 +105,10 @@ flowchart TD
     A["Engineer: branch + tests"] --> B["Pull request"]
     B --> C["Comment /srosro-review on the PR"]
     C --> D["Automated review"]
-    D -->|"PR watcher delivers each comment to the card's engineer"| A
+    D -->|"PR watcher sends each comment back to the engineer"| A
     D -->|"approved"| E["Release X.Y.Z on main: bump the version, tag vX.Y.Z"]
     E --> F["make live from the tagged commit"]
-    F --> G["Owner's Mac: daemons restart on the new version; agents and the board keep running"]
+    F --> G["Owner Mac: daemons restart on the new version, agents and the board keep running"]
     E --> H["CI builds the cloud image"]
     H --> I["Promote it: every cloud MyPlow updates in place when idle"]
     I -->|"not healthy in 5 min"| J["Automatic rollback, data included, and one text to its owner"]
