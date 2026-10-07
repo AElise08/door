@@ -93,6 +93,48 @@ it is addressed**: start a message with "Door," or "@door".
 - **Settings, from anywhere.** Budget and model apply at once. Adding or removing a project, and what tasks may do, wait for your YES by
   text, and your Mac checks every change again. The cloud only ever sees project names, never folder paths.
 
+### Commands
+Commands are not case-sensitive. Anything that is not a command is a request: a question gets an answer, something to do becomes a task.
+
+**Texted to your Door number (owner, private chat)**
+
+| Command | What it does |
+|---|---|
+| `Door Activate: <code>` | Makes you the owner. Once, with the code your Door agent shows. |
+| `Door Pair: <code>` | Connects your Mac. The code comes from the installer or `door pair`. |
+| `YES <code>` / `NO <code>` | Approves or refuses what Door asked: a request, a risky step of a task, letting someone do tasks, a settings change, a merge. |
+| `Door Link <name>` | A chat link for someone: it opens on one device and expires. |
+| `Door Invite <name>` | A code that person texts to the Door number to join. |
+| `Door Guests` | Who has access and what they may do. |
+| `Door Revoke <name>` | Takes someone's access away. |
+| `Door Merge` | Shows Door's work that is not in your project yet, and merges it after your `YES`. |
+| `Door Panel` | A sign-in link to the panel (board, people, settings). |
+| `Door Pause` / `Door Resume` | Stops answering everyone / starts again. |
+| `Door Queue` | How many requests are waiting for your approval. |
+| `Door Today` | Requests today and this month's spend. |
+| `Door Help` | This list, by text. |
+
+**In a group** (the Door number is a member)
+
+| Command | Who | What it does |
+|---|---|---|
+| `Door Allow` | owner | Door introduces itself and the people in the group may ask questions. |
+| `Door Trust <name>` | owner | Lets that person have things done; you confirm with `YES <code>` in your private chat. |
+| `Door Stop` | owner | Door stops answering in this group. People already in keep their access. |
+| `Door, <question or task>` | anyone allowed | Door answers only when addressed: `Door,` · `Door:` · `@door` · `hey door` / `oi door`. Two `Door,` in one message are two requests. |
+| `Door, help` | anyone | What that person can ask, without a model call. |
+
+**On the Mac (Terminal)**
+
+| Command | What it does |
+|---|---|
+| `door doctor` | Checks everything and says what to fix. |
+| `door pair` | A new pairing code (10 minutes, single use). |
+| `door pause` / `door resume` | The same as by text, from the Mac. |
+| `door audit` | The latest entries of the local log (who asked what, what was approved, what changed). |
+| `door login claude` | Signs Door in to your own Claude account. |
+| `git log main..door/work` | Door's work not yet in the project (the same thing `Door Merge` shows). |
+
 ### Set it up
 About 5 minutes on a Mac (plus the Plow Latch download, about 450 MB, if it is not there yet).
 
@@ -276,6 +318,48 @@ chamado**: comece a mensagem com "Door," ou "@door".
 - **Juntar o trabalho do Door no seu projeto.** Mande `Door Merge` (ou aperte *Merge into main* no quadro): o Door lista as mudanças e os arquivos, pede o seu YES por mensagem e só junta se a sua pasta não tiver alterações pendentes e não houver conflito. Até lá, tudo fica na `door/work`.
 - **Settings, de qualquer lugar.** Orçamento e modelo valem na hora. Adicionar ou remover um projeto, e o que as tarefas podem fazer, esperam
   o seu YES por mensagem, e o seu Mac confere cada mudança de novo. A nuvem só vê os nomes dos projetos, nunca os caminhos das pastas.
+
+### Comandos
+Os comandos não ligam para maiúsculas e minúsculas. O que não for comando é um pedido: pergunta recebe resposta, algo para fazer vira tarefa.
+
+**Mandados para o número do Door (dona, no privado)**
+
+| Comando | O que faz |
+|---|---|
+| `Door Activate: <código>` | Faz de você a dona. Uma vez, com o código que o seu agente Door mostra. |
+| `Door Pair: <código>` | Conecta o seu Mac. O código vem do instalador ou do `door pair`. |
+| `YES <código>` / `NO <código>` | Aprova ou recusa o que o Door perguntou: um pedido, um passo arriscado de uma tarefa, liberar tarefas para alguém, uma mudança de configuração, um merge. |
+| `Door Link <nome>` | Um link de chat para alguém: abre em um aparelho e vence. |
+| `Door Invite <nome>` | Um código que a pessoa manda para o número do Door para entrar. |
+| `Door Guests` | Quem tem acesso e o que pode fazer. |
+| `Door Revoke <nome>` | Tira o acesso de alguém. |
+| `Door Merge` | Mostra o trabalho do Door que ainda não está no projeto e junta depois do seu `YES`. |
+| `Door Panel` | Um link de entrada no painel (quadro, pessoas, configurações). |
+| `Door Pause` / `Door Resume` | Para de responder todo mundo / volta. |
+| `Door Queue` | Quantos pedidos esperam a sua aprovação. |
+| `Door Today` | Pedidos de hoje e o gasto do mês. |
+| `Door Help` | Esta lista, por mensagem. |
+
+**Num grupo** (o número do Door é membro)
+
+| Comando | Quem | O que faz |
+|---|---|---|
+| `Door Allow` | dona | O Door se apresenta e as pessoas do grupo podem fazer perguntas. |
+| `Door Trust <nome>` | dona | Libera tarefas para essa pessoa; você confirma com `YES <código>` no seu privado. |
+| `Door Stop` | dona | O Door para de responder neste grupo. Quem já entrou mantém o acesso. |
+| `Door, <pergunta ou tarefa>` | quem tem acesso | O Door só responde quando é chamado: `Door,` · `Door:` · `@door` · `hey door` / `oi door`. Dois `Door,` na mesma mensagem são dois pedidos. |
+| `Door, help` | qualquer pessoa | O que aquela pessoa pode pedir, sem chamar o modelo. |
+
+**No Mac (Terminal)**
+
+| Comando | O que faz |
+|---|---|
+| `door doctor` | Confere tudo e diz o que resolver. |
+| `door pair` | Um código de pareamento novo (10 minutos, uso único). |
+| `door pause` / `door resume` | O mesmo que por mensagem, pelo Mac. |
+| `door audit` | As últimas linhas do registro local (quem pediu o quê, o que foi aprovado, o que mudou). |
+| `door login claude` | Conecta o Door à sua própria conta Claude. |
+| `git log main..door/work` | O trabalho do Door que ainda não está no projeto (o mesmo que o `Door Merge` mostra). |
 
 ### Como instalar
 Uns 5 minutos num Mac (mais o download do Plow Latch, uns 450 MB, se ainda não estiver instalado).
