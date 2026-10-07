@@ -54,11 +54,25 @@ STATUS = {
 }
 
 
-def task_reply(request_text, run, verdict, reason, limit):
-    """The agent's own words first, then one short line of what Door itself established."""
-    L = STATUS[lang(request_text)]
+OWNER_UNVERIFIED = {"en": "Door could not confirm this does what you asked{reason}. Take a look at branch {branch}.",
+                    "pt": "O Door não conseguiu confirmar que isso faz o que você pediu{reason}. Dá uma olhada na branch {branch}."}
+OWNER_FAILED = {"en": "Door's checks did NOT pass ({checks}). Take a look at branch {branch}.",
+                "pt": "As verificações do Door NÃO passaram ({checks}). Dá uma olhada na branch {branch}."}
+
+
+def task_reply(request_text, run, verdict, reason, limit, to_owner=False):
+    """The agent's own words first, then one short line of what Door itself established. The status line follows the language of what the
+    agent wrote (that is what the person is reading), else of the request; the owner is spoken to directly."""
+    summary_lang = lang(run.get("summary") or "") if len((run.get("summary") or "").split()) >= 6 else None
+    lg = summary_lang or lang(request_text)
+    L = dict(STATUS[lg])
+    if to_owner:
+        L = dict(L, unverified=OWNER_UNVERIFIED[lg], failed_checks=OWNER_FAILED[lg])
+        for k in ("verified", "checks_passed"):
+            L[k] = L[k].replace("esperando o dono", "esperando você").replace("for the owner", "for you")
     files = ", ".join(run["changed_files"][:6]) + (" …" if len(run["changed_files"]) > 6 else "")
     checks = "; ".join("%s %s" % (p["cmd"], "ok" if p["rc"] == 0 else "FAILED") for p in run["proof"])
+    reason = (reason or "").strip().rstrip(".")
     fill = {"files": files or "-", "branch": run.get("branch") or "-", "reason": (": " + reason) if reason else "",
             "checks": L["checks_ok"].format(checks=checks) if checks else L["independent"]}
     if verdict in ("failed_checks", "checks_passed"):

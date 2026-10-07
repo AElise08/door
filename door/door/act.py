@@ -49,6 +49,22 @@ def _paths_in(inp: dict):
     return [v for k, v in (inp or {}).items() if k in ("file_path", "path", "notebook_path", "directory") and isinstance(v, str)]
 
 
+HEREDOC = re.compile(r"^\s*cat\s*>>?\s*(?P<file>\S+)\s*<<-?\s*['\"]?(?P<tag>\w+)['\"]?")
+
+
+def _describe_command(cmd):
+    """What the owner is asked to allow, in a sentence: a file being written is "Create the file X (N lines)", not the file's first words."""
+    m = HEREDOC.match(cmd)
+    if m:
+        lines = max(0, len(cmd.splitlines()) - 2)
+        return "Write the file %s (%d line%s)" % (m["file"], lines, "" if lines == 1 else "s")
+    one = " ".join(cmd.split())
+    first = cmd.strip().splitlines()[0].strip() if cmd.strip() else ""
+    if len(cmd.strip().splitlines()) > 1:
+        return "Run: %s … (%d more lines)" % (first[:150], len(cmd.strip().splitlines()) - 1)
+    return "Run: " + (one if len(one) <= 200 else one[:197] + "…")
+
+
 OPEN_CMD = re.compile(r"^\s*open(\s+-[a-zA-Z]+(\s+\S+)?)*\s+(?P<target>\S+)\s*$")
 
 
@@ -91,7 +107,7 @@ def judge(tool: str, inp: dict, worktree: Path, allow_commands, bash: str, open_
             return "deny", "That command is too risky to run."
         if not SHELL_META.search(cmd) and any(cmd == c or cmd.startswith(c + " ") for c in allow_commands):
             return "allow", ""
-        return "ask", "Run: " + " ".join(cmd.split())[:200]
+        return "ask", _describe_command(cmd)
     return "ask", "%s %s" % (tool, json.dumps(inp or {}, ensure_ascii=False)[:160])
 
 

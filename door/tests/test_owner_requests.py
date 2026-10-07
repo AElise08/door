@@ -88,3 +88,16 @@ class HostRejections(Base):
         self.assertIn("door-host audit", self.texts("ot")[-1])
         before = len(self.texts("ot")); self.say(ANA, "And the license?"); self.c.dispatch(Blocked())
         self.assertEqual(len(self.texts("ot")), before)          # the owner is told once a day, not once per question
+
+
+class OwnerStepMessages(Base):
+    def test_the_owner_is_asked_in_the_second_person_and_not_told_they_are_being_waited_for(self):
+        self.owner = lambda text: self.c.receive(ulid(), OWNER, THREAD, text)
+        self.owner("create a notes file")
+        (r,) = self.c.s["requests"].values()
+        self.c._note_actions(r, [{"id": "a1", "tool": "Bash", "summary": "Write the file NOTES.md (3 lines)", "at": 0}])
+        out = self.texts(THREAD)
+        step = [t for t in out if "wants to" in t][0]
+        self.assertIn("Your task wants to: Write the file NOTES.md", step); self.assertNotIn("You's", step); self.assertNotIn("127.0.0.1", step)
+        self.assertFalse([t for t in out if "Waiting for the owner" in t])
+        self.assertFalse([t for t in self.texts(r["thread_id"]) if "Waiting for the owner" in t])

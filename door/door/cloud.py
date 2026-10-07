@@ -210,9 +210,14 @@ class Cloud:
                 continue
             code = secrets.choice(free); used.add(code)
             seen[a["id"]] = {"id": a["id"], "tool": a["tool"], "summary": str(a["summary"])[:300], "code": code, "at": self.clock(), "decided": None}
-            self._sms(self.s["owner_thread"], "Door: %s's task wants to: %s. Reply YES %s to allow or NO %s to refuse. %s" % (
-                guest.get("display_name") or "A guest", str(a["summary"])[:200], code, code, self.panel_url), "action:%s:%s" % (r["request_id"], a["id"]))
-            self._sms(r["thread_id"], "Waiting for the owner to approve a step.", r["request_id"] + ":waiting")
+            pt = self.s.get("owner_lang") == "pt"
+            whose = ("Sua tarefa" if pt else "Your task") if guest.get("owner") else (("A tarefa de %s" if pt else "%s's task") % (guest.get("display_name") or ("alguém" if pt else "A guest")))
+            link = "" if "127.0.0.1" in self.panel_url or "localhost" in self.panel_url else " " + self.panel_url      # a link to your own Mac is useless on a phone
+            text = (("Door: %s quer: %s. Responda YES %s para permitir ou NO %s para recusar.%s") if pt else
+                    ("Door: %s wants to: %s. Reply YES %s to allow or NO %s to refuse.%s")) % (whose, str(a["summary"])[:200], code, code, link)
+            self._sms(self.s["owner_thread"], text, "action:%s:%s" % (r["request_id"], a["id"]))
+            if not guest.get("owner"):                                  # the owner does not need to be told they are being waited for
+                self._sms(r["thread_id"], "Waiting for the owner to approve a step.", r["request_id"] + ":waiting")
 
     def _approval_mode(self, guest):
         return guest.get("approval") or self.s["settings"]["approval"]
@@ -902,6 +907,8 @@ class Cloud:
                 return
             req["guest_limits"] = guest["limits"]
             req["guest_level"] = guest.get("level", "ask")
+            if guest.get("owner"):
+                req["to_owner"] = True                  # the Mac words the result as talking to the owner, not about "the owner"
             req["history"] = self._history_for(r["guest_id"], r)
             payload, sig = encode(self.s["private"], req)
             rid = r["request_id"]

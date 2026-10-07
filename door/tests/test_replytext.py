@@ -39,3 +39,27 @@ class PhoneReplies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OwnerMessages(unittest.TestCase):
+    def test_the_real_reply_to_the_owner_that_read_badly(self):
+        run = {"summary": "Criei o Door.md com uma explicação curta do que o Door é e do que ele faz neste projeto, a partir do README.", "changed_files": ["Door.md"],
+               "proof": [], "branch": "door/n4k7", "error": None}
+        t = task_reply("Hi, create a file called Door.md and explain u", run, "unverified", "the request is truncated, so the deliverable is unclear.", 1500, to_owner=True)
+        self.assertIn("Dá uma olhada na branch door/n4k7", t)            # the language of what the agent wrote, and spoken to the owner
+        self.assertNotIn("The owner will", t); self.assertNotIn("..", t)
+        t2 = task_reply("create a notes file", {"summary": "I added NOTES.md with the notes.", "changed_files": ["NOTES.md"], "proof": [], "branch": "door/x", "error": None},
+                        "unverified", "", 1500, to_owner=True)
+        self.assertIn("Take a look at branch door/x", t2)
+        g = task_reply("create a notes file", {"summary": "I added NOTES.md with the notes.", "changed_files": ["NOTES.md"], "proof": [], "branch": "door/x", "error": None},
+                       "unverified", "", 1500)
+        self.assertIn("The owner will look at branch door/x", g)         # a guest is still told the owner will look
+
+
+class StepMessages(unittest.TestCase):
+    def test_a_file_being_written_is_described_not_dumped(self):
+        from door.act import _describe_command
+        self.assertEqual(_describe_command("cat > Door.md <<'EOF'\n# Door\nline\nmore\nEOF"), "Write the file Door.md (3 lines)")
+        self.assertTrue(_describe_command("npm install\nnpm test").startswith("Run: npm install … (1 more lines)"))
+        self.assertEqual(_describe_command("git status"), "Run: git status")
+        self.assertLessEqual(len(_describe_command("echo " + "x" * 500)), 210)
