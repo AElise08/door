@@ -2,7 +2,7 @@
 and Door's own status line in the language the person wrote in."""
 import re
 
-PT_HINTS = re.compile(r"[ãõçáéíóúâêô]|\b(não|nao|você|voce|uma?|projeto|arquivo|verifica|acessa|cria|faz|faça|que|para|com|isso|está|esta|oi|gente|vou|aqui|tudo|esse|essa|meu|minha|de|da|das|dos|na|em|eu|ele|ela|obrigad\w*|tambem|também|pra|tá|ta)\b", re.I)
+PT_HINTS = re.compile(r"[ãõçáéíóúâêô]|\b(não|nao|você|voce|uma?|projeto|arquivo|verifica|acessa|cria|faz|faça|que|para|com|isso|está|esta|oi|gente|vou|aqui|tudo|esse|essa|meu|minha|de|da|das|dos|na|em|eu|ele|ela|obrigad\w*|tambem|também|pra|tá|ta|entao|então|amanha|amanhã|tu|teste|finaliza|finalizar|desligar|pro|mas|mais|seu|sua|bom|boa|agora|hoje|ontem|favor|arquivo|cria|crie)\b", re.I)
 
 
 def lang(text):
@@ -64,6 +64,21 @@ OWNER_FAILED = {"en": "Door's checks did NOT pass ({checks}). Take a look at bra
                 "pt": "As verificações do Door NÃO passaram ({checks}). Dá uma olhada na branch {branch}."}
 
 
+LIMIT_RE = re.compile(r"(?is)(session limit|usage limit|rate limit|limite de uso|limit reached)")
+RESETS_RE = re.compile(r"(?is)resets?\s+(?:at\s+)?([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)?(?:\s*\([^)]*\))?)")
+
+
+def friendly_error(error, lg):
+    """The one case people hit often: the Claude account's own usage limit. Said once, plainly, with when it comes back."""
+    if not error or not LIMIT_RE.search(error):
+        return None
+    when = RESETS_RE.search(error)
+    when = when.group(1).strip() if when else None
+    if lg == "pt":
+        return "O limite de uso do Claude da sua conta foi atingido" + (", volta às %s" % when if when else "") + ". A tarefa vai funcionar de novo depois disso."
+    return "The usage limit of your Claude account was reached" + (", it resets at %s" % when if when else "") + ". Tasks will work again after that."
+
+
 def task_reply(request_text, run, verdict, reason, limit, to_owner=False):
     """The agent's own words first, then one short line of what Door itself established. The status line follows the language of what the
     agent wrote (that is what the person is reading), else of the request; the owner is spoken to directly."""
@@ -82,8 +97,13 @@ def task_reply(request_text, run, verdict, reason, limit, to_owner=False):
     if verdict in ("failed_checks", "checks_passed"):
         fill["checks"] = checks or "-"
     key = verdict if verdict in L else "error"
+    nice = friendly_error(run.get("error") or run.get("summary"), lang(request_text)) if key == "error" else None      # the error text itself is English: use the person's language
+    if nice:
+        return nice                                                    # the whole message: no repeated copy of the same error
     if key == "error":
         fill["reason"] = (": " + run["error"]) if run.get("error") else ""
+        if run.get("error") and run["error"].strip() in (run.get("summary") or ""):
+            run = dict(run, summary="")                                # the agent's text IS the error: do not say it twice
     status = L[key].format(**fill)
     body = clip(plain(run.get("summary") or ""), max(200, limit - len(status) - 2))
     return (body + "\n\n" + status).strip() if body else status

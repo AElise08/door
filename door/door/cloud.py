@@ -36,6 +36,10 @@ CONVO_KEEP, CONVO_WINDOW_S, CONVO_CHARS, CONVO_ITEMS = 40, 7 * 86400, 6000, 12
 NEW_CHAT = {"NEW", "RESET", "NEW CHAT", "START OVER", "CLEAR"}
 OWNER_NAME_CMD = re.compile(r"(?is)door\s+(invite|link|revoke)(?:\s+(.{1,60}))?")
 QUESTION_START = re.compile(r"(?is)^(what|how|why|where|who|when|which|can|could|does|do you|is|are|will|should|qual|quais|como|por ?que|onde|quem|quando|o que|pode|existe|tem)\b")
+# The first word of a plain request that a person trusted with tasks means as a task ("create ...", "fix ...", "cria ...").
+TASK_VERB_RE = re.compile(r"(?is)^\s*(?:(?:please|por favor|pf)\s+)?(?:create|add|fix|change|update|remove|delete|write|make|build|rename|refactor|implement|open|run|"
+                          r"cria|crie|criar|adiciona|adicione|corrige|corrija|conserta|conserte|muda|mude|atualiza|atualize|remove|apaga|apague|escreve|escreva|"
+                          r"faz|faça|faca|abre|abra|renomeia|renomeie|implementa|implemente|coloca|coloque)\b")
 TASK_RE = re.compile(r"(?is)^\s*(?:do|task)\s*:\s*(.+)$")
 LEVELS = ("ask", "act")
 MAX_JOBS = 200
@@ -520,7 +524,7 @@ class Cloud:
             return
         added = self._authorize_members(thread, members)
         self.s["open_groups"][thread] = {"at": self.clock()}
-        self._sms(thread, self._intro(), "group-on:" + thread)
+        self._sms(thread, self._intro(), "group-on:%s:%d" % (thread, int(self.clock())))      # each time it is turned on, it introduces itself again
         if added:
             self._sms(self.s["owner_thread"], "Door: you opened a group; %d people were added as guests." % len(added))
 
@@ -652,6 +656,9 @@ class Cloud:
         task = TASK_RE.match(text) if kind == "chat" else None
         if task:
             text, kind = task.group(1).strip(), "task"
+        elif (kind == "chat" and guest.get("level") == "act" and self.s["summary"].get("act_agent")
+              and not text.rstrip().endswith("?") and TASK_VERB_RE.match(text)):
+            kind = "task"                          # someone trusted with tasks who writes "create a file ..." means a task: no "Do:" needed
         if re.fullmatch(r"(YES|NO) \d{4}", norm_text(text)):              # an approval code typed by a guest is not a question for the agent
             self._sms(thread, "Só a dona pode responder isso." if self.s.get("owner_lang") == "pt" else "Only the owner can answer that.")
             return

@@ -83,3 +83,19 @@ class OpeningThingsOnScreen(unittest.TestCase):
         self.assertIn("não conseguiu confirmar que uma janela apareceu", no); self.assertNotIn("confirmou:", no)
         en = task_reply("open the README on my screen please", dict(self.RUN, summary="I opened README.md.", opened_apps=["Cursor"]), "opened", "", 1500)
         self.assertIn("Door confirmed it: a window of Cursor appeared", en)
+
+
+class UsageLimit(unittest.TestCase):
+    def test_the_real_limit_message_is_said_once_and_plainly(self):
+        err = "You've hit your session limit · resets 11:20pm (America/Belem)"
+        run = {"summary": err, "changed_files": [], "proof": [], "branch": None, "error": err}
+        pt = task_reply("Vou desligar o Mac entao amanha tu finaliza o teste", run, "incomplete", "", 1500, to_owner=True)
+        self.assertEqual(pt.count("11:20pm"), 1); self.assertTrue(pt.startswith("O limite de uso do Claude da sua conta foi atingido, volta às 11:20pm (America/Belem)"))
+        self.assertNotIn("session limit", pt)
+        en = task_reply("please add a footer to the page", run, "incomplete", "", 1500)
+        self.assertEqual(en.count("11:20pm"), 1); self.assertIn("usage limit of your Claude account was reached, it resets at 11:20pm", en)
+
+    def test_other_errors_are_not_said_twice(self):
+        run = {"summary": "git exploded badly", "changed_files": [], "proof": [], "branch": None, "error": "git exploded badly"}
+        t = task_reply("add a footer to the page", run, "incomplete", "", 1500)
+        self.assertEqual(t.count("git exploded badly"), 1)

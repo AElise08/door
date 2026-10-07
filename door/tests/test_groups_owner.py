@@ -44,7 +44,7 @@ class OwnerInGroups(Base):
         self.assertIn("can now ask me to do things", self.sms("g")[-1])
         self.send(ANA, "Door, add a footer to index.html", "g", True, G)               # plain words from a guest are still a question...
         self.send(ANA, "Door, do: add a footer to index.html", "g", True, G)          # ...and "Do:" makes it a task, now allowed
-        self.assertEqual([r["capability"] for r in self.c.s["requests"].values() if r["guest_id"] == self.guest(ANA)["guest_id"]], ["ask", "act"])
+        self.assertEqual([r["capability"] for r in self.c.s["requests"].values() if r["guest_id"] == self.guest(ANA)["guest_id"]], ["act", "act"])
 
     def test_trust_one_person_by_number_and_refuse_strangers(self):
         self.send(OWNER, "Door Allow", "g", True, G)
@@ -128,3 +128,38 @@ class QuietUnlessAddressed(Base):
         self.assertIn('Start a message with "Door,"', self.sms("g")[-1])
         self.c.s["owner_lang"] = "pt"; self.send(OWNER, "Door Allow", "g2", True, G)
         self.assertIn('Comecem a mensagem com "Door,"', self.sms("g2")[-1])
+
+
+class TrustedPeopleJustAsk(Base):
+    """What happened in the first real group: a trusted friend wrote "DOOR: create a file test.md" and was told Door only answers questions."""
+    def setUp(self):
+        super().setUp(); self.c.s["summary"] = dict(self.c.s["summary"], act_agent="dev", alias="door"); self.c.s["settings"]["approval"] = "auto"
+        self.send(OWNER, "Door Allow", "g", True, G)
+        for g in self.c.s["guests"].values(): g["limits"]["max_open_requests"] = 10
+
+    def kinds(self, who):
+        return [r["capability"] for r in self.c.s["requests"].values() if r["guest_id"] == self.guest(who)["guest_id"]]
+
+    def trust(self, who):
+        self.guest(who)["level"] = "act"
+
+    def test_a_trusted_guest_asking_for_a_change_gets_a_task_without_do(self):
+        self.trust(ANA)
+        for text in ("DOOR: create a file test.md", "Door, add a footer to index.html", "door, cria um arquivo NOTAS.md", "Door, please fix the login bug"):
+            self.send(ANA, text, "g", True, G)
+        self.assertEqual(self.kinds(ANA), ["act"] * 4)
+
+    def test_questions_and_chat_from_a_trusted_guest_stay_questions(self):
+        self.trust(ANA)
+        for text in ("Door, how do I create a file?", "Door, where is the footer added?", "Door, thanks!", "Door, what changed?"):
+            self.send(ANA, text, "g", True, G)
+        self.assertEqual(self.kinds(ANA), ["ask"] * 4)
+
+    def test_a_guest_without_tasks_is_never_given_one(self):
+        self.send(BOB, "Door, create a file test.md", "g", True, G)
+        self.assertEqual(self.kinds(BOB), ["ask"])
+
+    def test_every_door_allow_introduces_door_again(self):
+        first = [t for t in self.sms("g") if "Door" in t]
+        self.send(OWNER, "Door Stop", "g", True, G); self.send(OWNER, "Door Allow", "g", True, G)
+        self.assertTrue([t for t in self.sms("g") if "I'm Door" in t])
