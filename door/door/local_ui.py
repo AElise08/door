@@ -113,6 +113,8 @@ button{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-
 .tabs{display:flex;gap:4px;margin:0 0 22px;border-bottom:1px solid var(--line)}.tabs button{all:unset;cursor:pointer;padding:8px 12px;color:var(--mut)}.tabs button.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg)}
 .box{background:var(--side);border-radius:10px;padding:16px 18px;margin:0 0 16px}.box h3{margin:0 0 4px;font-size:15px}.box p.mut{margin:0 0 12px}
 input,select,textarea{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font:inherit}textarea{width:100%;min-height:64px;font:13px ui-monospace,Menlo,monospace}
+.picker{border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:10px;margin-top:10px}.picker .it{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:6px;cursor:pointer}.picker .it:hover{background:var(--side)}
+.picker .git{font-size:11.5px;padding:0 7px;border-radius:99px;background:#1f7a4d22;color:var(--ok)}#plist{max-height:260px;overflow:auto}.grow{flex:1}
 .proj{display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}.proj:last-child{border:0}.proj code{color:var(--mut);font-size:12.5px;overflow-wrap:anywhere;flex:1}
 label.opt{display:flex;gap:8px;align-items:flex-start;margin:6px 0}label.opt span{color:var(--mut);font-size:12.5px;display:block}
 .msg{padding:8px 12px;border-radius:6px;margin:0 0 14px;font-size:13px}.msg.ok{background:#1f7a4d1f;color:var(--ok)}.msg.bad{background:#c0392b1f;color:var(--bad)}
@@ -131,7 +133,8 @@ code.cmd{display:block;background:var(--bg);border:1px solid var(--line);border-
 <div id="smsg"></div>
 <div class="box"><h3>Projects people can ask about</h3><p class="mut">Door shares a clean copy of the committed files (no .env, keys or secrets folders). Add the folder of a git project.</p>
   <div id="projects"></div>
-  <form class="row" id="addp" style="margin-top:10px"><input id="ppath" placeholder="/Users/you/code/my-app" style="flex:1;min-width:260px" required><button class="go">Add project</button></form></div>
+  <form class="row" id="addp" style="margin-top:10px"><input id="ppath" placeholder="/Users/you/code/my-app" style="flex:1 1 380px;min-width:260px" required><button type="button" id="pick">Choose folder…</button><button class="go">Add project</button></form>
+  <div id="picker" class="picker" hidden><div class="row" style="margin-bottom:6px"><button type="button" id="pup">↑ Up</button><code id="pcur" class="mut"></code><span class="grow"></span><button type="button" class="go" id="puse">Use this folder</button><button type="button" id="pclose">Close</button></div><div id="plist"></div></div></div>
 <div class="box"><h3>Tasks: having things done</h3><p class="mut" id="where"></p>
   <label class="opt"><input type="checkbox" id="ten"><div>Let people I trust have things done<span>They are trusted one by one in the panel, or with Door Trust in a group.</span></div></label>
   <div id="tmore">
@@ -211,7 +214,9 @@ function showSettings(d){
   const k = $('mkey'); k.textContent = '';
   if(d.model.keychain_item){ k.appendChild(el('div','mut','Store the key in the Keychain once (Terminal; it asks for the key without showing it):'));
     k.appendChild(el('code','cmd','security add-generic-password -U -a "$USER" -s ' + d.model.keychain_item + ' -w')); }
-  if(d.model.access === 'claude-login'){ k.appendChild(el('div','mut','Sign in once, in Terminal:')); k.appendChild(el('code','cmd','door-host login claude')); }
+  if(d.model.access === 'claude-login'){ k.appendChild(el('div','mut','Sign in once with your Claude account. A Terminal window opens and guides you.'));
+    const b = el('button','go','Sign in with Claude…'); b.style.marginTop = '8px'; b.onclick = () => terminal('login:claude'); k.appendChild(b); }
+  if(d.model.keychain_item){ const b2 = el('button','go','Store the key in the Keychain…'); b2.style.marginTop = '8px'; b2.onclick = () => terminal('keychain:' + d.model.keychain_item); k.appendChild(b2); }
   const rs = $('mrestart'); rs.textContent = '';
   if(d.restart_needed){ const b = el('button','go','Restart Door now'); b.style.marginTop = '10px';
     b.onclick = async () => { const r = await fetch('/api/restart',{method:'POST',headers:{'Content-Type':'application/json','X-Door-Local':'1'},body:'{}'}); const x = await r.json().catch(() => ({}));
@@ -225,6 +230,15 @@ $('tsave').onclick = () => change({op:'tasks.set', enabled:$('ten').checked, pro
   allow_commands:lines($('tcmds')), checks:lines($('tchecks'))}, $('ten').checked ? 'Tasks saved.' : 'Tasks are off.');
 $('msave').onclick = () => change({op:'model.set', access:$('macc').value, model:$('mmodel').value.trim()}, 'Model saved.');
 $('bsave').onclick = () => change({op:'budget.set', monthly:$('budget').value}, 'Budget saved.');
+async function terminal(kind){ const r = await fetch('/api/terminal',{method:'POST',headers:{'Content-Type':'application/json','X-Door-Local':'1'},body:JSON.stringify({kind})}); const x = await r.json().catch(() => ({})); say(x.message || x.error || 'Could not open Terminal', r.ok); }
+let here = '';
+async function browse(path){ const r = await fetch('/api/folders?path=' + encodeURIComponent(path || '')); if(!r.ok) return; const d = await r.json(); here = d.path;
+  $('pcur').textContent = d.path.replace(d.home, '~'); $('pup').disabled = !d.parent; $('pup').onclick = () => browse(d.parent);
+  const L = $('plist'); L.textContent = ''; if(!d.dirs.length) L.appendChild(el('div','empty','No folders here.'));
+  d.dirs.forEach(f => { const row = el('div','it'); row.appendChild(el('span','',f.name)); if(f.git) row.appendChild(el('span','git','git project')); row.onclick = () => browse(d.path + '/' + f.name); L.appendChild(row); }); }
+$('pick').onclick = () => { $('picker').hidden = false; browse($('ppath').value.trim().startsWith('/') ? $('ppath').value.trim() : ''); };
+$('pclose').onclick = () => { $('picker').hidden = true; };
+$('puse').onclick = () => { $('ppath').value = here; $('picker').hidden = true; };
 if(location.hash === '#settings') tab('set');
 </script></body></html>"""
 
@@ -232,6 +246,9 @@ if(location.hash === '#settings') tab('set');
 class LocalUI:
     def __init__(self, host, port=9631):
         self.host, self.port = host, port
+        import shutil, sys
+        self.door_host = shutil.which("door-host") or str(Path(sys.executable).parent / "door-host")
+        self.opener = lambda path: __import__("subprocess").run(["open", path], check=False)
         tok = Path(host.state_dir) / "local-ui-token"
         if not tok.exists():
             fd = os.open(tok, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -272,6 +289,10 @@ class LocalUI:
                                       {"Content-Security-Policy": "default-src 'none'; script-src 'nonce-%s'; style-src 'nonce-%s'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'" % (n, n)})
                 if path == "/api/usage":
                     return self._send(200, json.dumps(usage_report(ui.host), ensure_ascii=False).encode())
+                if path == "/api/folders":
+                    from urllib.parse import parse_qs
+                    q = parse_qs(qs.split("&t=")[0])
+                    return self._send(200, json.dumps(settings.folders((q.get("path") or [""])[0]), ensure_ascii=False).encode())
                 if path == "/api/settings":
                     return self._send(200, json.dumps(settings.view(ui.host.holder.path, ui.host.state_dir), ensure_ascii=False).encode())
                 self._send(404, b'{"error":"not found"}')
@@ -293,6 +314,15 @@ class LocalUI:
                     ui.host.holder.refresh()
                     ui.host.audit.write("settings_changed", detail={"op": str(body.get("op"))})
                     return self._send(200, json.dumps(out, ensure_ascii=False).encode())
+                if self.path == "/api/terminal":
+                    try:
+                        name, text = settings.terminal_script(str(body.get("kind", "")), ui.host.holder.path, ui.host.state_dir, ui.door_host)
+                    except settings.SettingsError as e:
+                        return self._send(400, json.dumps({"error": str(e)}).encode())
+                    f = Path(ui.host.state_dir) / name
+                    f.write_text(text); os.chmod(f, 0o700)
+                    ui.opener(str(f))                                   # Terminal runs a .command file when it is opened
+                    return self._send(200, json.dumps({"message": "A Terminal window opened. Follow it, then come back here."}).encode())
                 if self.path == "/api/restart":
                     if os.environ.get("DOOR_SUPERVISED") != "1":
                         return self._send(400, json.dumps({"message": "Door is not running as a background service here, so restart door-host yourself."}).encode())

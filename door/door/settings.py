@@ -181,3 +181,40 @@ def _write_checked(policy_path, state_dir, raw):
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def folders(path):
+    """Sub-folders of `path` for the folder picker. Only inside the owner's home folder, no hidden folders, and each says whether it is a git project."""
+    home = Path.home().resolve()
+    try:
+        p = Path(os.path.expanduser(str(path or "~"))).resolve()
+    except (OSError, RuntimeError):
+        p = home
+    if p != home and home not in p.parents or not p.is_dir():
+        p = home
+    dirs = []
+    try:
+        for d in sorted(p.iterdir(), key=lambda x: x.name.lower()):
+            if d.name.startswith(".") or d.name in ("Library", "node_modules") or not d.is_dir():
+                continue
+            dirs.append({"name": d.name, "git": (d / ".git").exists()})
+            if len(dirs) >= 300:
+                break
+    except OSError:
+        pass
+    return {"path": str(p), "home": str(home), "parent": str(p.parent) if p != home else None, "git": (p / ".git").exists(), "dirs": dirs}
+
+
+def terminal_script(kind, policy_path, state_dir, door_host):
+    """The one command a button may open in Terminal (a fixed list: signing in, or storing a key). Returns (file name, script text)."""
+    import shlex
+    if kind == "login:claude":
+        cmd = "%s --policy %s --state %s login claude" % (shlex.quote(str(door_host)), shlex.quote(str(policy_path)), shlex.quote(str(state_dir)))
+        title = "Sign in to Claude for Door"
+    elif kind.startswith("keychain:") and kind[9:] in KEYCHAIN.values():
+        cmd = 'security add-generic-password -U -a "$USER" -s %s -w' % shlex.quote(kind[9:])
+        title = "Store the key in the macOS Keychain (it asks for the key without showing it)"
+    else:
+        raise SettingsError("Unknown action.")
+    return ("door-" + kind.replace(":", "-") + ".command",
+            "#!/bin/bash\nclear\necho %s\necho\n%s\necho\nread -r -p 'Done. Press Enter to close this window.' _\n" % (shlex.quote(title), cmd))

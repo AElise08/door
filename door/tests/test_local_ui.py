@@ -174,3 +174,34 @@ class SettingsPage(Base):
         os.environ.pop("DOOR_SUPERVISED", None)
         st, out = self.post("/api/restart", {}, ck)
         self.assertEqual(st, 400); self.assertIn("restart door-host yourself", out["message"])
+
+
+class FolderPickerAndTerminal(Base):
+    def get(self, path, ck): 
+        st, _, b = self.http("GET", path, headers={"Cookie": ck}); return st, json.loads(b or b"{}")
+
+    def post(self, path, body, ck):
+        st, _, b = self.http("POST", path, json.dumps(body), {"Cookie": ck, "Content-Type": "application/json", "X-Door-Local": "1"}); return st, json.loads(b or b"{}")
+
+    def test_the_folder_list_stays_in_the_home_folder_and_marks_git_projects(self):
+        ck = self.cookie(); home = Path.home().resolve()
+        self.assertEqual(self.http("GET", "/api/folders")[0], 401)
+        st, d = self.get("/api/folders?path=" + str(home), ck)
+        self.assertEqual((st, d["path"], d["parent"]), (200, str(home), None))
+        self.assertFalse([x for x in d["dirs"] if x["name"].startswith(".") or x["name"] == "Library"])
+        for outside in ("/", "/etc", "/private/var", str(home.parent)):
+            st, d = self.get("/api/folders?path=" + outside, ck); self.assertEqual(d["path"], str(home), outside)      # never outside the home folder
+        sub = self.root / "p"                                                      # a git project the tests made (under the temp dir, not home): refused too
+        st, d = self.get("/api/folders?path=" + str(sub), ck); self.assertEqual(d["path"], str(home))
+
+    def test_a_button_can_open_only_the_listed_terminal_actions(self):
+        ck = self.cookie(); opened = []; self.ui.opener = lambda p: opened.append(p); self.ui.door_host = "/x/bin/door-host"
+        st, out = self.post("/api/terminal", {"kind": "login:claude"}, ck)
+        self.assertEqual(st, 200); script = Path(opened[0]).read_text()
+        self.assertIn("/x/bin/door-host", script); self.assertIn("login claude", script); self.assertEqual(oct(Path(opened[0]).stat().st_mode & 0o777), "0o700")
+        st, _ = self.post("/api/terminal", {"kind": "keychain:door-anthropic-api-key"}, ck)
+        self.assertEqual(st, 200); self.assertIn("security add-generic-password", Path(opened[1]).read_text())
+        for bad in ("rm -rf ~", "keychain:anything", "keychain:door-x; rm -rf ~", "login:claude; id", ""):
+            st, out = self.post("/api/terminal", {"kind": bad}, ck); self.assertEqual(st, 400, bad)
+        self.assertEqual(len(opened), 2)                                                # nothing else was ever opened
+        self.assertEqual(self.http("POST", "/api/terminal", json.dumps({"kind": "login:claude"}), {"Cookie": ck, "Content-Type": "application/json"})[0], 403)   # needs the page's header
