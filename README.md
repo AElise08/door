@@ -143,7 +143,7 @@ About 5 minutes on a Mac (plus the Plow Latch download, about 450 MB, if it is n
 **1. On your Mac, in Terminal:**
 
 ```
-curl -fsSL https://raw.githubusercontent.com/AElise08/myplow-mel-s-version-/main/door/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AElise08/door/main/door/scripts/install.sh | bash
 ```
 
 **What the installer does, step by step**
@@ -169,7 +169,7 @@ manual until the image is published on Plow (see *What is left to finish*).
 - Settings on the Mac: <http://127.0.0.1:9631>. The same settings are also in the cloud panel.
 - Where things are: the program in `~/.local/share/door`, your settings in `~/.config/door/door.json`, history and pairing in
   `~/.local/state/door`, keys only in the macOS Keychain.
-- Remove it: `curl -fsSL https://raw.githubusercontent.com/AElise08/myplow-mel-s-version-/main/door/scripts/install.sh | bash -s -- --uninstall`.
+- Remove it: `curl -fsSL https://raw.githubusercontent.com/AElise08/door/main/door/scripts/install.sh | bash -s -- --uninstall`.
   It removes the program, the private Python, the service and the runner image, and keeps your settings, history and Keychain items.
 - Flags for scripted installs: `--repo PATH --access opencode|claude-login|api-key --tasks --yes`; `--dry-run` shows what it would do.
 
@@ -372,7 +372,7 @@ Uns 5 minutos num Mac (mais o download do Plow Latch, uns 450 MB, se ainda não 
 **1. No Mac, no Terminal:**
 
 ```
-curl -fsSL https://raw.githubusercontent.com/AElise08/myplow-mel-s-version-/main/door/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AElise08/door/main/door/scripts/install.sh | bash
 ```
 
 **O que o instalador faz, passo a passo**
@@ -398,7 +398,7 @@ manual até a imagem ser publicada no Plow (veja *O que falta finalizar*).
 - Configurações no Mac: <http://127.0.0.1:9631>. As mesmas configurações também ficam no painel da nuvem.
 - Onde fica cada coisa: o programa em `~/.local/share/door`, as configurações em `~/.config/door/door.json`, histórico e pareamento em
   `~/.local/state/door`, chaves só no Keychain do macOS.
-- Para remover: `curl -fsSL https://raw.githubusercontent.com/AElise08/myplow-mel-s-version-/main/door/scripts/install.sh | bash -s -- --uninstall`.
+- Para remover: `curl -fsSL https://raw.githubusercontent.com/AElise08/door/main/door/scripts/install.sh | bash -s -- --uninstall`.
   Remove o programa, o Python privado, o serviço e a imagem do ambiente isolado, e mantém as configurações, o histórico e os itens do Keychain.
 - Opções para instalar por script: `--repo CAMINHO --access opencode|claude-login|api-key --tasks --yes`; `--dry-run` mostra o que faria.
 

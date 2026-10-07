@@ -2,7 +2,7 @@
 # Door for your Mac: one command installs Plow Latch (if missing), the Door daemon and the isolated runner, asks three questions,
 # pairs this Mac with your Door number and checks everything. Nothing to install first: no Homebrew, no Python.
 #
-#   curl -fsSL https://raw.githubusercontent.com/AElise08/myplow-mel-s-version-/main/door/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/AElise08/door/main/door/scripts/install.sh | bash
 #
 # Nothing here opens a port: the Mac only makes outbound connections. Keys are never written to a file (macOS Keychain or your own sign-in only).
 # Flags (all optional; without them it asks):
@@ -15,8 +15,8 @@
 #   --uninstall          stop and remove Door from this Mac (keeps your policy file and Keychain items)
 set -euo pipefail
 
-RELEASE_URL_DEFAULT="https://codeload.github.com/AElise08/myplow-mel-s-version-/tar.gz/refs/heads/main"   # the Door folder inside the repo
-INSTALL_URL="https://raw.githubusercontent.com/AElise08/myplow-mel-s-version-/main/door/scripts/install.sh"
+RELEASE_URL_DEFAULT="https://codeload.github.com/AElise08/door/tar.gz/refs/heads/main"   # the Door folder inside the repo
+INSTALL_URL="https://raw.githubusercontent.com/AElise08/door/main/door/scripts/install.sh"
 STARTED_AT=$(date +%s)
 LATCH_URL="https://plow.co/download/latch"
 
