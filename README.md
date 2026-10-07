@@ -48,9 +48,11 @@ What stays in this repository for MyPeople itself: the runtime (`mypeople/`), th
 ### How it works, in pictures
 Example data, not a real project.
 
-**A person opens a link and asks.** No app, no account. Answers come from the project and say which files they were checked in.
+**In iMessage.** The owner adds the Door number to a group and texts `Door Allow`; Door introduces itself. People ask, Door answers from the project and says which files it checked, and `Door Trust` lets people have things done once the owner confirms. (Real conversation; the friend's address is replaced by a fictional one. The introduction text has since been updated to explain "Door, ...".)
 
-<p><img src="door/docs/img/chat-start.png" width="260" alt="The chat page a guest sees"> &nbsp; <img src="door/docs/img/chat-answers.png" width="260" alt="Questions answered with the files they were checked in"></p>
+<img src="door/docs/img/imessage-group.png" width="640" alt="An iMessage group chat: Door Allow, Door introduces itself, a question answered, Door Trust">
+
+People can also use a **chat link** in the browser (no app, no account) when texting is not an option.
 
 **You see the board.** Each request becomes a card. A card moves to Done only with proof; "No changes" and failed checks go to Review.
 
@@ -84,7 +86,7 @@ Example data, not a real project.
   away, within daily limits and your monthly budget (or you approve each one, if you prefer).
 - **Have things done**, only if you trust them: the work happens on a copy, on a new branch, never in your real folder. A card follows it
   and moves to **Done** only when something really changed, your checks passed and an independent check agrees.
-- **You**, the owner, just write to your agent: a question gets an answer, anything else becomes a task.
+- **You**, the owner, just write to your agent: a question gets an answer, anything else becomes a task. What you ask for yourself runs without asking you again (dangerous commands, secret files and anything outside the project copy are still refused). If you ask it to show you something, Door checks that a window really appeared on your screen before calling it done.
 
 ### How people get in
 `Door Link Ana` (a chat link that opens on one device and expires) · `Door Invite Ana` (a code to text) · in a group, `Door Allow`
@@ -182,9 +184,11 @@ o `install.sh`, os arquivos Docker e o `docs/HOW-IT-WORKS.md`. O README original
 ### Como funciona, em imagens
 Dados de exemplo, não um projeto real.
 
-**Uma pessoa abre o link e pergunta.** Sem app, sem conta. As respostas vêm do projeto e dizem em quais arquivos foram conferidas. (A página aparece em português para quem tem o celular em português.)
+**No iMessage.** A dona coloca o número do Door num grupo e manda `Door Allow`; o Door se apresenta. As pessoas perguntam, o Door responde a partir do projeto e diz quais arquivos conferiu, e `Door Trust` libera tarefas depois que a dona confirma. (Conversa real; o endereço do amigo foi trocado por um fictício. O texto da apresentação foi atualizado depois para explicar o "Door, ...".)
 
-<p><img src="door/docs/img/chat-start.png" width="260" alt="A página de chat que o convidado vê"> &nbsp; <img src="door/docs/img/chat-answers.png" width="260" alt="Perguntas respondidas com os arquivos conferidos"></p>
+<img src="door/docs/img/imessage-group.png" width="640" alt="Grupo no iMessage: Door Allow, o Door se apresenta, uma pergunta respondida, Door Trust">
+
+Também dá para usar um **link de chat** no navegador (sem app, sem conta) quando não dá para mandar SMS.
 
 **Você vê o quadro.** Cada pedido vira um cartão. O cartão só vai para Done com prova; "No changes" e verificações que falharam vão para Review.
 
@@ -218,7 +222,7 @@ Dados de exemplo, não um projeto real.
   dentro dos limites diários e do orçamento do mês (ou você aprova cada uma, se preferir).
 - **Pedir que algo seja feito**, só se você confiar na pessoa: o trabalho acontece numa cópia, numa branch nova, nunca na sua pasta. Um
   cartão acompanha o pedido e só vai para **Done** quando algo mudou de verdade, as suas verificações passaram e uma checagem independente concorda.
-- **Você**, a dona, só escreve para o seu agente: pergunta vira resposta, o resto vira tarefa.
+- **Você**, a dona, só escreve para o seu agente: pergunta vira resposta, o resto vira tarefa. O que você pede para você mesma roda sem pedir autorização de novo (comandos perigosos, arquivos de chaves e qualquer coisa fora da cópia do projeto continuam recusados). Se você pedir para ele mostrar algo, o Door confere que uma janela realmente apareceu na sua tela antes de dar como feito.
 
 ### Como as pessoas entram
 `Door Link Ana` (link de chat, abre em um aparelho e vence) · `Door Invite Ana` (código para mandar por SMS) · num grupo, `Door Allow`
