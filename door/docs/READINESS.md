@@ -46,8 +46,7 @@ separately as **not verified**; those are the real distance to a paying customer
   environment are what contain it; a person you trust is still part of the safety model.
 - Sign-in mode has no per-token cost control.
 
-## What I would do next, in order
-1. Send all of Door's own text messages in the person's language (English or Portuguese; the catalog is in `door/i18n.py`).
-2. Build the linux/amd64 image in CI, publish it publicly and ask Plow to admit it to the agent index.
-3. Install it on the first customer's Mac (the Sam pilot) with the one-line installer, with manual billing.
-4. Add a licence and have the legal checklist reviewed.
+## What is left to finish
+The full list, with what needs a decision and what needs work, is in the README ("What is left to finish" / "O que falta finalizar").
+In order: a public address for the links, publishing the image to the Plow agent index, Door's own messages in both languages,
+choosing which project a conversation is about, then the first customer's Mac with the one-line installer.

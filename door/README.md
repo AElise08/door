@@ -67,6 +67,27 @@ Tested for real on the owner's own Plow account (October 2026): activation and p
 relay to the Mac, questions answered by a real model in about 20 to 30 seconds, a group chat with a second person, a task done by the real
 Claude Code, and the settings page. What is not verified yet: [`docs/READINESS.md`](docs/READINESS.md).
 
+### What is left to finish
+Working today: everything above, tested on a real Plow account. To call it finished and hand it to a customer:
+
+**Needs a decision or an account (not code)**
+1. **A public address for the links.** Today links open only on the owner's Mac. Put the cloud part on a server with a domain and HTTPS (or use a tunnel for a demo).
+2. **Publish the image** publicly (amd64) and ask Plow to admit it to the agent index, so a customer can install it in one click.
+3. **Terms, privacy policy, licence and pricing**; billing is manual for now.
+
+**Needs more work**
+4. **Door's text messages in both languages.** Each person should get Door's own messages (limits, confirmations, errors) in the language they write; the catalog is written (`door/i18n.py`) but not wired in yet.
+5. **Choose which project a conversation is about.** Several projects can be shared, but a person cannot yet pick one ("talk about the website") or be limited to one.
+6. **Improve "Door on this computer"**: a nicer layout, folder picker, guided model sign-in.
+7. **The owner panel in Portuguese**, not only the guest chat.
+8. **Faster answers.** Typically 20 to 30 seconds; the model's slowest call and the trips through Plow are the cost.
+
+**Still to test for real**
+9. The installer on a **second Mac** (the first customer's), including downloading Plow Latch.
+10. `Door Trust` in a real group, and a task that changes files with the approval coming by text, end to end on Plow.
+11. **Own-subscription sign-in** and **Codex** (needs the owner's decision on its inner sandbox).
+12. **Load**: one panel process is fine for tens of customers, not thousands.
+
 ---
 
 ## Português
@@ -122,6 +143,27 @@ Mac que não peça aprovação toda vez para um comando combinado antes, e a ent
 Testado de verdade na conta Plow da dona (outubro de 2026): ativação e pareamento por SMS, a imagem rodando numa linha do Plow, a ponte do
 Latch até o Mac, perguntas respondidas por um modelo real em 20 a 30 segundos, um grupo com uma segunda pessoa, uma tarefa feita pelo Claude
 Code de verdade, e a página de configurações. O que ainda não foi verificado: [`docs/READINESS.md`](docs/READINESS.md).
+
+### O que falta finalizar
+Funcionando hoje: tudo o que está acima, testado numa conta Plow de verdade. Para considerar pronto e entregar a um cliente:
+
+**Precisa de decisão ou de conta (não é código)**
+1. **Um endereço público para os links.** Hoje os links só abrem no Mac da dona. Colocar a parte da nuvem num servidor com domínio e HTTPS (ou usar um túnel para uma demonstração).
+2. **Publicar a imagem** (amd64) e pedir ao Plow para admiti-la no índice de agentes, para o cliente instalar com um clique.
+3. **Termos, política de privacidade, licença e preço**; a cobrança é manual por enquanto.
+
+**Falta trabalho**
+4. **As mensagens do próprio Door nos dois idiomas.** Cada pessoa deve receber as mensagens do Door (limites, confirmações, erros) no idioma em que escreve; o catálogo está escrito (`door/i18n.py`), mas ainda não está ligado.
+5. **Escolher sobre qual projeto é a conversa.** Dá para compartilhar vários projetos, mas ainda não dá para a pessoa escolher um ("fala do site") nem limitá-la a um só.
+6. **Melhorar o "Door on this computer"**: visual melhor, seletor de pasta, login guiado do modelo.
+7. **O painel da dona em português**, não só o chat do convidado.
+8. **Respostas mais rápidas.** Normalmente 20 a 30 segundos; o custo está na chamada mais lenta do modelo e nas idas e vindas pelo Plow.
+
+**Ainda falta testar de verdade**
+9. O instalador num **segundo Mac** (o do primeiro cliente), inclusive baixando o Plow Latch.
+10. `Door Trust` num grupo real, e uma tarefa que altera arquivos com a aprovação chegando por SMS, de ponta a ponta no Plow.
+11. **Login com a própria assinatura** e **Codex** (precisa da decisão da dona sobre o isolamento interno dele).
+12. **Carga**: um processo de painel serve dezenas de clientes, não milhares.
 
 ---
 

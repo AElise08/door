@@ -7,9 +7,17 @@ implemented runtime; installing it does not hydrate or generate code from the SE
 Each machine authenticates its selected agent backend independently. MyPlow never copies,
 mounts, or reuses another node's credential store.
 
-> **New: [Door](door/)** lets other people talk to the agent that works on your code, by text message, in a group chat or
-> through a chat link, and lets people you trust have work done with proof that it was really done. It runs as a Plow cloud
-> agent and reaches your Mac only through Plow Latch. See [`door/README.md`](door/README.md).
+## Door: let people talk to the agent that works on your code
+
+**Door** joins MyPeople (this runtime) with [Plow](https://plow.co): other people can ask your agent about a project by **text message,
+in a group chat or through a chat link**, and people you trust can have work done, with proof that it was really done. Your computer
+only dials out, through Plow Latch; nobody gets your files, a terminal or your keys.
+**[Read about Door, how it works and what is left to finish →](door/README.md)**
+
+**Door** junta o MyPeople (este motor) com o [Plow](https://plow.co): outras pessoas podem perguntar ao seu agente sobre um projeto por
+**SMS, num grupo ou por um link de chat**, e quem você confia pode pedir trabalho, com prova de que foi feito de verdade. Seu computador só
+faz conexões de saída, pelo Plow Latch; ninguém recebe seus arquivos, um terminal ou suas chaves.
+**[Leia sobre o Door, como funciona e o que falta finalizar →](door/README.md#português)**
 
 ## Docker (recommended)
 
