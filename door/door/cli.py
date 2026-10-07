@@ -1,5 +1,6 @@
 """Entradas: `door` (cliente fino do plugin Latch) e `door-host` (daemon)."""
 import argparse
+import base64
 import json
 import os
 import signal
@@ -56,6 +57,8 @@ def client_main(argv=None):
     sub.add_parser("summary")
     sub.add_parser("pause")
     sub.add_parser("resume")
+    sg = sub.add_parser("settings")
+    sg.add_argument("--payload", required=True, help="the change, as JSON in base64")
     ns = ap.parse_args(argv)
     msg = {"op": ns.cmd.replace("-", "_")}
     if ns.cmd == "ask":
@@ -68,6 +71,11 @@ def client_main(argv=None):
             msg["reason"] = ns.reason
     elif ns.cmd == "pair-confirm":
         msg.update(code=ns.code, public_key=ns.public_key)
+    elif ns.cmd == "settings":
+        try:
+            msg["change"] = json.loads(base64.b64decode(ns.payload, validate=True))
+        except (ValueError, TypeError):
+            print(json.dumps({"ok": False, "reason": "bad_payload"})); return 1
     out = call(msg)
     print(json.dumps(out, ensure_ascii=False))
     return 0 if out.get("ok") else 1
@@ -75,7 +83,7 @@ def client_main(argv=None):
 
 def host_main(argv=None):
     forwarded = list(argv if argv is not None else sys.argv[1:])
-    if forwarded and forwarded[0] in ("ask", "status", "cancel", "pair-confirm", "summary"):
+    if forwarded and forwarded[0] in ("ask", "status", "cancel", "pair-confirm", "summary", "settings"):
         return client_main(forwarded)
     ap = argparse.ArgumentParser(prog="door-host")
     ap.add_argument("--policy", default=str(default_path()))
@@ -162,6 +170,8 @@ def host_main(argv=None):
         print("set %s to the API key dedicated to Door (a subscription login is NOT allowed)" % pol["egress"]["credential_env"])
         return 1
     host = Host(Path(ns.policy), state, rt, cred)
+    if os.environ.get("DOOR_SUPERVISED") == "1":
+        host.restart_hook = lambda: os._exit(0)           # the background service starts door-host again with the new settings
     host.proxy.start()
     if ns.cmd == "setup-network":
         rt.setup_network(host.proxy.port)

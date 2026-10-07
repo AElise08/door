@@ -97,6 +97,10 @@ enum Dashboard {
     .addf{margin-bottom:8px}.addf input{width:100%;padding:8px 10px;border-radius:8px}
     .addf .row{margin-top:6px;gap:6px}
     .bempty{color:var(--mut);font-size:12.5px;padding:4px 8px 10px}
+    .sbox{background:var(--side);border-radius:10px;padding:14px 16px;margin:0 0 14px}.sbox h3{margin:0 0 2px;font-size:15px}.sbox p{margin:0 0 12px;color:var(--mut)}
+    .sbox select,.sbox textarea{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font:inherit}.sbox textarea{width:100%;min-height:58px;font:13px ui-monospace,Menlo,monospace}
+    .prow{display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}.prow:last-of-type{border:0}.prow b{font-weight:500;flex:1}
+    .sres{padding:9px 12px;border-radius:7px;margin:0 0 14px;font-size:13px;background:var(--blue);color:var(--bluefg)}.sres.ok{background:var(--green);color:var(--greenfg)}.sres.bad{background:var(--red);color:var(--redfg)}.sres.warn{background:var(--yellow);color:var(--yellowfg)}
     .mx{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}@media(max-width:760px){.mx{grid-template-columns:1fr}.cols4{grid-template-columns:1fr}}
     .stale{display:none;background:var(--yellow);color:var(--yellowfg);border-radius:5px;padding:6px 10px;margin-bottom:14px;font-size:13px}
     @media(max-width:760px){.app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr;align-content:start}aside{align-content:flex-start;gap:4px}aside{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;padding:8px;border-right:0;border-bottom:1px solid var(--line)}
@@ -105,7 +109,7 @@ enum Dashboard {
     </style></head><body><div class="app">
     <aside><div class="ws"><i>D</i><span id="wsname">Door</span></div>
       <nav><button data-v="queue" class="on">Approvals<span class="n" id="n-queue"></span></button><button data-v="board">Board<span class="n" id="n-board"></span></button><button data-v="held">Held replies<span class="n" id="n-held"></span></button>
-        <button data-v="guests">Guests<span class="n" id="n-guests"></span></button><button data-v="cost">Cost</button><button data-v="hist">History</button></nav>
+        <button data-v="guests">Guests<span class="n" id="n-guests"></span></button><button data-v="cost">Cost</button><button data-v="hist">History</button><button data-v="settings">Settings</button></nav>
       <div class="grow"></div>
       <div class="status"><span id="macdot" class="dot"></span><span id="mac">Mac…</span></div><div class="status" id="proj" title="Change projects, model and permissions in Door on this computer, on your Mac"></div><div class="status" id="plan"></div>
       <button class="side-btn" id="pause"></button><form method="post" action="/logout" style="margin:0"><button class="side-btn">Sign out</button></form></aside>
@@ -142,6 +146,7 @@ enum Dashboard {
             <input name="days" type="number" min="1" max="90" value="30" style="width:64px" title="days of access"><span class="mut">days</span><button class="b go">Add guest</button></div></form>
         </details>
       </section>
+      <section class="view" id="v-settings"><div id="set-res"></div><div id="set-body"></div></section>
       <section class="view" id="v-cost"><div id="cost"></div></section>
       <section class="view" id="v-hist"><div id="hist"></div></section>
     </main></div>
@@ -153,7 +158,7 @@ enum Dashboard {
     function days(n){ return n + (n === 1 ? ' day' : ' days'); }
     function initials(n){ return (n||'?').replace(/[^\p{L}\p{N} ]/gu,'').split(' ').filter(Boolean).slice(0,2).map(x=>x[0].toUpperCase()).join('') || '?'; }
     const TITLES = {queue:['Approvals','Questions waiting for your decision. By default people are answered without waiting for you.'], board:['Board','What people asked for, what is being done, and what still needs a look. Tasks show proof of what was really done.'], held:['Held replies','Replies the safety filter stopped. Nothing was sent to the guest yet.'],
-      guests:['Guests','Who can talk to your agent, by chat link or by text message.'], cost:['Cost','What the model has cost this month, on your own API key.'], hist:['History','Every request and what happened to it.']};
+      guests:['Guests','Who can talk to your agent, by chat link or by text message.'], cost:['Cost','What the model has cost this month, on your own API key.'], hist:['History','Every request and what happened to it.'], settings:['Settings','Which projects people can ask about, what tasks may do, the model and the budget. Applied on your Mac.']};
     const STATE = {waitingApproval:['waiting for you','warn'], queued:['queued','info'], running:['answering','info'], completed:['answered','ok'], failed:['failed','bad'], canceled:['canceled','']};
     const REASON = {denied_owner:'you denied it', denied_rules:'blocked by rules', expired:'expired without a decision', budget:'budget exhausted', timeout:'took too long',
       sandbox_error:'error while answering', out_of_scope:'declined: outside the allowed topics', rejected_host:'Mac refused', guest_canceled:'guest canceled', owner_canceled:'you canceled'};
@@ -435,7 +440,59 @@ enum Dashboard {
     }
     $('mode-cols').onclick = () => { boardMode = 'cols'; renderBoard(lastState, true); };
     $('mode-matrix').onclick = () => { boardMode = 'matrix'; renderBoard(lastState, true); };
-    const _render = render; render = st => { _render(st); renderBoard(st); };
+    // ---- Settings (applied on the Mac; the risky ones wait for your YES by text) ----
+    let setSig = '';
+    function lines(x){ return x.value.split('\n').map(v => v.trim()).filter(Boolean); }
+    function change(ch){ send({type:'settings', change: ch}); }
+    function renderSettings(st){
+      const s = st.snapshot || {}, v = s.settings_view, res = s.settings_result, pend = s.settings_pending, mac = s.mac || {};
+      const R = $('set-res'); clear(R);
+      if(pend){ R.appendChild(el('div','sres warn','Waiting for your OK by text: ' + pend.text + '. Reply YES with the code from your Door number.')); }
+      else if(res){
+        const T = {sending:['Sending to your Mac: ' + res.text + '…','info'], applied:['Saved: ' + res.text + (res.restarting ? '. Door is restarting to use it.' : '.'),'ok'],
+                   refused:['Your Mac did not apply it: ' + (res.error || 'refused') ,'bad'], expired:['That change expired before you confirmed it.','warn'], canceled:['Canceled.','warn'], waiting:['Waiting for your OK by text.','warn']};
+        const t = T[res.state]; if(t) R.appendChild(el('div','sres ' + t[1], t[0]));
+      }
+      if(mac.online === false) R.appendChild(el('div','sres warn','Your Mac is offline. Changes wait until it is back.'));
+      const B = $('set-body');
+      if(!v){ clear(B); B.appendChild(el('div','empty','Your Mac has not sent its settings yet. Update Door on the Mac (or wait a minute), then reload.')); setSig = ''; return; }
+      const sig = JSON.stringify(v);
+      const busy = document.activeElement && B.contains(document.activeElement) && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);
+      if(sig === setSig || busy) return;
+      setSig = sig; clear(B);
+      const box = (title, sub) => { const d = el('div','sbox'); d.appendChild(el('h3','',title)); d.appendChild(el('p','',sub)); B.appendChild(d); return d; };
+      // projects
+      const P = box('Projects people can ask about', 'Door shares a clean copy of the committed files (no .env, keys or secrets). Adding or removing one needs your OK by text.');
+      v.projects.forEach(p => { const r = el('div','prow'); r.appendChild(el('b','',p.name));
+        r.appendChild(btn('Remove','no',{type:'settings',change:{op:'project.remove',name:p.name}},'Stop sharing ' + p.name + '? You will be asked to confirm by text.')); P.appendChild(r); });
+      const af = el('form','row'); af.style.marginTop = '10px'; const ai = el('input'); ai.placeholder = 'Folder on your Mac, e.g. /Users/you/code/my-app'; ai.style.flex = '1 1 320px'; ai.required = true;
+      const ab = el('button','b go','Add project'); af.appendChild(ai); af.appendChild(ab); af.onsubmit = e => { e.preventDefault(); change({op:'project.add', path: ai.value.trim()}); ai.value = ''; }; P.appendChild(af);
+      // tasks
+      const t = v.tasks; const T = box('Tasks: having things done', 'People you trust can ask for changes; they happen on a throwaway copy and Door checks the result. Changes here need your OK by text.');
+      const en = el('input'); en.type = 'checkbox'; en.checked = t.enabled; const el1 = el('label','row'); el1.appendChild(en); el1.appendChild(document.createTextNode(' Let people I trust have things done')); T.appendChild(el1);
+      const more = el('div'); more.style.marginTop = '10px'; more.style.display = t.enabled ? 'block' : 'none'; T.appendChild(more); en.onchange = () => { more.style.display = en.checked ? 'block' : 'none'; };
+      const sel = (label, opts, cur) => { const r = el('div','row'); r.style.margin = '6px 0'; const l = el('span','mut',label); l.style.minWidth = '190px'; r.appendChild(l);
+        const x = el('select'); opts.forEach(([val, txt]) => { const o = el('option','',txt); o.value = val; x.appendChild(o); }); x.value = cur; r.appendChild(x); more.appendChild(r); return x; };
+      const proj = sel('Work on', v.projects.map(p => [p.name, p.name]), t.project_name || (v.projects[0] || {}).name);
+      const bash = sel('Running commands', [['ask','Ask me each time (unless listed below)'],['off','Never']], t.bash);
+      const open = sel('Opening things on my screen', [['off','Never'],['ask','Ask me each time'],['allow','Allow project files and https links']], t.open_on_mac);
+      const own = sel('When I ask for something myself', [['auto','Do it without asking me again'],['ask','Ask me for each risky step']], t.owner_steps);
+      more.appendChild(el('div','mut','Commands that run without asking (one per line)')); const cm = el('textarea'); cm.value = (t.allow_commands || []).join('\n'); more.appendChild(cm);
+      more.appendChild(el('div','mut','Checks Door runs to prove a task worked (one per line)')); const ck = el('textarea'); ck.value = (t.checks || []).join('\n'); more.appendChild(ck);
+      const ts = el('button','b go','Save tasks'); ts.style.marginTop = '10px';
+      ts.onclick = () => change(en.checked ? {op:'tasks.set', enabled:true, project_name: proj.value, bash: bash.value, open_on_mac: open.value, owner_steps: own.value, allow_commands: lines(cm), checks: lines(ck)} : {op:'tasks.set', enabled:false});
+      T.appendChild(ts);
+      // model
+      const m = v.model; const M = box('Model', 'Who pays for the AI and which model answers. Keys stay in your Mac\'s Keychain; sign-in is done once on the Mac, from Door on this computer.');
+      const mr = el('div','row'); const ma = el('select'); m.choices.forEach(c => { const o = el('option','',c.label); o.value = c.id; o.dataset.model = c.model; ma.appendChild(o); }); ma.value = m.access;
+      const mi = el('input'); mi.value = m.model; mi.style.width = '240px'; ma.onchange = () => { mi.value = ma.selectedOptions[0].dataset.model; };
+      const mb = el('button','b go','Save model'); mb.onclick = () => change({op:'model.set', access: ma.value, model: mi.value.trim()}); mr.appendChild(ma); mr.appendChild(mi); mr.appendChild(mb); M.appendChild(mr);
+      // budget
+      const U = box('Monthly budget', 'New requests stop when this month\'s model cost reaches it.');
+      const ur = el('div','row'); ur.appendChild(document.createTextNode('US$ ')); const ui = el('input'); ui.type = 'number'; ui.min = 1; ui.max = 10000; ui.value = v.budget; ui.style.width = '110px';
+      const ub = el('button','b go','Save budget'); ub.onclick = () => change({op:'budget.set', monthly: Number(ui.value)}); ur.appendChild(ui); ur.appendChild(ub); U.appendChild(ur);
+    }
+    const _render = render; render = st => { _render(st); renderBoard(st); renderSettings(st); };
     let first = true;
     const _render2 = render; render = st => { _render2(st);
       if(first){ first = false; const s = st.snapshot || {}; const want = initialView;

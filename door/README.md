@@ -95,7 +95,7 @@ People can also use a **chat link** in the browser (no app, no account) when tex
 - **The panel**: a board with a priority view, guests and links, history, cost.
 - **Door on this computer** (a page that only opens on your Mac): what ran and what it cost, steps waiting for your OK, and **Settings**:
   which project folders are shared, which one tasks work on, whether the agent may run commands or open files and links on your screen,
-  which model and provider pay for it, and the monthly budget. The cloud can show these, never change them.
+  which model and provider pay for it, and the monthly budget. **The same settings are in the panel's Settings tab**, so you can change them from anywhere: budget and model apply at once; adding or removing a project and what tasks may do wait for your YES by text, and your Mac checks every change again. The cloud only ever sees project names, never folder paths.
 
 ### Set it up
 1. On your Mac: `curl -fsSL <where you host it>/install.sh | bash`. It installs Plow Latch if missing, Door and its isolated runner, and asks
@@ -224,7 +224,7 @@ Também dá para usar um **link de chat** no navegador (sem app, sem conta) quan
 - **O painel**: quadro com visão de prioridade, convidados e links, histórico, custo.
 - **Door on this computer** (uma página que só abre no seu Mac): o que rodou e quanto custou, passos esperando o seu OK, e **Settings**:
   quais pastas são compartilhadas, em qual delas as tarefas trabalham, se o agente pode rodar comandos ou abrir arquivos e links na sua
-  tela, qual modelo e provedor pagam por isso, e o orçamento do mês. A nuvem pode mostrar essas escolhas, nunca mudar.
+  tela, qual modelo e provedor pagam por isso, e o orçamento do mês. **As mesmas configurações estão na aba Settings do painel**, então você muda de qualquer lugar: orçamento e modelo valem na hora; adicionar ou remover um projeto e o que as tarefas podem fazer esperam o seu YES por mensagem, e o seu Mac confere cada mudança de novo. A nuvem só vê os nomes dos projetos, nunca os caminhos das pastas.
 
 ### Como instalar
 1. No Mac: `curl -fsSL <onde estiver hospedado>/install.sh | bash`. Instala o Plow Latch se faltar, o Door e o ambiente isolado, e faz três

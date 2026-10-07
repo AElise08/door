@@ -1,5 +1,6 @@
 """Loop nuvem e conexão WSS de saída ao Hub dedicado do Colmeia."""
 import argparse
+import base64
 import json
 import os
 import time
@@ -59,6 +60,8 @@ def panel_command(cloud, command):
         cloud.set_guest_level(command["guest_id"], command["level"])
     elif op == "action.decide":
         cloud.decide_action(command["request_id"], command["action_id"], command["decision"], "panel:" + command["owner_session"])
+    elif op == "settings.change":
+        cloud.request_settings(command["change"])
     elif op == "settings.approval":
         cloud.set_approval(command["mode"])
     elif op == "guest.approval":
@@ -100,12 +103,20 @@ def cycle(cloud, sms, relay, hub, line_uid):
             argv += ["--request", cmd["request"], "--reason", cmd["reason"]]
         elif cmd["op"] == "decide":
             argv += ["--request", cmd["request"], "--action", cmd["action"], "--decision", cmd["decision"]]
+        elif cmd["op"] == "settings":
+            argv += ["--payload", base64.b64encode(json.dumps(cmd["change"]).encode()).decode()]
         try:
             out = relay.command(argv)
         except (OSError, TimeoutError, PermissionError):
             continue                                # the Mac cannot be reached right now (Latch closed, Mac asleep): try again next cycle
+        if cmd["op"] == "settings" and not out.get("ok") and out.get("reason") in ("bad_payload", "unknown_op"):
+            cmd["done"] = True                          # an old Mac that does not know this operation, or a damaged request: say so, do not retry forever
+            cloud.note_settings_result({"applied": False, "error": "This Mac could not take that change. Update Door on the Mac and try again."})
+            continue
         if out.get("ok"):
             cmd["done"] = True
+            if cmd["op"] == "settings":
+                cloud.note_settings_result(out)
             if cmd["op"] == "pair-confirm" and out.get("ok"):
                 cloud.s["host_id"] = out["host_id"]
                 cloud.s["summary"] = out["summary"]

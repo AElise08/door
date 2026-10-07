@@ -353,6 +353,29 @@ final class PanelTests {
         }
     }
 
+    func testSettingsCommandsKeepToTheFixedShape() {
+        let c = login()
+        let post = { (b: String) in self.panel.handle(self.req("POST", "/api/command", self.json.merging(["Cookie": c]) { $1 }, b)).status }
+        for ok in [#"{"type":"settings","change":{"op":"budget.set","monthly":25}}"#, #"{"type":"settings","change":{"op":"project.add","path":"/Users/you/code/app"}}"#,
+                   #"{"type":"settings","change":{"op":"project.remove","name":"app"}}"#, #"{"type":"settings","change":{"op":"model.set","access":"anthropic","model":"claude-sonnet-5-5"}}"#,
+                   #"{"type":"settings","change":{"op":"tasks.set","enabled":false}}"#,
+                   #"{"type":"settings","change":{"op":"tasks.set","enabled":true,"project_name":"app","bash":"ask","open_on_mac":"allow","owner_steps":"auto","allow_commands":["npm test"],"checks":["npm test"]}}"#] {
+            XCTAssertEqual(post(ok), 200, ok)
+        }
+        for bad in [#"{"type":"settings"}"#, #"{"type":"settings","change":"x"}"#, #"{"type":"settings","change":{"op":"sudo"}}"#, #"{"type":"settings","change":{"op":"budget.set","monthly":0}}"#,
+                    #"{"type":"settings","change":{"op":"budget.set","monthly":999999}}"#, #"{"type":"settings","change":{"op":"model.set","access":"evil"}}"#,
+                    #"{"type":"settings","change":{"op":"model.set","access":"openai","model":"a b"}}"#, #"{"type":"settings","change":{"op":"project.add","path":""}}"#,
+                    #"{"type":"settings","change":{"op":"tasks.set","enabled":true}}"#, #"{"type":"settings","change":{"op":"tasks.set","enabled":true,"project_name":"a","bash":"rm"}}"#,
+                    #"{"type":"settings","change":{"op":"tasks.set","enabled":true,"project_name":"a","allow_commands":[1]}}"#,
+                    #"{"type":"settings","change":{"op":"project.add","path":"/a\nb"}}"#] {
+            XCTAssertEqual(post(bad), 400, bad)
+        }
+        let agentCmds = jsonObj(panel.handle(req("GET", "/agent/commands", A())))["commands"] as! [[String: Any]]
+        let change = (agentCmds.first { ($0["type"] as? String) == "settings" }?["change"] as? [String: Any])
+        XCTAssertEqual(change?["op"] as? String, "budget.set")                       // what reaches the agent is the checked shape, not the raw input
+        XCTAssertTrue(change?["extra"] == nil)
+    }
+
     // MARK: kanban
     func ownerPost(_ p: Panel, _ cookie: String, _ body: String) -> HTTPResponse {
         p.handle(req("POST", "/api/command", json.merging(["Cookie": cookie]) { $1 }, body))

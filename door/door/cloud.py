@@ -524,6 +524,72 @@ class Cloud:
         if added:
             self._sms(self.s["owner_thread"], "Door: you opened a group; %d people were added as guests." % len(added))
 
+    # ---------- settings changed from the panel (applied on the Mac, which checks them again) ----------
+    SETTINGS_OPS = {"project.add", "project.remove", "tasks.set", "model.set", "budget.set"}
+    SETTINGS_LOW_RISK = {"budget.set", "model.set"}          # these apply at once; anything that widens what the agent can reach waits for the owner's OK
+
+    def _describe_change(self, ch):
+        pt = self.s.get("owner_lang") == "pt"
+        op = ch.get("op")
+        if op == "project.add":
+            return ("compartilhar a pasta %s" if pt else "share the folder %s") % str(ch.get("path", ""))[:120]
+        if op == "project.remove":
+            return ("parar de compartilhar o projeto %s" if pt else "stop sharing the project %s") % str(ch.get("name", ""))[:60]
+        if op == "tasks.set":
+            if not ch.get("enabled"):
+                return "desligar as tarefas" if pt else "turn tasks off"
+            return (("ligar tarefas no projeto %s (comandos: %s; abrir na tela: %s; seus pedidos: %s)" if pt else
+                     "turn tasks on for %s (commands: %s; opening on screen: %s; your own requests: %s)")
+                    % (str(ch.get("project_name", "?"))[:60], ch.get("bash", "ask"), ch.get("open_on_mac", "ask"), ch.get("owner_steps", "auto")))
+        if op == "model.set":
+            return ("trocar o modelo para %s" if pt else "switch the model to %s") % str(ch.get("model") or ch.get("access"))[:60]
+        return ("mudar o orçamento mensal para US$ %s" if pt else "set the monthly budget to US$ %s") % ch.get("monthly")
+
+    def request_settings(self, change):
+        """From the panel. Low-risk changes go to the Mac at once; the rest wait for the owner's YES by text, like Door Trust."""
+        if not isinstance(change, dict) or change.get("op") not in self.SETTINGS_OPS:
+            raise ValueError("unknown settings change")
+        with self.lock:
+            text = self._describe_change(change)
+            if change["op"] in self.SETTINGS_LOW_RISK:
+                self._queue_settings(change)
+            else:
+                used = {r["approval_code"] for r in self.s["requests"].values() if r["state"] == "waitingApproval"} | set(self.s.get("trust_pending", {}))
+                code = secrets.choice([f"{i:04d}" for i in range(10000) if f"{i:04d}" not in used])
+                self.s["settings_pending"] = {"code": code, "change": change, "text": text, "until": self.clock() + 600}
+                self.s["settings_result"] = {"state": "waiting", "text": text, "at": self.clock()}
+                pt = self.s.get("owner_lang") == "pt"
+                self._sms(self.s["owner_thread"], ("Door: alguém no painel quer %s. Responda YES %s para aplicar no seu Mac ou NO %s para cancelar (vale 10 min)."
+                                                   if pt else "Door: the panel asks to %s. Reply YES %s to apply it on your Mac or NO %s to cancel (valid 10 min).") % (text, code, code))
+            self._save()
+
+    def _queue_settings(self, change):
+        self.s["commands"][ulid()] = {"op": "settings", "change": change, "done": False}
+        self.s["settings_result"] = {"state": "sending", "text": self._describe_change(change), "at": self.clock()}
+
+    def _confirm_settings(self, code, yes):
+        p = self.s.get("settings_pending")
+        if not p or p["code"] != code:
+            return False
+        self.s["settings_pending"] = None
+        if p["until"] < self.clock():
+            self.s["settings_result"] = {"state": "expired", "text": p["text"], "at": self.clock()}
+            return True
+        if yes:
+            self._queue_settings(p["change"])
+        else:
+            self.s["settings_result"] = {"state": "canceled", "text": p["text"], "at": self.clock()}
+        return True
+
+    def note_settings_result(self, out):
+        """What the Mac said about the change it was sent."""
+        prev = (self.s.get("settings_result") or {}).get("text", "")
+        self.s["settings_result"] = {"state": "applied" if out.get("applied") else "refused", "text": prev, "error": out.get("error"),
+                                     "restarting": bool(out.get("restarting")), "at": self.clock()}
+        if out.get("settings"):
+            self.s["summary"] = dict(self.s["summary"], settings=out["settings"])
+        self._save()
+
     def _everyone_allowed(self, members):
         t = self.clock()
         allowed = {self.s["owner_phone"]} | {g["phone"] for g in self.s["guests"].values() if g["status"] == "active" and g["expires_at"] > t}
@@ -658,6 +724,8 @@ class Cloud:
             r = next((r for r in self.s["requests"].values() if r["state"] == "waitingApproval"
                       and r["approval_code"] == match[2]), None)
             if r is None and self._confirm_trust(match[2], match[1] == "YES"):
+                return
+            if r is None and self._confirm_settings(match[2], match[1] == "YES"):
                 return
             if r is None:
                 for q in self.s["requests"].values():                 # not a question waiting: maybe a step of a running task
@@ -1034,6 +1102,9 @@ class Cloud:
                                   "owner_ids": [g["guest_id"] for g in self.s["guests"].values() if g.get("owner")],
                                   "plan": self.s["plan"], "paused": self.s["paused"], "guest_usage": guest_usage,
                                   "settings": self.s["settings"],
+                                  "settings_result": self.s.get("settings_result"),
+                                  "settings_pending": ({"text": self.s["settings_pending"]["text"], "until": self.s["settings_pending"]["until"]}
+                                                       if self.s.get("settings_pending") and self.s["settings_pending"]["until"] > self.clock() else None),
                                   "setup": {"activated": bool(self.s["owner_phone"]), "paired": bool(self.s.get("host_id")),
                                             "activation_code": None if self.s["owner_phone"] else self.s.get("activation")},
                                   "actions": [dict(a, request_id=q["request_id"], guest_id=q["guest_id"]) for q in self.s["requests"].values()

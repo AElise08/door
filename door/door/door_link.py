@@ -48,6 +48,7 @@ def to_panel_snapshot(snap):
                     for a in snap.get("actions", [])],
         "act_enabled": bool((snap.get("agent") or {}).get("act_agent")),
         "projects": (snap.get("agent") or {}).get("projects", []), "engine": (snap.get("agent") or {}).get("engine", ""),
+        "settings_view": (snap.get("agent") or {}).get("settings"), "settings_result": snap.get("settings_result"), "settings_pending": snap.get("settings_pending"),
         "owner_keys": ["g_" + i for i in snap.get("owner_ids", [])] + ["g_owner"],     # board cards the owner made by text (older builds used "g_owner")
         "setup": snap.get("setup") or {},
         "usage_by_guest": [{"guest": _name(guests.get(gid, {})), "tokens": u["tokens"], "cost": u["cost"]}
@@ -76,6 +77,8 @@ def to_cloud_command(c):
         return {**base, "op": "guest.level", "guest_id": c["guest_id"], "level": c["level"]}
     if t in ("action_allow", "action_deny"):
         return {**base, "op": "action.decide", "request_id": c["request_id"], "action_id": c["action_id"], "decision": "allow" if t == "action_allow" else "deny"}
+    if t == "settings":
+        return {**base, "op": "settings.change", "change": c["change"]}
     if t == "set_approval":
         return {**base, "op": "settings.approval", "mode": c["mode"]}
     if t == "guest_approval":

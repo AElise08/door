@@ -44,21 +44,26 @@ def _access_of(raw):
     return eg.get("provider", "anthropic")
 
 
-def view(policy_path, state_dir):
+def view(policy_path, state_dir, redact=False):
+    """What the settings are. `redact=True` is what leaves this Mac for the cloud panel: project NAMES only, never folder paths."""
     raw = json.loads(Path(policy_path).read_text())
     a = _agent(raw)
     act = a.get("act") or {}
     access = _access_of(raw)
-    return {
+    by_path = {str(Path(os.path.expanduser(e["repo"])).resolve()): e.get("name") for e in a.get("exports", [])}
+    task_path = str(Path(os.path.expanduser(act["project"])).resolve()) if act.get("project") else None
+    out = {
         "agent": a.get("alias", "desk"),
-        "projects": [{"name": e.get("name"), "path": e.get("repo")} for e in a.get("exports", [])],
-        "tasks": {"enabled": bool(act), "project": act.get("project"), "bash": act.get("bash", "ask"), "open_on_mac": act.get("open_on_mac", "ask"), "owner_steps": act.get("owner_steps", "auto"),
+        "projects": [({"name": e.get("name")} if redact else {"name": e.get("name"), "path": e.get("repo")}) for e in a.get("exports", [])],
+        "tasks": {"enabled": bool(act), "project": by_path.get(task_path) if redact else act.get("project"), "project_name": by_path.get(task_path),
+                  "bash": act.get("bash", "ask"), "open_on_mac": act.get("open_on_mac", "ask"), "owner_steps": act.get("owner_steps", "auto"),
                   "allow_commands": act.get("allow_commands", []), "checks": (act.get("proof") or {}).get("commands", [])},
         "model": {"access": access, "model": a.get("model", ""), "choices": [{"id": k, "label": v["label"], "model": v["model"]} for k, v in ACCESS.items()],
                   "keychain_item": KEYCHAIN.get(access)},
         "budget": (raw.get("limits") or {}).get("monthly_budget", 50.0),
         "changes_go_to": "a new branch named door/<id> inside the task project; your working folder is never changed",
     }
+    return out
 
 
 def _git_project(path):
@@ -119,6 +124,11 @@ def apply(policy_path, state_dir, change):
         if not change.get("enabled"):
             a.pop("act", None)
         else:
+            if change.get("project_name"):                       # the cloud panel only knows names: resolve one of the shared projects
+                match = [e for e in a["exports"] if e.get("name") == change["project_name"]]
+                if not match:
+                    raise SettingsError("No shared project has that name.")
+                change = dict(change, project=match[0]["repo"])
             proj = _git_project(change.get("project"))
             if not any(Path(os.path.expanduser(e["repo"])).resolve() == proj for e in a["exports"]):
                 raise SettingsError("Tasks can only work on one of the shared projects. Add it under Projects first.")

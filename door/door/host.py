@@ -12,7 +12,7 @@ import stat
 import threading
 from pathlib import Path
 
-from . import act, exporter, outfilter, sandbox
+from . import act, exporter, outfilter, sandbox, settings
 from . import replytext
 from . import verify as answer_check
 from .audit import Audit
@@ -34,6 +34,7 @@ class Host:
         for d in ("requests", "exports", "outboxes"):
             (self.state_dir / d).mkdir(exist_ok=True, mode=0o700)
         self.audit = Audit(self.state_dir / "audit.jsonl")
+        self.restart_hook = None               # set by `door-host serve` when a service will start it again
         self.holder = PolicyHolder(policy_path, self.state_dir,
                                    on_event=lambda ev, d: self.audit.write(ev, detail=d))
         if self.holder.policy is None:
@@ -119,7 +120,28 @@ class Host:
 
     def summary(self):
         self.holder.refresh()
-        return {"ok": True, "summary": cloud_summary(self.holder.policy), "paused": self.paused(), "online": True}
+        s = cloud_summary(self.holder.policy)
+        try:
+            s["settings"] = settings.view(self.holder.path, self.state_dir, redact=True)          # names and choices, never folder paths
+        except (OSError, ValueError, KeyError):
+            pass
+        return {"ok": True, "summary": s, "paused": self.paused(), "online": True}
+
+    def change_settings(self, change):
+        """A change asked for from the cloud panel (and confirmed by the owner there when it matters). The same rules as the local page apply."""
+        if not isinstance(change, dict):
+            return {"ok": False, "reason": "bad_payload"}
+        try:
+            settings.apply(self.holder.path, self.state_dir, change)
+            error = None
+        except settings.SettingsError as e:
+            error = str(e)
+        self.holder.refresh()
+        self.audit.write("settings_changed", detail={"op": str(change.get("op")), "from": "cloud panel", "applied": error is None})
+        if error is None and change.get("op") == "model.set" and self.restart_hook:
+            threading.Timer(1.5, self.restart_hook).start()                    # a new model or sign-in is read at start-up
+        return {"ok": True, "applied": error is None, "error": error, "settings": settings.view(self.holder.path, self.state_dir, redact=True),
+                "restarting": error is None and change.get("op") == "model.set" and bool(self.restart_hook)}
 
     # ---------- pausa ----------
     def paused(self):
@@ -533,6 +555,8 @@ class Host:
             return self.pair_start()
         if op == "summary":
             return self.summary()
+        if op == "settings":
+            return self.change_settings(msg.get("change"))
         if op in ("pause", "resume"):
             return self.set_paused(op == "pause")
         return {"ok": False, "reason": "unknown_op"}

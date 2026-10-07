@@ -34,6 +34,7 @@ let tests: [(String, (PanelTests) throws -> Void)] = [
     ("strangers cannot lock the owner out", { $0.testStrangersCannotLockTheOwnerOut() }),
     ("guessing sign-in links is throttled", { $0.testGuessingSignInLinksIsThrottledToo() }),
     ("stay signed in across restarts", { try $0.testStayingSignedInSurvivesARestartAndNeverStoresTheCookie() }),
+    ("settings commands keep to the fixed shape", { $0.testSettingsCommandsKeepToTheFixedShape() }),
     ("HTTP parser", { try $0.testHTTPParsing() }),
     ("SHA-256 (known vectors)", { $0.testSha256Vectors() }),
     ("tenants are isolated", { $0.testTenantsAreIsolated() }),

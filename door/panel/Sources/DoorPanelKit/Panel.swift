@@ -300,6 +300,34 @@ public final class Panel: @unchecked Sendable {
     public static func validate(_ c: [String: Any]) -> [String: Any]? {
         guard let t = c["type"] as? String else { return nil }
         switch t {
+        case "settings":
+            // A change to what the agent may reach, sent to the owner's Mac. Shape only: the Mac checks the meaning (is it a git project, ...)
+            // and the owner confirms the risky ones by text. Nothing outside this fixed shape gets through.
+            guard let ch = c["change"] as? [String: Any], let op = ch["op"] as? String else { return nil }
+            func text(_ k: String, _ max: Int) -> String? { guard let v = ch[k] as? String, !v.isEmpty, v.count <= max, !v.contains("\n") else { return nil }; return v }
+            func list(_ k: String, _ n: Int) -> [String]? { guard let a = ch[k] as? [Any], a.count <= n else { return nil }
+                let out = a.compactMap { $0 as? String }; return out.count == a.count && out.allSatisfy({ $0.count <= 200 && !$0.contains("\n") }) ? out : nil }
+            var out: [String: Any] = ["op": op]
+            switch op {
+            case "project.add": guard let v = text("path", 300) else { return nil }; out["path"] = v
+            case "project.remove": guard let v = text("name", 80) else { return nil }; out["name"] = v
+            case "budget.set": guard let v = ch["monthly"] as? Double ?? (ch["monthly"] as? Int).map(Double.init), v >= 1, v <= 10000 else { return nil }; out["monthly"] = v
+            case "model.set":
+                guard let a = text("access", 30), ["opencode", "claude-login", "anthropic", "openai", "openrouter", "deepseek"].contains(a) else { return nil }
+                out["access"] = a; if ch["model"] != nil { guard let m = text("model", 80), !m.contains(" ") else { return nil }; out["model"] = m }
+            case "tasks.set":
+                guard let en = ch["enabled"] as? Bool else { return nil }; out["enabled"] = en
+                if en {
+                    guard let n = text("project_name", 80) else { return nil }; out["project_name"] = n
+                    for (k, allowed) in [("bash", ["ask", "off"]), ("open_on_mac", ["off", "ask", "allow"]), ("owner_steps", ["auto", "ask"])] {
+                        if ch[k] != nil { guard let v = ch[k] as? String, allowed.contains(v) else { return nil }; out[k] = v }
+                    }
+                    if ch["allow_commands"] != nil { guard let l = list("allow_commands", 20) else { return nil }; out["allow_commands"] = l }
+                    if ch["checks"] != nil { guard let l = list("checks", 10) else { return nil }; out["checks"] = l }
+                }
+            default: return nil
+            }
+            return ["type": t, "change": out]
         case "approve", "deny":
             // The decision is bound to the exact text the owner saw (spec 8.3).
             guard let id = c["request_id"] as? String, match(idRe, id), let h = c["text_hash"] as? String, match(hashRe, h) else { return nil }
