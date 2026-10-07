@@ -12,7 +12,7 @@ from pathlib import Path
 from door.credentials import load_credential
 from door.policy import PolicyError, validate
 from door.proxy import Ctx, EgressProxy
-from door.sandbox import ContainerRuntime, opencode_config
+from door.sandbox import RELAY_NAME, ContainerRuntime, opencode_config
 
 PRICING = {"input_per_mtok": 0.15, "output_per_mtok": 0.6}
 
@@ -99,7 +99,7 @@ class EngineCommands(unittest.TestCase):
         self.assertEqual(perm["read"]["*.env"], "deny")
         self.assertEqual((c["mcp"], c["plugin"], c["lsp"], c["share"], c["autoupdate"]), ({}, [], False, "disabled", False))
         self.assertEqual(c["enabled_providers"], ["door"]); self.assertEqual(c["model"], "door/m")
-        self.assertEqual(c["provider"]["door"]["options"]["baseURL"], "http://door-relay:8080/v1")
+        self.assertEqual(c["provider"]["door"]["options"]["baseURL"], "http://%s:8080/v1" % RELAY_NAME)
         self.assertTrue(c["agent"]["title"]["disable"])
         boss = json.loads(opencode_config("m", "KEY", boss=True))["permission"]
         self.assertEqual((boss["read"], boss["glob"], boss["grep"], boss["list"]), ("deny",) * 4)       # the Boss cannot even read
@@ -116,7 +116,7 @@ class EngineCommands(unittest.TestCase):
         cmd = self.cmd(backend="codex")
         j = " ".join(cmd)
         for must in ("codex", "exec", "--ephemeral", "--ignore-user-config", "approval_policy=\"never\"", "sandbox_mode=\"read-only\"",
-                     "wire_api=\"responses\"", "http://door-relay:8080/v1", "DOOR_API_KEY=door-PLACEHOLDER"):
+                     "wire_api=\"responses\"", "http://%s:8080/v1" % RELAY_NAME, "DOOR_API_KEY=door-PLACEHOLDER"):
             self.assertIn(must, j, must)
         self.assertNotIn("--dangerously-bypass", j); self.assertNotIn("ANTHROPIC", j)
 
@@ -354,7 +354,7 @@ class LoginCommands(unittest.TestCase):
         self.assertEqual(c[c.index("--tools") + 1], "Read,Grep,Glob,Write,Edit")
         self.assertEqual(c[c.index("--setting-sources") + 1], "user"); self.assertIn("--max-turns", c)
         j = " ".join(c)
-        self.assertIn("HTTPS_PROXY=http://door:door-TOK@door-relay:8080", j); self.assertNotIn("ANTHROPIC_API_KEY", j)
+        self.assertIn("HTTPS_PROXY=http://door:door-TOK@%s:8080" % RELAY_NAME, j); self.assertNotIn("ANTHROPIC_API_KEY", j)
         boss = self.cmd(backend="claude", boss=True)
         self.assertEqual(boss[boss.index("--tools") + 1], "Write")
 

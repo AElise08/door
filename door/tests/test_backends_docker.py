@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from door.proxy import Ctx, EgressProxy
-from door.sandbox import ContainerRuntime, build_prompt
+from door.sandbox import RELAY_NAME, ContainerRuntime, build_prompt
 from tests.fake_openai import FakeOpenAI, FakeResponses
 
 
@@ -36,7 +36,7 @@ class OpenCodeInContainer(unittest.TestCase):
         self.rt.ensure_internal_network()
 
     def tearDown(self):
-        subprocess.run(["docker", "rm", "-f", "door-relay"], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", RELAY_NAME], capture_output=True)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def run_agent(self, script, question="How do I deploy?"):
@@ -105,7 +105,7 @@ class CodexInContainer(unittest.TestCase):
         self.rt.ensure_internal_network()
 
     def tearDown(self):
-        subprocess.run(["docker", "rm", "-f", "door-relay"], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", RELAY_NAME], capture_output=True)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def run_agent(self, script, question="How do I deploy?"):
@@ -179,13 +179,13 @@ class LoginTunnelInContainer(unittest.TestCase):
     SCRIPT = r"""
 const http=require('http'),tls=require('tls');
 function tunnel(host){return new Promise(res=>{
-  const req=http.request({host:'door-relay',port:8080,method:'CONNECT',path:host+':443',headers:{'Proxy-Authorization':'Basic '+Buffer.from('door:'+process.env.TOKEN).toString('base64')}});
+  const req=http.request({host:'__RELAY__',port:8080,method:'CONNECT',path:host+':443',headers:{'Proxy-Authorization':'Basic '+Buffer.from('door:'+process.env.TOKEN).toString('base64')}});
   req.on('connect',(r,sock)=>{ if(r.statusCode!==200){res(host+' -> proxy '+r.statusCode);return;}
     const t=tls.connect({socket:sock,servername:host},()=>{t.write('GET / HTTP/1.1\r\nHost: '+host+'\r\nConnection: close\r\n\r\n');});
     let d='';t.on('data',x=>d+=x);t.on('end',()=>res(host+' -> tunnel ok, upstream '+d.split('\r\n')[0]));t.on('error',e=>res(host+' -> tls error '+e.code));});
   req.on('response',r=>res(host+' -> proxy '+r.statusCode));req.on('error',e=>res(host+' -> error '+e.code));req.end();});}
 (async()=>{for(const h of ['api.anthropic.com','example.com','169.254.169.254'])console.log(await tunnel(h));
- console.log('bad auth -> '+await new Promise(r=>{const q=http.request({host:'door-relay',port:8080,method:'CONNECT',path:'api.anthropic.com:443',headers:{'Proxy-Authorization':'Basic '+Buffer.from('door:wrong').toString('base64')}});q.on('response',x=>r(x.statusCode));q.on('connect',x=>r(x.statusCode));q.on('error',e=>r(e.code));q.end();}));})();
+ console.log('bad auth -> '+await new Promise(r=>{const q=http.request({host:'__RELAY__',port:8080,method:'CONNECT',path:'api.anthropic.com:443',headers:{'Proxy-Authorization':'Basic '+Buffer.from('door:wrong').toString('base64')}});q.on('response',x=>r(x.statusCode));q.on('connect',x=>r(x.statusCode));q.on('error',e=>r(e.code));q.end();}));})();
 """
 
     def setUp(self):
@@ -193,7 +193,7 @@ function tunnel(host){return new Promise(res=>{
         self.rt = ContainerRuntime("docker", "door-runner:0.3"); self.rt.ensure_internal_network()
 
     def tearDown(self):
-        subprocess.run(["docker", "rm", "-f", "door-relay"], capture_output=True); shutil.rmtree(self.tmp, ignore_errors=True)
+        subprocess.run(["docker", "rm", "-f", RELAY_NAME], capture_output=True); shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_only_the_providers_hosts_are_reachable_and_only_with_the_runs_token(self):
         px = EgressProxy(["api.anthropic.com"], "", PRICING, style="login", login_hosts=["api.anthropic.com"]).start()
@@ -204,7 +204,7 @@ function tunnel(host){return new Promise(res=>{
             spec = {"name": "door-run-login-test", "export_dir": str(self.tmp / "work"), "outbox_dir": str(self.tmp / "out"), "placeholder_key": tok,
                     "backend": "claude", "model": "m", "cpus": 1, "memory_mb": 512, "prompt": "", "login": True,
                     "command": ["sh", "-c", "env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy -u NODE_USE_ENV_PROXY TOKEN=%s node /work/t.js > /outbox/r.txt 2>&1" % tok]}
-            (self.tmp / "work" / "t.js").write_text(self.SCRIPT)
+            (self.tmp / "work" / "t.js").write_text(self.SCRIPT.replace("__RELAY__", RELAY_NAME))
             self.rt.ensure_login_volume("claude")
             r = self.rt.run(spec, 90)
             out = (self.tmp / "out" / "r.txt").read_text()
@@ -221,14 +221,15 @@ function tunnel(host){return new Promise(res=>{
 class RelayRecovery(unittest.TestCase):
     """If the relay container disappears (Docker restarted, a cleanup), the next question recreates it instead of failing a minute later."""
     def test_relay_is_recreated_before_a_run(self):
-        from door.sandbox import RELAY_NAME, ContainerRuntime
+        from door.sandbox import ContainerRuntime
         rt = ContainerRuntime("docker", "door-runner:0.3")
         if not rt.available(): self.skipTest("docker not available")
         rt.ensure_internal_network()
         subprocess.run(["docker", "rm", "-f", RELAY_NAME], capture_output=True)
         self.assertFalse(rt.relay_running())
         rt.ensure_network(18080)
-        self.assertTrue(rt.relay_running())
-        calls = []; rt.setup_network = lambda port: calls.append(port)
-        rt.ensure_network(18080); self.assertEqual(calls, [])             # already running: nothing is touched
+        self.assertTrue(rt.relay_running()); self.assertTrue(rt.relay_running(18080)); self.assertFalse(rt.relay_running(18081))   # it knows which port it serves
+        calls = []; real = rt.setup_network; rt.setup_network = lambda port: calls.append(port)
+        rt.ensure_network(18080); self.assertEqual(calls, [])             # right port, running: nothing is touched
+        rt.ensure_network(18081); self.assertEqual(calls, [18081])        # somebody else's port: recreated for ours
         subprocess.run(["docker", "rm", "-f", RELAY_NAME], capture_output=True)

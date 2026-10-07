@@ -87,7 +87,7 @@ def main():
     finally:
         if host:
             host.proxy.stop()
-        subprocess.run(["docker", "rm", "-f", "door-relay"], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", __import__("door.sandbox", fromlist=["RELAY_NAME"]).RELAY_NAME], capture_output=True)
         shutil.rmtree(tmp, ignore_errors=True)
 
 

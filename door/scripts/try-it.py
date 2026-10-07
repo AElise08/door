@@ -97,7 +97,7 @@ def main():
     finally:
         if host:
             host.proxy.stop()
-        os.system("docker rm -f door-relay >/dev/null 2>&1")
+        os.system("docker rm -f %s >/dev/null 2>&1" % __import__("door.sandbox", fromlist=["RELAY_NAME"]).RELAY_NAME)
         shutil.rmtree(tmp, ignore_errors=True)
 
 

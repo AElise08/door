@@ -1,10 +1,11 @@
 """Sandbox (Seção 9.3). Modo A: container novo por pedido. Mais nada além do que a spec lista é montado."""
 import json
+import os
 import shutil
 import subprocess
 import threading
 
-RELAY_NAME = "door-relay"
+RELAY_NAME = os.environ.get("DOOR_RELAY_NAME") or "door-relay"      # tests set their own, so they never touch a running Door's relay
 INTERNAL_NET = "door-internal"
 UID = "10001:10001"
 
@@ -276,14 +277,17 @@ class ContainerRuntime:
         if inspected.stdout.strip() != "true":
             raise RuntimeError("existing Door network is not internal; refusing to run")
 
-    def relay_running(self):
-        r = subprocess.run([self.binary, "inspect", "-f", "{{.State.Running}}", RELAY_NAME], capture_output=True, text=True)
-        return r.returncode == 0 and r.stdout.strip() == "true"
+    def relay_running(self, proxy_port=None):
+        """Is the relay up and (when a port is given) forwarding to THIS daemon's proxy? Another process may have recreated it for its own port."""
+        r = subprocess.run([self.binary, "inspect", "-f", "{{.State.Running}} {{join .Args \" \"}}", RELAY_NAME], capture_output=True, text=True)
+        if r.returncode != 0 or not r.stdout.startswith("true"):
+            return False
+        return proxy_port is None or r.stdout.strip().endswith(":%d" % proxy_port)
 
     def ensure_network(self, proxy_port: int):
-        """Called before every run: Docker may have restarted or someone may have cleaned up containers. Without the relay the model is unreachable
-        and a question fails a minute later with no explanation; recreating it is cheap."""
-        if not self.relay_running():
+        """Called before every run: Docker may have restarted, someone may have cleaned up containers, or another program may have pointed the relay at
+        its own proxy. Without the right relay the model is unreachable and a question fails a minute later with no explanation; recreating it is cheap."""
+        if not self.relay_running(proxy_port):
             self.setup_network(proxy_port)
 
     def setup_network(self, proxy_port: int):
