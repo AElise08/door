@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "agents": [
+    {"alias": "backend", "description": "Server code, APIs and data model.", "model": "claude-sonnet-5-5",
+     "instructions": "You are answering a guest of the owner, not the owner. Answer only from the files you can read. If the answer is not in them, say so.",
+     "exports": [{"name": "backend", "repo": "~/code/backend", "exclude": ["**/secrets/**"]}]},
+    {"alias": "docs", "description": "User guides, README files and onboarding material.", "model": "claude-sonnet-5-5",
+     "instructions": "You are answering a guest of the owner, not the owner. Answer only from the files you can read. If the answer is not in them, say so.",
+     "exports": [{"name": "docs", "repo": "~/code/docs"}]}
+  ],
+  "boss": {"enabled": true, "instructions": "When unsure, prefer the docs agent for how-to questions."},
+  "sandbox": {"kind": "container", "image": "door-runner:0.3", "cpus": 2, "memory_mb": 2048, "timeout_s": 600},
+  "egress": {"allow_hosts": ["api.anthropic.com"], "credential_env": "DOOR_ANTHROPIC_API_KEY"},
+  "limits": {"max_output_tokens": 4000, "max_turn_tokens": 200000, "guest_daily_requests": 10,
+             "guest_daily_tokens": 400000, "monthly_budget": 50.0, "currency": "USD"},
+  "outbound": {"max_reply_chars": 1500, "hold_threshold": 1}
+}

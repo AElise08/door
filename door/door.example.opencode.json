@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "agent": {
+    "alias": "desk",
+    "description": "Answers questions about my project.",
+    "backend": "opencode",
+    "model": "deepseek-v4.1-flash",
+    "instructions": "You are answering a guest of the owner, not the owner. Answer only from the files you can read. If the answer is not in them, say so.",
+    "exports": [{"name": "project", "repo": "~/code/project"}]
+  },
+  "egress": {
+    "provider": "opencode-go",
+    "credential_source": "opencode-auth",
+    "pricing": {"input_per_mtok": 0.15, "output_per_mtok": 0.6}
+  },
+  "limits": {"max_output_tokens": 4000, "max_turn_tokens": 200000, "guest_daily_requests": 10,
+             "guest_daily_tokens": 400000, "monthly_budget": 5.0, "currency": "USD"}
+}

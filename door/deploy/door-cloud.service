@@ -1,0 +1,16 @@
+# Template: one cloud agent per customer (instance name = customer id). Run: systemctl enable --now door-cloud@acme
+[Unit]
+Description=Door cloud agent for %i
+After=network-online.target
+
+[Service]
+User=door
+EnvironmentFile=/etc/door/cloud-%i.env
+ExecStart=/opt/door/venv/bin/door-cloud --config /etc/door/cloud-%i.json --state /var/lib/door/%i/cloud.db
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/door
+
+[Install]
+WantedBy=multi-user.target

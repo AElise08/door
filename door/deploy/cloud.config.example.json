@@ -1,0 +1,11 @@
+{
+  "owner_id": "acme",
+  "panel_url": "https://panel.YOUR-DOMAIN",
+  "door_url": "https://panel.YOUR-DOMAIN",
+  "line_uid": "LINE_UID_FROM_PLOW",
+  "device_uid": "OWNER_MAC_DEVICE_UID_FROM_LATCH",
+  "fallback": false,
+  "summary": {"alias": "desk", "description": "", "max_capability": "ask",
+              "limits": {"max_output_tokens": 4000, "max_turn_tokens": 200000, "guest_daily_requests": 10,
+                         "guest_daily_tokens": 400000, "monthly_budget": 50.0, "currency": "USD"}}
+}

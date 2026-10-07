@@ -1,0 +1,20 @@
+{
+  "name": "door",
+  "title": "Door",
+  "summary": "Deixa convidados autorizados perguntarem sobre seu código por SMS.",
+  "version": "0.3.0",
+  "command": "door",
+  "runtime": {
+    "binaries": [
+      {
+        "name": "door",
+        "url": {"arm64": "REPLACE_WITH_RELEASE_URL_ARM64", "x64": "REPLACE_WITH_RELEASE_URL_X64"},
+        "sha256": {"arm64": "REPLACE_WITH_SHA256_ARM64", "x64": "REPLACE_WITH_SHA256_X64"}
+      }
+    ]
+  },
+  "exec": {"argv": ["door"]},
+  "env": {},
+  "argv": {"read": [["ask"], ["status"], ["summary"], ["pair-confirm"]], "write": [["cancel"], ["decide"]]},
+  "skill": "skill.md"
+}

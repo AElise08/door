@@ -1,0 +1,18 @@
+# Template: systemd unit for the Door panel (multi-tenant) on a Linux server. Not deployed by anything here.
+[Unit]
+Description=Door owner panel
+After=network.target
+
+[Service]
+User=door
+Group=door
+EnvironmentFile=/etc/door/panel.env
+ExecStart=/opt/door/panel/door-panel
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/door
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

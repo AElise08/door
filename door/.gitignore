@@ -1,0 +1,9 @@
+.venv/
+.venv-porta/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+panel/.build/
+.DS_Store

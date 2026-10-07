@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Door — let people ask about your code, by text</title>
+<meta name="description" content="Door lets people you authorize text questions about your code and get answers from an isolated, read-only copy. You approve every question.">
+<style>
+:root{--bg:#fff;--side:#f7f7f5;--fg:#37352f;--mut:#787774;--line:#e9e9e7;--acc:#2383e2;--accfg:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#191919;--side:#202020;--fg:#ffffffcf;--mut:#ffffff71;--line:#ffffff18;--acc:#2f81f7}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:760px;margin:0 auto;padding:0 20px}
+nav{display:flex;align-items:center;gap:10px;padding:18px 0;font-weight:600}nav i{width:24px;height:24px;border-radius:6px;background:var(--fg);color:var(--bg);display:grid;place-items:center;font-style:normal;font-size:14px}
+nav a{margin-left:auto;color:var(--mut);text-decoration:none;font-weight:400;font-size:15px}
+h1{font-size:clamp(34px,6vw,54px);line-height:1.1;letter-spacing:-.03em;margin:56px 0 16px}
+.lead{font-size:20px;color:var(--mut);margin:0 0 28px}
+.btn{display:inline-block;background:var(--acc);color:var(--accfg);padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:500;font-size:16px}
+h2{font-size:26px;letter-spacing:-.02em;margin:64px 0 12px}
+.steps{display:grid;gap:14px;counter-reset:s;padding:0;list-style:none}
+.steps li{counter-increment:s;padding:14px 16px 14px 56px;position:relative;background:var(--side);border-radius:8px}
+.steps li:before{content:counter(s);position:absolute;left:16px;top:14px;width:26px;height:26px;border-radius:50%;background:var(--fg);color:var(--bg);display:grid;place-items:center;font-size:14px;font-weight:600}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:620px){.cols{grid-template-columns:1fr}}
+.box{background:var(--side);border-radius:8px;padding:16px}.box h3{margin:0 0 8px;font-size:17px}.box ul{margin:0;padding-left:18px;color:var(--mut)}
+.sms{background:var(--side);border-radius:14px;padding:14px 16px;max-width:430px;margin:10px 0;font-size:15px}.sms.me{margin-left:auto;background:var(--acc);color:#fff}.mut{color:var(--mut)}
+details{border-top:1px solid var(--line);padding:14px 0}summary{cursor:pointer;font-weight:600}details p{color:var(--mut);margin:8px 0 0}
+footer{border-top:1px solid var(--line);margin-top:72px;padding:24px 0 60px;color:var(--mut);font-size:14px}
+</style></head><body><div class="wrap">
+<nav><i>D</i>Door<a href="#early-access">Early access</a></nav>
+<h1>Let people ask about your code. By text message.</h1>
+<p class="lead">Colleagues and clients text a question. You approve it from your phone. An agent answers from an isolated, read-only copy of your code. Nobody gets access to your machine, your files or your keys.</p>
+<a class="btn" href="#early-access">Request early access</a>
+
+<h2>How it works</h2>
+<ol class="steps">
+<li><b>They text a number you authorized.</b> Anyone not on your list gets one fixed reply and nothing else.</li>
+<li><b>You approve, or not.</b> Every single question reaches you first, with a one-time code. Your approval is tied to the exact text of that question.</li>
+<li><b>An agent answers from a copy.</b> A fresh container reads only the files you exported, with no network except the model, and then it is destroyed.</li>
+<li><b>They get the answer by text.</b> If the filter spots something that looks like a secret, the reply is held for you instead.</li>
+</ol>
+<div style="margin-top:22px"><div class="sms me">How does the retry logic for failed deliveries work?</div>
+<div class="sms">Received. The owner will approve it before I answer.</div>
+<div class="sms mut">Door → you: Ana asks desk: "How does the retry logic…" Reply YES 4821 or NO 4821.</div></div>
+
+<h2>What guests can and cannot do</h2>
+<div class="cols">
+<div class="box"><h3>They can</h3><ul><li>Ask questions about the repos you export</li><li>Get short answers by text</li><li>Cancel their own pending question</li></ul></div>
+<div class="box"><h3>They cannot</h3><ul><li>Change anything in your project</li><li>See files you did not export</li><li>Get a shell, a terminal or your credentials</li><li>Add themselves, raise limits or approve anything</li></ul></div>
+</div>
+
+<h2>You stay in control</h2>
+<div class="cols">
+<div class="box"><h3>Your Mac stays closed</h3><ul><li>It only makes outbound connections</li><li>The Mac re-checks every request locally</li></ul></div>
+<div class="box"><h3>Your money stays capped</h3><ul><li>You bring your own model API key</li><li>Limits per question, per guest per day, per month</li><li>Hard stop at 100% of your budget</li></ul></div>
+</div>
+<p class="mut" style="margin-top:18px">Honest limits: this first version answers questions only. The reply filter is a smoke alarm, not a guarantee. The real protection is that secrets are never in the copy the agent reads. You need a Mac with Docker.</p>
+
+<h2 id="early-access">Early access</h2>
+<p>We are onboarding the first customers by hand. Pricing is a simple monthly plan; we will confirm it with you before you start. Your model costs go to your own API account.</p>
+<a class="btn" href="mailto:hello@YOUR-DOMAIN?subject=Door%20early%20access">Email us</a>
+
+<h2>Questions</h2>
+<details><summary>Do guests need an app?</summary><p>No. They send a normal text message to the number you give them.</p></details>
+<details><summary>Can the agent edit my code?</summary><p>No. This version is questions only. The agent reads a read-only export and nothing is written back.</p></details>
+<details><summary>What do you store?</summary><p>Guest phone numbers, requests and replies for 30 days (then only metadata), and usage totals. Your code stays on your Mac, except the parts the agent reads to answer a question: those go to your model provider through your own API key.</p></details>
+<details><summary>What if someone fakes a phone number?</summary><p>They still need your approval for every question, and the agent can only read what you exported inside a sandbox, within your budget.</p></details>
+<footer>Door · questions only · every request approved by the owner</footer>
+</div></body></html>

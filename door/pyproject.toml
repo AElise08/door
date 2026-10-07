@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "door-service"
+version = "0.3.0"
+description = "Let authorized guests ask questions about your code by text message, from an isolated read-only copy"
+requires-python = ">=3.12"
+dependencies = ["cryptography>=44,<47", "websockets>=15,<17"]
+
+[project.scripts]
+door = "door.cli:client_main"
+door-host = "door.cli:host_main"
+door-cloud = "door.service:main"
+door-plow-agent = "door.plow_agent:main"
+
+[tool.setuptools.packages.find]
+include = ["door*"]
+
