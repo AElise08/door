@@ -148,3 +148,29 @@ class Report(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SettingsPage(Base):
+    def post(self, path, body, ck, local=True):
+        h = {"Cookie": ck, "Content-Type": "application/json"}
+        if local: h["X-Door-Local"] = "1"
+        st, _, b = self.http("POST", path, json.dumps(body), h); return st, json.loads(b or b"{}")
+
+    def test_read_change_refuse_and_the_daemon_picks_it_up(self):
+        ck = self.cookie()
+        self.assertEqual(self.http("GET", "/api/settings")[0], 401)                                     # never without the secret link
+        st, _, b = self.http("GET", "/api/settings", headers={"Cookie": ck}); v = json.loads(b)
+        self.assertEqual((st, [p["name"] for p in v["projects"]]), (200, ["p"]))
+        self.assertEqual(self.post("/api/settings", {"op": "budget.set", "monthly": 12}, ck, local=False)[0], 403)   # needs the page's header
+        st, out = self.post("/api/settings", {"op": "budget.set", "monthly": 12}, ck)
+        self.assertEqual((st, out["budget"]), (200, 12.0))
+        self.assertEqual(self.host.holder.policy["limits"]["monthly_budget"], 12.0)                     # live, without restarting
+        st, out = self.post("/api/settings", {"op": "project.add", "path": str(self.root)}, ck)
+        self.assertEqual(st, 400); self.assertIn("not a git repository", out["error"])
+        self.assertTrue(any(e["event"] == "settings_changed" for e in self.host.audit.rows()))
+
+    def test_restart_only_when_a_service_will_start_it_again(self):
+        ck = self.cookie()
+        os.environ.pop("DOOR_SUPERVISED", None)
+        st, out = self.post("/api/restart", {}, ck)
+        self.assertEqual(st, 400); self.assertIn("restart door-host yourself", out["message"])

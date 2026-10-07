@@ -11,6 +11,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from . import settings
 from .common import day_key, month_key
 
 MAX_ROWS = 40000          # newest audit lines considered
@@ -109,13 +110,44 @@ table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:8px 6px;
 tr.q{cursor:pointer}tr.q:hover{background:var(--side)}.det{background:var(--side)}.det pre{white-space:pre-wrap;word-break:break-word;margin:4px 0 10px;font:13px ui-monospace,Menlo,monospace}
 button{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:4px 12px;font:inherit;cursor:pointer}button.go{background:var(--acc);color:#fff;border:0}button.no{color:var(--bad)}
 .mut{color:var(--mut)}.empty{color:var(--mut);padding:10px 0}
+.tabs{display:flex;gap:4px;margin:0 0 22px;border-bottom:1px solid var(--line)}.tabs button{all:unset;cursor:pointer;padding:8px 12px;color:var(--mut)}.tabs button.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg)}
+.box{background:var(--side);border-radius:10px;padding:16px 18px;margin:0 0 16px}.box h3{margin:0 0 4px;font-size:15px}.box p.mut{margin:0 0 12px}
+input,select,textarea{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font:inherit}textarea{width:100%;min-height:64px;font:13px ui-monospace,Menlo,monospace}
+.proj{display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}.proj:last-child{border:0}.proj code{color:var(--mut);font-size:12.5px;overflow-wrap:anywhere;flex:1}
+label.opt{display:flex;gap:8px;align-items:flex-start;margin:6px 0}label.opt span{color:var(--mut);font-size:12.5px;display:block}
+.msg{padding:8px 12px;border-radius:6px;margin:0 0 14px;font-size:13px}.msg.ok{background:#1f7a4d1f;color:var(--ok)}.msg.bad{background:#c0392b1f;color:var(--bad)}
+code.cmd{display:block;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:8px 0 0;font-size:12.5px;overflow-wrap:anywhere}
 </style></head><body><main>
-<h1>Door on this computer</h1><p class="sub">What your agents are doing, read from this computer's own log. Nothing here leaves it.</p>
+<h1>Door on this computer</h1><p class="sub">What your agents are doing, and what they may do. This page only opens on this computer; nothing here leaves it.</p>
+<nav class="tabs"><button id="t-act" class="on">Activity</button><button id="t-set">Settings</button></nav>
+<section id="v-act">
 <div class="row" id="status"></div>
 <div id="waitbox"></div>
 <h2>Usage</h2><div class="cards" id="totals"></div>
 <h2>Recent activity</h2><table><thead><tr><th>When</th><th>Who</th><th>Agent</th><th>What happened</th><th>Tokens</th></tr></thead><tbody id="rows"></tbody></table>
 <div class="empty" id="none" hidden>Nothing yet.</div>
+</section>
+<section id="v-set" hidden>
+<div id="smsg"></div>
+<div class="box"><h3>Projects people can ask about</h3><p class="mut">Door shares a clean copy of the committed files (no .env, keys or secrets folders). Add the folder of a git project.</p>
+  <div id="projects"></div>
+  <form class="row" id="addp" style="margin-top:10px"><input id="ppath" placeholder="/Users/you/code/my-app" style="flex:1;min-width:260px" required><button class="go">Add project</button></form></div>
+<div class="box"><h3>Tasks: having things done</h3><p class="mut" id="where"></p>
+  <label class="opt"><input type="checkbox" id="ten"><div>Let people I trust have things done<span>They are trusted one by one in the panel, or with Door Trust in a group.</span></div></label>
+  <div id="tmore">
+  <div class="row" style="margin:10px 0"><span>Work on</span><select id="tproj"></select></div>
+  <label class="opt"><span style="min-width:150px;color:var(--fg)">Running commands</span><select id="tbash"><option value="ask">Ask me each time (unless listed below)</option><option value="off">Never</option></select></label>
+  <label class="opt"><span style="min-width:150px;color:var(--fg)">Opening things on my screen</span><select id="topen"><option value="off">Never</option><option value="ask">Ask me each time</option><option value="allow">Allow project files and https links (anything else asks)</option></select></label>
+  <div class="mut" style="margin-top:10px">Commands that run without asking (one per line, e.g. npm test)</div><textarea id="tcmds"></textarea>
+  <div class="mut" style="margin-top:10px">Checks Door runs to prove a task worked (one per line; the agent cannot skip them)</div><textarea id="tchecks"></textarea>
+  </div>
+  <div class="row" style="margin-top:12px"><button class="go" id="tsave">Save tasks</button></div></div>
+<div class="box"><h3>Model</h3><p class="mut">Who pays for the AI and which model answers. Keys are read from the macOS Keychain or your own sign-in, never from a file.</p>
+  <div class="row"><select id="macc"></select><input id="mmodel" placeholder="model" style="width:240px"><button class="go" id="msave">Save model</button></div>
+  <div id="mkey"></div><div id="mrestart"></div></div>
+<div class="box"><h3>Monthly budget</h3><p class="mut">New requests stop when this month's model cost reaches it.</p>
+  <div class="row">US$ <input id="budget" type="number" min="1" max="10000" step="1" style="width:110px"><button class="go" id="bsave">Save budget</button></div></div>
+</section>
 </main><script nonce="{{N}}">
 const $ = id => document.getElementById(id);
 function el(t, c, x){ const e = document.createElement(t); if(c) e.className = c; if(x !== undefined) e.textContent = x; return e; }
@@ -152,6 +184,47 @@ function render(d){
 }
 async function load(){ try{ const r = await fetch('/api/usage'); if(r.ok) render(await r.json()); }catch(e){} }
 load(); setInterval(load, 3000);
+// ---- settings ----
+function tab(x){ $('v-act').hidden = x !== 'act'; $('v-set').hidden = x !== 'set'; $('t-act').className = x === 'act' ? 'on' : ''; $('t-set').className = x === 'set' ? 'on' : ''; if(x === 'set') loadSettings(); }
+$('t-act').onclick = () => tab('act'); $('t-set').onclick = () => tab('set');
+function say(text, ok){ const m = $('smsg'); m.textContent = ''; if(text){ const d = el('div','msg ' + (ok ? 'ok' : 'bad'), text); m.appendChild(d); } window.scrollTo(0, 0); }
+async function change(body, done){
+  const r = await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json','X-Door-Local':'1'},body:JSON.stringify(body)});
+  const d = await r.json().catch(() => ({error:'Could not save'}));
+  if(!r.ok){ say(d.error || 'Could not save', false); return; }
+  showSettings(d); say(done + (d.restart_needed ? ' Restart Door to use it (button below).' : ''), true);
+}
+function lines(x){ return x.value.split('\\n').map(s => s.trim()).filter(Boolean); }
+function showSettings(d){
+  const P = $('projects'); P.textContent = '';
+  d.projects.forEach(p => { const r = el('div','proj'); r.appendChild(el('b','',p.name)); r.appendChild(el('code','',p.path));
+    const x = el('button','no','Remove'); x.onclick = () => { if(confirm('Stop sharing ' + p.name + '?')) change({op:'project.remove', name:p.name}, 'Removed ' + p.name + '.'); }; r.appendChild(x); P.appendChild(r); });
+  const t = d.tasks; $('ten').checked = t.enabled; $('tmore').hidden = !t.enabled;
+  const sel = $('tproj'); sel.textContent = ''; d.projects.forEach(p => { const o = el('option','',p.name + '  (' + p.path + ')'); o.value = p.path; sel.appendChild(o); });
+  if(t.project) sel.value = t.project;
+  $('tbash').value = t.bash; $('topen').value = t.open_on_mac; $('tcmds').value = (t.allow_commands||[]).join('\\n'); $('tchecks').value = (t.checks||[]).join('\\n');
+  $('where').textContent = 'Where changes go: ' + d.changes_go_to + '. You review the branch and merge it when you want.';
+  const a = $('macc'); a.textContent = ''; d.model.choices.forEach(c => { const o = el('option','',c.label); o.value = c.id; o.dataset.model = c.model; a.appendChild(o); });
+  a.value = d.model.access; $('mmodel').value = d.model.model;
+  a.onchange = () => { $('mmodel').value = a.selectedOptions[0].dataset.model; };
+  const k = $('mkey'); k.textContent = '';
+  if(d.model.keychain_item){ k.appendChild(el('div','mut','Store the key in the Keychain once (Terminal; it asks for the key without showing it):'));
+    k.appendChild(el('code','cmd','security add-generic-password -U -a "$USER" -s ' + d.model.keychain_item + ' -w')); }
+  if(d.model.access === 'claude-login'){ k.appendChild(el('div','mut','Sign in once, in Terminal:')); k.appendChild(el('code','cmd','door-host login claude')); }
+  const rs = $('mrestart'); rs.textContent = '';
+  if(d.restart_needed){ const b = el('button','go','Restart Door now'); b.style.marginTop = '10px';
+    b.onclick = async () => { const r = await fetch('/api/restart',{method:'POST',headers:{'Content-Type':'application/json','X-Door-Local':'1'},body:'{}'}); const x = await r.json().catch(() => ({}));
+      say(x.message || 'Restarting…', r.ok); if(r.ok) setTimeout(() => location.reload(), 6000); }; rs.appendChild(b); }
+  $('budget').value = d.budget;
+}
+async function loadSettings(){ const r = await fetch('/api/settings'); if(r.ok) showSettings(await r.json()); }
+$('addp').onsubmit = e => { e.preventDefault(); change({op:'project.add', path:$('ppath').value}, 'Project added.'); $('ppath').value = ''; };
+$('ten').onchange = () => { $('tmore').hidden = !$('ten').checked; };
+$('tsave').onclick = () => change({op:'tasks.set', enabled:$('ten').checked, project:$('tproj').value, bash:$('tbash').value, open_on_mac:$('topen').value,
+  allow_commands:lines($('tcmds')), checks:lines($('tchecks'))}, $('ten').checked ? 'Tasks saved.' : 'Tasks are off.');
+$('msave').onclick = () => change({op:'model.set', access:$('macc').value, model:$('mmodel').value.trim()}, 'Model saved.');
+$('bsave').onclick = () => change({op:'budget.set', monthly:$('budget').value}, 'Budget saved.');
+if(location.hash === '#settings') tab('set');
 </script></body></html>"""
 
 
@@ -198,6 +271,8 @@ class LocalUI:
                                       {"Content-Security-Policy": "default-src 'none'; script-src 'nonce-%s'; style-src 'nonce-%s'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'" % (n, n)})
                 if path == "/api/usage":
                     return self._send(200, json.dumps(usage_report(ui.host), ensure_ascii=False).encode())
+                if path == "/api/settings":
+                    return self._send(200, json.dumps(settings.view(ui.host.holder.path, ui.host.state_dir), ensure_ascii=False).encode())
                 self._send(404, b'{"error":"not found"}')
 
             def do_POST(self):
@@ -209,6 +284,19 @@ class LocalUI:
                     return self._send(400, b'{"error":"bad body"}')
                 if self.path == "/api/pause" and isinstance(body.get("paused"), bool):
                     return self._send(200, json.dumps(ui.host.set_paused(body["paused"])).encode())
+                if self.path == "/api/settings":
+                    try:
+                        out = settings.apply(ui.host.holder.path, ui.host.state_dir, body)
+                    except settings.SettingsError as e:
+                        return self._send(400, json.dumps({"error": str(e)}).encode())
+                    ui.host.holder.refresh()
+                    ui.host.audit.write("settings_changed", detail={"op": str(body.get("op"))})
+                    return self._send(200, json.dumps(out, ensure_ascii=False).encode())
+                if self.path == "/api/restart":
+                    if os.environ.get("DOOR_SUPERVISED") != "1":
+                        return self._send(400, json.dumps({"message": "Door is not running as a background service here, so restart door-host yourself."}).encode())
+                    threading.Timer(0.5, lambda: os._exit(0)).start()       # the background service starts it again with the new settings
+                    return self._send(200, json.dumps({"message": "Restarting… this page reloads in a few seconds."}).encode())
                 if self.path == "/api/decide":
                     out = ui.host.decide_action(str(body.get("request", "")), str(body.get("action", "")), str(body.get("decision", "")))
                     return self._send(200 if out["ok"] else 400, json.dumps(out).encode())

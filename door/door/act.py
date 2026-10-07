@@ -49,8 +49,21 @@ def _paths_in(inp: dict):
     return [v for k, v in (inp or {}).items() if k in ("file_path", "path", "notebook_path", "directory") and isinstance(v, str)]
 
 
-def judge(tool: str, inp: dict, worktree: Path, allow_commands, bash: str):
-    """-> ("allow" | "deny" | "ask", reason). Called for every action Claude was not already allowed or forbidden to do."""
+OPEN_CMD = re.compile(r"^\s*open(\s+-[a-zA-Z]+(\s+\S+)?)*\s+(?P<target>\S+)\s*$")
+
+
+def _open_target_ok(target, root):
+    """Something the owner can safely see on their screen: a page on the web, or a file of the project copy."""
+    if re.match(r"^https://[^\s]+$", target):
+        return True
+    p = Path(os.path.expanduser(target))
+    return _inside(str(p if p.is_absolute() else root / p), root) and not SECRET_PATH.search(target)
+
+
+def judge(tool: str, inp: dict, worktree: Path, allow_commands, bash: str, open_on_mac: str = "ask"):
+    """-> ("allow" | "deny" | "ask", reason). Called for every action Claude was not already allowed or forbidden to do.
+    open_on_mac: "off" never opens anything on the owner's screen; "ask" asks every time; "allow" opens project files and https links
+    without asking (anything else still asks)."""
     root = worktree.resolve()
     paths = _paths_in(inp)
     if any(SECRET_PATH.search(str(p)) for p in paths):
@@ -65,6 +78,13 @@ def judge(tool: str, inp: dict, worktree: Path, allow_commands, bash: str):
         return "allow", ""
     if tool == "Bash":
         cmd = str((inp or {}).get("command", ""))
+        m = OPEN_CMD.match(cmd)
+        if m and not SHELL_META.search(cmd):                  # `open ...` shows something on the owner's own screen
+            if open_on_mac == "off":
+                return "deny", "Opening things on this Mac is not allowed."
+            if open_on_mac == "allow" and _open_target_ok(m["target"], root):
+                return "allow", ""
+            return "ask", "Open on your screen: " + m["target"][:200]
         if bash == "off":
             return "deny", "Running commands is not enabled."
         if DANGEROUS.search(cmd):
@@ -137,7 +157,7 @@ class ActRunner:
 
     def permission(self, req):
         tool, inp = str(req.get("tool_name", "")), req.get("input") or {}
-        verdict, why = judge(tool, inp, self.worktree, self.cfg.get("allow_commands", []), self.cfg.get("bash", "ask"))
+        verdict, why = judge(tool, inp, self.worktree, self.cfg.get("allow_commands", []), self.cfg.get("bash", "ask"), self.cfg.get("open_on_mac", "ask"))
         self.on_event("act_permission", {"tool": tool, "verdict": verdict, "why": why})
         if verdict == "allow":
             return {"behavior": "allow"}

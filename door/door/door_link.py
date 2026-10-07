@@ -47,6 +47,7 @@ def to_panel_snapshot(snap):
         "actions": [{"request_id": a["request_id"], "action_id": a["id"], "guest": _name(guests.get(a["guest_id"], {})), "tool": a["tool"], "summary": a["summary"], "at": a["at"]}
                     for a in snap.get("actions", [])],
         "act_enabled": bool((snap.get("agent") or {}).get("act_agent")),
+        "projects": (snap.get("agent") or {}).get("projects", []), "engine": (snap.get("agent") or {}).get("engine", ""),
         "owner_keys": ["g_" + i for i in snap.get("owner_ids", [])] + ["g_owner"],     # board cards the owner made by text (older builds used "g_owner")
         "setup": snap.get("setup") or {},
         "usage_by_guest": [{"guest": _name(guests.get(gid, {})), "tokens": u["tokens"], "cost": u["cost"]}

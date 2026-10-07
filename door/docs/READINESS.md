@@ -1,6 +1,6 @@
 # Is Door ready to sell? An honest status
 
-Last full test pass: **294 Python tests (3 skipped), 33 Swift checks on macOS and on Linux (inside Docker)**.
+Last full test pass: **303 Python tests (3 skipped), 33 Swift checks on macOS and on Linux (inside Docker)**.
 "Verified" below means a test or a real run showed it. Anything that needs an account, a person or a paid service we do not have is listed
 separately as **not verified**; those are the real distance to a paying customer.
 
@@ -24,6 +24,7 @@ separately as **not verified**; those are the real distance to a paying customer
 - A real question answered by DeepSeek V4.1 (OpenCode Go) through the isolated container, with the files it used checked: about 20 seconds.
 - A group chat: `Door Allow`, Door introducing itself, and a second person (an iMessage Apple ID) asking and getting an answer.
 - A task done by the real Claude Code on a throwaway branch, with Door's own checks and an independent check.
+- Door running as a macOS background service, and the Settings page (projects, tasks and permissions, model, budget) applied live.
 - Bugs these real tests found and fixed: the cloud's plan started inactive; the owner's id was rejected by the Mac; Latch's sandbox needed
   network access for the local socket; replies were cut mid-word and full of Markdown; Apple ID members were ignored; the relay container
   could disappear (it is now recreated before each run); the panel signed people out on every restart.

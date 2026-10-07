@@ -107,7 +107,11 @@ def _act(raw, policy_path: Path, state_dir: Path):
     bash = raw.get("bash", "ask")
     if bash not in ("ask", "off"):
         raise PolicyError("agent.act.bash must be ask or off")
+    open_on_mac = raw.get("open_on_mac", "ask")
+    if open_on_mac not in ("off", "ask", "allow"):
+        raise PolicyError("agent.act.open_on_mac must be off, ask or allow")
     return {"project": str(proj), "model": str(raw.get("model", "sonnet")), "allow_commands": list(cmds), "bash": bash, "env": dict(env),
+            "open_on_mac": open_on_mac,
             "timeout_s": num("timeout_s", 900, 30, 3600), "max_turns": num("max_turns", 30, 1, 100),
             "approval_timeout_s": num("approval_timeout_s", 600, 10, 3600), "claude_bin": str(raw.get("claude_bin", "claude")),
             "proof": {"commands": list(pcmds), "timeout_s": num("timeout_s", 300, 10, 1800, proof)}}
@@ -281,7 +285,9 @@ def cloud_summary(pol: dict) -> dict:
     return {"alias": a["alias"], "description": a["description"], "max_capability": a["max_capability"], "limits": pol["limits"],
             "agents": [{"alias": x["alias"], "description": x["description"]} for x in pol["agents"]], "boss": pol["boss"]["enabled"],
             "act_agent": next((x["alias"] for x in pol["agents"] if x.get("act")), None),
-            "guardrails": pol["guardrails"]}
+            "guardrails": pol["guardrails"],
+            # names only (never paths): what the owner sees in the panel; they change it on the Mac
+            "projects": [e["name"] for e in a.get("exports", [])], "engine": "%s · %s" % (a["backend"], a["model"])}
 
 
 class PolicyHolder:

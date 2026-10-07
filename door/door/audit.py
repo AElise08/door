@@ -7,7 +7,7 @@ from pathlib import Path
 from .common import day_key, iso, month_key, now
 
 EVENTS = {"request_received", "recheck", "export_built", "sandbox_started", "usage", "sandbox_exited",
-          "reply_filtered", "reply_sent", "reply_held", "canceled", "paused", "policy_reloaded", "routed", "act_started", "act_permission", "act_waiting", "act_decision", "act_finished"}
+          "reply_filtered", "reply_sent", "reply_held", "canceled", "paused", "policy_reloaded", "routed", "act_started", "act_permission", "act_waiting", "act_decision", "act_finished", "settings_changed"}
 
 
 class Audit:

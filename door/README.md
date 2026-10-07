@@ -1,65 +1,141 @@
 # Door
 
-**Let people talk to the AI agent that works on your code: by text message, in a group chat, or through a chat link.**
-They ask questions and get answers from the project itself. People you trust can also ask for things to be done, and Door
-proves the work was really done before it calls it finished. Your computer never opens a port and nobody gets a shell, your files or your keys.
+**English** · [Português](#português)
 
-Built on [Plow](https://plow.co): a Plow phone line is the agent's number, and Plow Latch is the outbound link to your Mac.
+Door lets other people talk to the AI agent that works on your code: **by text message, in a group chat, or through a chat link**.
+They ask questions and get answers from the project itself. People you trust can also ask for things to be done, and Door proves the
+work was really done before it calls it finished. Your computer never opens a port, and nobody gets a shell, your files or your keys.
 
-## How it works
+### What Door is made of
+Door joins two things:
+- **MyPeople** (the runtime of [MyPlow](../README.md)): agent teams on your own machine with a Boss that routes work, a priorities board,
+  and "proof" that work was really done. Door brings these ideas to people *outside* your machine: the board where requests become cards,
+  the Boss that picks which agent answers, and delivery checked by evidence instead of by trust.
+- **[Plow](https://plow.co)**: a phone line for the agent (SMS and iMessage, including group chats), a place to run the cloud part as a
+  Plow cloud agent, and **Plow Latch**, the app on your Mac that connects it to Plow by an outbound connection only.
 
 ```
  Someone texts your Door number / writes in a chat link / talks in a group
-        │
+        │   (Plow carries the text messages)
         ▼
- Door cloud agent (a Plow cloud-agent image: door/cloud.py, panel/)      ← rules, limits, who may do what, your panel
-        │  Plow relay ──► Plow Latch on your Mac (outbound connection only)
+ Door cloud agent: rules, limits, who may do what, your panel, the board
+        │   Plow relay ──► Plow Latch on your Mac (your Mac only dials out)
         ▼
- door-host on your Mac                                                    ← checks every request again, signed by the cloud
+ door-host on your Mac: checks every request again (signed by the cloud)
         ├─ questions: an isolated container reads a clean copy of the project; the model key never enters it
         └─ tasks: Claude Code works on a throwaway git branch; risky steps wait for you; Door runs YOUR checks
-        │
         ▼
- The answer (or the result + proof) goes back the same way
+ The answer (or the result and its proof) goes back the same way
 ```
 
-**What people can do**
-- **Ask** anything about the project. Answers say which files they come from, and Door checks those files exist. By default they are
-  answered right away, within daily limits and your monthly budget; you can switch to approving each question.
-- **Have things done**, only if you allowed it: the work happens on a copy, on a new branch, never on your real folder. A card on the board
-  follows it and moves to **Done** only when something really changed, your checks passed and an independent check agrees.
-- **You**, the owner, just write to your agent: a question gets an answer, anything else is treated as a task.
+### What people can do
+- **Ask** anything about the project. Answers say which files they come from, and Door checks those files exist. They are answered right
+  away, within daily limits and your monthly budget (or you approve each one, if you prefer).
+- **Have things done**, only if you trust them: the work happens on a copy, on a new branch, never in your real folder. A card follows it
+  and moves to **Done** only when something really changed, your checks passed and an independent check agrees.
+- **You**, the owner, just write to your agent: a question gets an answer, anything else becomes a task.
 
-**How people get in**
-- `Door Link Ana` (by text): a chat link that opens in the browser, on one device, and expires.
-- `Door Invite Ana`: a code they text to the number.
-- In a group: `Door Allow` turns Door on for everyone there (it introduces itself); `Door Trust` lets them have things done, after you confirm
-  with a code in your private chat.
+### How people get in
+`Door Link Ana` (a chat link that opens on one device and expires) · `Door Invite Ana` (a code to text) · in a group, `Door Allow`
+(Door introduces itself) and `Door Trust` (lets them have things done, after you confirm in your private chat).
 
-**What you see**: a panel (board with a priority view, guests and links, history, cost) and, on your Mac, a local page of everything that ran.
+### What you control
+- **The panel**: a board with a priority view, guests and links, history, cost.
+- **Door on this computer** (a page that only opens on your Mac): what ran and what it cost, steps waiting for your OK, and **Settings**:
+  which project folders are shared, which one tasks work on, whether the agent may run commands or open files and links on your screen,
+  which model and provider pay for it, and the monthly budget. The cloud can show these, never change them.
 
-## Try it
+### Set it up
+1. On your Mac: `curl -fsSL <where you host it>/install.sh | bash`. It installs Plow Latch if missing, Door and its isolated runner, and asks
+   three questions (project, model, tasks). `door-host doctor` tells you anything still missing.
+2. In the cloud: run the Door image on one of your Plow lines (`plow-agents deploy --local --line ln_xxx`, or publish it on Plow).
+3. Text the line `Door Activate: <code>`, then `Door Pair: <code>`. Done.
 
-| Where | Command |
+### Depending less on Plow
+| Today Plow gives Door | To do it without Plow |
 |---|---|
-| Your Mac | `curl -fsSL <where you host it>/install.sh \| bash` (installs Plow Latch if missing, Door, the isolated runner; asks 3 questions) |
-| Check | `door-host doctor` says exactly what is missing |
-| Cloud | `cloud/Dockerfile` is the Plow cloud-agent image; `plow-agents deploy --local --line ln_xxx` runs it on one of your Plow lines |
-| Pair | text `Door Activate: <code>` then `Door Pair: <code>` to the line |
+| The phone number, SMS and iMessage, group members | Connect an SMS/WhatsApp provider (e.g. Twilio). Chat links already work without Plow. |
+| Hosting for the cloud agent and its credential proxy | Already a plain Docker image: it runs on any server with HTTPS in front. |
+| **Latch**: the outbound link to the Mac | Build a direct outbound connection from door-host to the cloud (a websocket). The only missing piece of real work. |
+| Accounts, the agent index, distribution | Own sign-up and billing (e.g. Stripe), and the one-line installer already here. |
 
-Engines: Claude Code, OpenCode or Codex, paid by an API key (kept in the macOS Keychain) or by your own sign-in.
-The status of what has been verified for real, and what has not, is in [`docs/READINESS.md`](docs/READINESS.md).
+And what Plow could add to make Door better: delivering 1:1 texts from any number to the agent, an agent-to-Mac call that does not need
+an approval each time for one pre-agreed command, and admission to the agent index.
 
-## Parts
+### Status
+Tested for real on the owner's own Plow account (October 2026): activation and pairing by text, the image running on a Plow line, the Latch
+relay to the Mac, questions answered by a real model in about 20 to 30 seconds, a group chat with a second person, a task done by the real
+Claude Code, and the settings page. What is not verified yet: [`docs/READINESS.md`](docs/READINESS.md).
+
+---
+
+## Português
+
+O Door deixa outras pessoas conversarem com o agente de IA que trabalha no seu código: **por SMS, num grupo, ou por um link de chat**.
+Elas fazem perguntas e recebem respostas tiradas do próprio projeto. Quem você confia também pode pedir para coisas serem feitas, e o Door
+prova que o trabalho foi feito de verdade antes de dizer que terminou. Seu computador nunca abre uma porta, e ninguém recebe acesso ao
+terminal, aos seus arquivos ou às suas chaves.
+
+### Do que o Door é feito
+O Door junta duas coisas:
+- **MyPeople** (o motor do [MyPlow](../README.md)): times de agentes na sua máquina, com um Boss que distribui o trabalho, um quadro de
+  prioridades e a "prova" de que o trabalho foi feito. O Door leva essas ideias para pessoas *de fora* da sua máquina: o quadro onde os
+  pedidos viram cartões, o Boss que escolhe qual agente responde, e a entrega conferida por evidência, não por confiança.
+- **[Plow](https://plow.co)**: uma linha de telefone para o agente (SMS e iMessage, inclusive grupos), um lugar para rodar a parte na nuvem
+  como agente do Plow, e o **Plow Latch**, o app no seu Mac que o liga ao Plow só por conexão de saída.
+
+### O que as pessoas podem fazer
+- **Perguntar** qualquer coisa sobre o projeto. A resposta diz de quais arquivos veio, e o Door confere que eles existem. Respostas na hora,
+  dentro dos limites diários e do orçamento do mês (ou você aprova cada uma, se preferir).
+- **Pedir que algo seja feito**, só se você confiar na pessoa: o trabalho acontece numa cópia, numa branch nova, nunca na sua pasta. Um
+  cartão acompanha o pedido e só vai para **Done** quando algo mudou de verdade, as suas verificações passaram e uma checagem independente concorda.
+- **Você**, a dona, só escreve para o seu agente: pergunta vira resposta, o resto vira tarefa.
+
+### Como as pessoas entram
+`Door Link Ana` (link de chat, abre em um aparelho e vence) · `Door Invite Ana` (código para mandar por SMS) · num grupo, `Door Allow`
+(o Door se apresenta) e `Door Trust` (libera tarefas, depois que você confirma no seu privado).
+
+### O que você controla
+- **O painel**: quadro com visão de prioridade, convidados e links, histórico, custo.
+- **Door on this computer** (uma página que só abre no seu Mac): o que rodou e quanto custou, passos esperando o seu OK, e **Settings**:
+  quais pastas são compartilhadas, em qual delas as tarefas trabalham, se o agente pode rodar comandos ou abrir arquivos e links na sua
+  tela, qual modelo e provedor pagam por isso, e o orçamento do mês. A nuvem pode mostrar essas escolhas, nunca mudar.
+
+### Como instalar
+1. No Mac: `curl -fsSL <onde estiver hospedado>/install.sh | bash`. Instala o Plow Latch se faltar, o Door e o ambiente isolado, e faz três
+   perguntas (projeto, modelo, tarefas). `door-host doctor` diz o que ainda falta.
+2. Na nuvem: rode a imagem do Door numa linha do Plow (`plow-agents deploy --local --line ln_xxx`, ou publicando no Plow).
+3. Mande para a linha `Door Activate: <código>` e depois `Door Pair: <código>`. Pronto.
+
+### Para depender menos do Plow
+| Hoje o Plow dá ao Door | Para fazer sem o Plow |
+|---|---|
+| O número, SMS e iMessage, quem está no grupo | Ligar um provedor de SMS/WhatsApp (ex.: Twilio). Os links de chat já funcionam sem o Plow. |
+| Hospedagem do agente na nuvem e o proxy de credenciais | Já é uma imagem Docker comum: roda em qualquer servidor com HTTPS na frente. |
+| **Latch**: a ponte de saída até o Mac | Construir uma conexão direta de saída do door-host até a nuvem (websocket). É a única parte de trabalho de verdade. |
+| Contas, o índice de agentes, a distribuição | Cadastro e cobrança próprios (ex.: Stripe), e o instalador de uma linha que já existe. |
+
+E o que o Plow poderia acrescentar para o Door ficar melhor: entregar ao agente SMS individuais de qualquer número, uma chamada do agente ao
+Mac que não peça aprovação toda vez para um comando combinado antes, e a entrada no índice de agentes.
+
+### Situação
+Testado de verdade na conta Plow da dona (outubro de 2026): ativação e pareamento por SMS, a imagem rodando numa linha do Plow, a ponte do
+Latch até o Mac, perguntas respondidas por um modelo real em 20 a 30 segundos, um grupo com uma segunda pessoa, uma tarefa feita pelo Claude
+Code de verdade, e a página de configurações. O que ainda não foi verificado: [`docs/READINESS.md`](docs/READINESS.md).
+
+---
+
+# Technical reference (English)
 
 | Part | Where | What it does |
 |---|---|---|
 | `door/cloud.py`, `plow.py`, `plow_agent.py`, `service.py` | cloud | rules, codes, groups, state, messages, the Plow cloud-agent loop |
 | `panel/` (Swift, no dependencies) | cloud | the owner panel, chat links (English and Portuguese), operator admin API |
 | `door/host.py`, `sandbox.py`, `proxy.py`, `exporter.py`, `outfilter.py`, `act.py` | your Mac | re-check, clean export, container, key-swapping proxy, reply filter, tasks, audit log |
+| `door/local_ui.py`, `settings.py` | your Mac | "Door on this computer": activity, approvals and settings |
 | `scripts/install.sh`, `scripts/build-release.sh` | your Mac | the one-line installer and the package it downloads |
 | `deploy/`, `docs/OPERATOR.md` | operator | hosting templates and the onboarding/billing runbook |
-| `tests/` | | 290+ tests, including real Docker isolation and an end-to-end run through the real panel |
+| `tests/` | | 300+ tests, including real Docker isolation and an end-to-end run through the real panel |
 
 ## Tasks: letting a trusted person have things done (the "act" level)
 Everyone starts as **questions only**. In the panel you can mark a person as *can run tasks*, or use `Door Trust` in a group (confirmed in your private chat). They then
@@ -177,8 +253,3 @@ DOOR_PANEL_OWNER_TOKEN=<24+ chars> DOOR_PANEL_AGENT_TOKEN=<24+ chars, different>
 ```
 Multi-customer mode: set `DOOR_PANEL_ADMIN_TOKEN` (32+ chars) and `DOOR_PANEL_DATA=/path/tenants.json` instead.
 
-## Status
-Tested for real on the owner's own Plow account (October 2026): activation and pairing by text, the Plow cloud-agent image running on a
-Plow line, the Latch relay to the Mac, questions answered by a real model through the isolated container (about 20 seconds), a group chat
-with a second person answered, and a task done by the real Claude Code on a throwaway branch. Details, open items and known limits are in
-[`docs/READINESS.md`](docs/READINESS.md). Billing is manual (see `docs/OPERATOR.md`).

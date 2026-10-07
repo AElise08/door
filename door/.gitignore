@@ -1,9 +1,14 @@
 .venv/
 .venv-porta/
+.venv-door/
 __pycache__/
 *.pyc
 *.egg-info/
 build/
 dist/
 panel/.build/
+.state/
+integrations/
+*.pem
+*.db*
 .DS_Store

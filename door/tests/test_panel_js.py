@@ -37,5 +37,18 @@ class PagesAreValidJs(unittest.TestCase):
             proc.terminate(); proc.wait(5)
 
 
+
+@unittest.skipUnless(shutil.which("node"), "needs node")
+class LocalPageIsValidJs(unittest.TestCase):
+    def test_the_local_page_script_parses(self):
+        from door.local_ui import PAGE
+        scripts = re.findall(r"<script[^>]*>(.*?)</script>", PAGE, re.S)
+        self.assertTrue(scripts)
+        for js in scripts:
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f: f.write(js)
+            out = subprocess.run(["node", "--check", f.name], capture_output=True, text=True); os.unlink(f.name)
+            self.assertEqual(out.returncode, 0, out.stderr[:400])
+
+
 if __name__ == "__main__":
     unittest.main()

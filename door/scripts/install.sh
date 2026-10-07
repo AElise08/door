@@ -131,6 +131,9 @@ esac
 
 say "Starting it, and keeping it running"
 WRAP="$HOME_DIR/door-host-run"
+# A background service starts with a bare PATH. Remember where this Mac keeps the tools Door needs (docker, claude, opencode, git).
+SVC_PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+for tool in docker claude opencode codex git; do d="$(dirname "$(command -v "$tool" 2>/dev/null || echo /x/none)")"; [ -d "$d" ] && case ":$SVC_PATH:" in *":$d:"*) ;; *) SVC_PATH="$d:$SVC_PATH";; esac; done
 if [ "$DRY" != 1 ]; then
 cat > "$WRAP" <<'WRAPEOF'
 #!/bin/bash
@@ -140,8 +143,12 @@ for pair in door-anthropic-api-key:DOOR_ANTHROPIC_API_KEY door-opencode-api-key:
             door-openrouter-api-key:OPENROUTER_API_KEY door-deepseek-api-key:DEEPSEEK_API_KEY; do
   v=$(get "${pair%%:*}"); [ -n "$v" ] && export "${pair##*:}=$v"
 done
+export PATH="__SVC_PATH__"
+export PYTHONUNBUFFERED=1
+export DOOR_SUPERVISED=1      # the background service restarts door-host when it exits (used by "Restart Door" in Settings)
 exec "$HOME/.local/share/door/venv/bin/door-host" --policy "$HOME/.config/door/door.json" --state "$HOME/.local/state/door" serve
 WRAPEOF
+sed -i '' "s|__SVC_PATH__|$SVC_PATH|" "$WRAP"
 chmod 700 "$WRAP"
 cat > "$PLIST" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>

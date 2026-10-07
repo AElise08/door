@@ -107,7 +107,7 @@ enum Dashboard {
       <nav><button data-v="queue" class="on">Approvals<span class="n" id="n-queue"></span></button><button data-v="board">Board<span class="n" id="n-board"></span></button><button data-v="held">Held replies<span class="n" id="n-held"></span></button>
         <button data-v="guests">Guests<span class="n" id="n-guests"></span></button><button data-v="cost">Cost</button><button data-v="hist">History</button></nav>
       <div class="grow"></div>
-      <div class="status"><span id="macdot" class="dot"></span><span id="mac">Mac…</span></div><div class="status" id="plan"></div>
+      <div class="status"><span id="macdot" class="dot"></span><span id="mac">Mac…</span></div><div class="status" id="proj" title="Change projects, model and permissions in Door on this computer, on your Mac"></div><div class="status" id="plan"></div>
       <button class="side-btn" id="pause"></button><form method="post" action="/logout" style="margin:0"><button class="side-btn">Sign out</button></form></aside>
     <main><div class="stale" id="stale">Showing stale data: the agent has not reported recently.</div>
       <h1 id="title"></h1><p class="sub" id="subtitle"></p>
@@ -184,6 +184,7 @@ enum Dashboard {
       const billed = s.plan && s.plan.active_until && s.plan.active_until < Date.now()/1000 + 365*86400;
       $('plan').textContent = !s.plan ? '' : s.plan.status !== 'active' ? 'Plan ' + s.plan.status
         : billed ? 'Plan active until ' + new Date(s.plan.active_until*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+      $('proj').textContent = (s.projects||[]).length ? (s.projects.join(', ') + (s.engine ? ' · ' + s.engine.split(' · ').pop() : '')) : '';
       $('stale').style.display = st.stale ? 'block' : 'none';
       const p = $('pause'); p.textContent = mac.paused ? 'Resume agent' : 'Pause agent';
       p.onclick = () => send({type: mac.paused ? 'resume' : 'pause'});
