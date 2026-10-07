@@ -127,10 +127,9 @@ class WholeProduct(unittest.TestCase):
         self.tick(1)                                                              # learn from the Mac that tasks exist
         self.assertTrue(self.cloud.s["summary"].get("act_agent"))
         self.cloud.receive("m1", "+15550000001", "ot", "create a notes file")    # no "Do:", no command words
-        self.until(lambda: self.owner_state()["snapshot"] and self.owner_state()["snapshot"].get("actions"), "the risky step to reach the owner")
-        act = self.owner_state()["snapshot"]["actions"][0]
-        self.assertEqual(self.owner({"type": "action_allow", "request_id": act["request_id"], "action_id": act["action_id"]})[0], 200)
+        # what the owner asked for herself is not put to her again: the risky step (npm install) runs without a question
         self.until(lambda: any(r["state"] in ("completed", "failed", "canceled") for r in self.cloud.s["requests"].values()), "the task to finish")
+        self.assertEqual((self.owner_state()["snapshot"] or {}).get("actions", []), [])
         (r,) = self.cloud.s["requests"].values()
         self.assertEqual((r["state"], r["terminal_reason"]), ("completed", None))
         reply = (r.get("reply") or {}).get("text", "")

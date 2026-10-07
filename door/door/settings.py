@@ -52,7 +52,7 @@ def view(policy_path, state_dir):
     return {
         "agent": a.get("alias", "desk"),
         "projects": [{"name": e.get("name"), "path": e.get("repo")} for e in a.get("exports", [])],
-        "tasks": {"enabled": bool(act), "project": act.get("project"), "bash": act.get("bash", "ask"), "open_on_mac": act.get("open_on_mac", "ask"),
+        "tasks": {"enabled": bool(act), "project": act.get("project"), "bash": act.get("bash", "ask"), "open_on_mac": act.get("open_on_mac", "ask"), "owner_steps": act.get("owner_steps", "auto"),
                   "allow_commands": act.get("allow_commands", []), "checks": (act.get("proof") or {}).get("commands", [])},
         "model": {"access": access, "model": a.get("model", ""), "choices": [{"id": k, "label": v["label"], "model": v["model"]} for k, v in ACCESS.items()],
                   "keychain_item": KEYCHAIN.get(access)},
@@ -128,6 +128,8 @@ def apply(policy_path, state_dir, change):
                 act["bash"] = change["bash"]
             if change.get("open_on_mac") is not None:
                 act["open_on_mac"] = change["open_on_mac"]
+            if change.get("owner_steps") is not None:
+                act["owner_steps"] = change["owner_steps"]
             if change.get("allow_commands") is not None:
                 act["allow_commands"] = _clean_cmds(change["allow_commands"], 20, "Commands that run without asking")
             if change.get("checks") is not None:

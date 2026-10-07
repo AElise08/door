@@ -143,8 +143,9 @@ def clean_env():
 
 
 class ActRunner:
-    def __init__(self, rid, cfg, state_dir, claude_bin="claude", approval_timeout=600):
+    def __init__(self, rid, cfg, state_dir, claude_bin="claude", approval_timeout=600, for_owner=False):
         self.rid, self.cfg, self.state_dir = rid, cfg, Path(state_dir)
+        self.owner_auto = bool(for_owner and cfg.get("owner_steps", "auto") == "auto")
         self.claude_bin, self.approval_timeout = claude_bin, approval_timeout
         self.repo = Path(os.path.expanduser(cfg["project"]))
         self.worktree = self.state_dir / "worktrees" / rid
@@ -179,6 +180,9 @@ class ActRunner:
             return {"behavior": "allow"}
         if verdict == "deny":
             return {"behavior": "deny", "message": why}
+        if self.owner_auto:                       # the owner asked for this themselves: asking them again would be asking for what they just asked
+            self.on_event("act_decision", {"decision": "allow", "by": "owner_request"})
+            return {"behavior": "allow"}
         a = {"id": "a_" + ulid().lower()[-8:], "tool": tool, "summary": why, "at": time.time(), "decision": None, "event": threading.Event()}
         with self._lock:
             self._pending[a["id"]] = a

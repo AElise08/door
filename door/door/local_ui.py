@@ -138,6 +138,7 @@ code.cmd{display:block;background:var(--bg);border:1px solid var(--line);border-
   <div class="row" style="margin:10px 0"><span>Work on</span><select id="tproj"></select></div>
   <label class="opt"><span style="min-width:150px;color:var(--fg)">Running commands</span><select id="tbash"><option value="ask">Ask me each time (unless listed below)</option><option value="off">Never</option></select></label>
   <label class="opt"><span style="min-width:150px;color:var(--fg)">Opening things on my screen</span><select id="topen"><option value="off">Never</option><option value="ask">Ask me each time</option><option value="allow">Allow project files and https links (anything else asks)</option></select></label>
+  <label class="opt"><span style="min-width:150px;color:var(--fg)">When I ask for something myself</span><select id="town"><option value="auto">Do it without asking me again</option><option value="ask">Ask me for each risky step</option></select></label>
   <div class="mut" style="margin-top:10px">Commands that run without asking (one per line, e.g. npm test)</div><textarea id="tcmds"></textarea>
   <div class="mut" style="margin-top:10px">Checks Door runs to prove a task worked (one per line; the agent cannot skip them)</div><textarea id="tchecks"></textarea>
   </div>
@@ -202,7 +203,7 @@ function showSettings(d){
   const t = d.tasks; $('ten').checked = t.enabled; $('tmore').hidden = !t.enabled;
   const sel = $('tproj'); sel.textContent = ''; d.projects.forEach(p => { const o = el('option','',p.name + '  (' + p.path + ')'); o.value = p.path; sel.appendChild(o); });
   if(t.project) sel.value = t.project;
-  $('tbash').value = t.bash; $('topen').value = t.open_on_mac; $('tcmds').value = (t.allow_commands||[]).join('\\n'); $('tchecks').value = (t.checks||[]).join('\\n');
+  $('tbash').value = t.bash; $('topen').value = t.open_on_mac; $('town').value = t.owner_steps; $('tcmds').value = (t.allow_commands||[]).join('\\n'); $('tchecks').value = (t.checks||[]).join('\\n');
   $('where').textContent = 'Where changes go: ' + d.changes_go_to + '. You review the branch and merge it when you want.';
   const a = $('macc'); a.textContent = ''; d.model.choices.forEach(c => { const o = el('option','',c.label); o.value = c.id; o.dataset.model = c.model; a.appendChild(o); });
   a.value = d.model.access; $('mmodel').value = d.model.model;
@@ -220,7 +221,7 @@ function showSettings(d){
 async function loadSettings(){ const r = await fetch('/api/settings'); if(r.ok) showSettings(await r.json()); }
 $('addp').onsubmit = e => { e.preventDefault(); change({op:'project.add', path:$('ppath').value}, 'Project added.'); $('ppath').value = ''; };
 $('ten').onchange = () => { $('tmore').hidden = !$('ten').checked; };
-$('tsave').onclick = () => change({op:'tasks.set', enabled:$('ten').checked, project:$('tproj').value, bash:$('tbash').value, open_on_mac:$('topen').value,
+$('tsave').onclick = () => change({op:'tasks.set', enabled:$('ten').checked, project:$('tproj').value, bash:$('tbash').value, open_on_mac:$('topen').value, owner_steps:$('town').value,
   allow_commands:lines($('tcmds')), checks:lines($('tchecks'))}, $('ten').checked ? 'Tasks saved.' : 'Tasks are off.');
 $('msave').onclick = () => change({op:'model.set', access:$('macc').value, model:$('mmodel').value.trim()}, 'Model saved.');
 $('bsave').onclick = () => change({op:'budget.set', monthly:$('budget').value}, 'Budget saved.');

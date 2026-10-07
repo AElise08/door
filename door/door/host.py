@@ -254,7 +254,7 @@ class Host:
     def _work_act(self, req, pol, profile):
         rid, gid, alias = req["request_id"], req["guest_id"], profile["alias"]
         cfg = profile["act"]
-        runner = act.ActRunner(rid, cfg, self.state_dir, cfg["claude_bin"], cfg["approval_timeout_s"])
+        runner = act.ActRunner(rid, cfg, self.state_dir, cfg["claude_bin"], cfg["approval_timeout_s"], for_owner=bool(req.get("to_owner")))
         runner.on_event = lambda ev, d: self.audit.write(ev, rid, gid, alias, d)
         with self._guard:
             self._acts[rid] = runner
@@ -266,7 +266,8 @@ class Host:
                 result = {"state": "canceled", "reason": info["cancel_reason"]}
                 return
             task = req["text"]
-            run = runner.run(sandbox.build_task_prompt(profile["instructions"], task, self._clean_history(req.get("history"))),
+            run = runner.run(sandbox.build_task_prompt(profile["instructions"], task, self._clean_history(req.get("history")), for_owner=bool(req.get("to_owner")),
+                                                       can_open=cfg.get("open_on_mac", "ask") != "off"),
                              " ".join(task.split())[:70])
             if info["cancel_reason"] or run["cancelled"]:
                 result = {"state": "canceled", "reason": info["cancel_reason"] or "owner_canceled"}

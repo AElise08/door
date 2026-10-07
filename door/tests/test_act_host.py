@@ -195,3 +195,38 @@ class Policy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OwnerSteps(unittest.TestCase):
+    """What the owner asked for themselves is not asked again; what is dangerous stays refused."""
+    def runner(self, for_owner, steps="auto"):
+        import tempfile
+        from door import act
+        root = Path(tempfile.mkdtemp()); r = act.ActRunner("R1", {"project": str(root), "bash": "ask", "owner_steps": steps}, root, "claude", 1, for_owner=for_owner)
+        r.worktree = root; self.events = []; r.on_event = lambda ev, d: self.events.append((ev, d)); return r
+
+    def test_owner_requests_run_without_a_second_question_but_danger_is_still_refused(self):
+        r = self.runner(True)
+        self.assertEqual(r.permission({"tool_name": "Bash", "input": {"command": "cat > Door.md <<'EOF'\nhi\nEOF"}})["behavior"], "allow")
+        self.assertEqual(r.permission({"tool_name": "Bash", "input": {"command": "open README.md"}})["behavior"], "allow")
+        self.assertEqual(r.permission({"tool_name": "Bash", "input": {"command": "sudo rm -rf /"}})["behavior"], "deny")
+        self.assertEqual(r.permission({"tool_name": "Write", "input": {"file_path": "/etc/hosts"}})["behavior"], "deny")
+        self.assertEqual(r.permission({"tool_name": "Read", "input": {"file_path": "~/.ssh/id_rsa"}})["behavior"], "deny")
+        self.assertEqual(r.pending_actions(), [])
+
+    def test_a_guest_or_a_cautious_owner_is_still_asked(self):
+        for for_owner, steps in ((False, "auto"), (True, "ask")):
+            r = self.runner(for_owner, steps)
+            import threading
+            out = []; t = threading.Thread(target=lambda: out.append(r.permission({"tool_name": "Bash", "input": {"command": "npm install left-pad"}}))); t.start()
+            for _ in range(50):
+                if r.pending_actions(): break
+                time.sleep(0.02)
+            self.assertEqual(len(r.pending_actions()), 1); t.join(3)
+            self.assertEqual(out[0]["behavior"], "deny")                          # nobody answered: no means no
+
+    def test_the_prompt_lets_the_agent_open_things_only_when_allowed(self):
+        from door.sandbox import build_task_prompt
+        self.assertIn("run `open", build_task_prompt("", "show me something", for_owner=True, can_open=True))
+        self.assertIn("cannot open windows", build_task_prompt("", "x", can_open=False))
+        self.assertIn("the owner of this computer", build_task_prompt("", "x", for_owner=True))

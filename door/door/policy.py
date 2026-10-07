@@ -110,8 +110,11 @@ def _act(raw, policy_path: Path, state_dir: Path):
     open_on_mac = raw.get("open_on_mac", "ask")
     if open_on_mac not in ("off", "ask", "allow"):
         raise PolicyError("agent.act.open_on_mac must be off, ask or allow")
+    owner_steps = raw.get("owner_steps", "auto")
+    if owner_steps not in ("auto", "ask"):
+        raise PolicyError("agent.act.owner_steps must be auto or ask")
     return {"project": str(proj), "model": str(raw.get("model", "sonnet")), "allow_commands": list(cmds), "bash": bash, "env": dict(env),
-            "open_on_mac": open_on_mac,
+            "open_on_mac": open_on_mac, "owner_steps": owner_steps,
             "timeout_s": num("timeout_s", 900, 30, 3600), "max_turns": num("max_turns", 30, 1, 100),
             "approval_timeout_s": num("approval_timeout_s", 600, 10, 3600), "claude_bin": str(raw.get("claude_bin", "claude")),
             "proof": {"commands": list(pcmds), "timeout_s": num("timeout_s", 300, 10, 1800, proof)}}
