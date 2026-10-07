@@ -343,7 +343,7 @@ enum Dashboard {
     const initialView = (location.hash || '').slice(1);          // what the address asked for, before anything rewrites it
     show(initialView in TITLES ? initialView : 'board');
     const COLS = [['todo','To do'],['doing','Doing'],['review','Review'],['done','Done']];
-    const VERDICT = {verified:['Verified','ok'], checks_passed:['Checks passed','ok'], failed_checks:['Checks failed','bad'], unverified:['Not verified','warn'],
+    const VERDICT = {opened:['Opened on your screen','ok'], verified:['Verified','ok'], checks_passed:['Checks passed','ok'], failed_checks:['Checks failed','bad'], unverified:['Not verified','warn'],
                      no_changes:['No changes','warn'], incomplete:['Incomplete','bad'], canceled:['Canceled','']};
     function ownerName(c, st){
       if(c.owner === 'owner' || ((st.snapshot||{}).owner_keys||[]).includes(c.owner)) return 'You';

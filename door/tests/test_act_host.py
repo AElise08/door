@@ -225,6 +225,11 @@ class OwnerSteps(unittest.TestCase):
             self.assertEqual(len(r.pending_actions()), 1); t.join(3)
             self.assertEqual(out[0]["behavior"], "deny")                          # nobody answered: no means no
 
+    def test_what_was_opened_is_remembered_for_the_result(self):
+        r = self.runner(True)
+        r.permission({"tool_name": "Bash", "input": {"command": "open README.md"}}); r.permission({"tool_name": "Bash", "input": {"command": "ls"}})
+        self.assertEqual(r.opened, ["README.md"])
+
     def test_the_prompt_lets_the_agent_open_things_only_when_allowed(self):
         from door.sandbox import build_task_prompt
         self.assertIn("run `open", build_task_prompt("", "show me something", for_owner=True, can_open=True))

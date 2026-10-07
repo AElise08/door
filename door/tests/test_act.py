@@ -178,7 +178,7 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(self.v("VERIFIED", proof=[]), "verified"); self.assertEqual(self.v(None, proof=[]), "unverified")
         self.assertEqual(self.v("VERIFIED", proof=[{"cmd": "t", "rc": 1}]), "failed_checks"); self.assertEqual(self.v("VERIFIED", proof=[{"cmd": "t", "rc": None}]), "failed_checks")
         self.assertEqual(self.v("VERIFIED", changed_files=[]), "no_changes"); self.assertEqual(self.v("VERIFIED", timed_out=True), "incomplete")
-        self.assertEqual(DONE_VERDICTS, {"verified", "checks_passed"})
+        self.assertEqual(DONE_VERDICTS, {"verified", "checks_passed", "opened"})        # "opened": something was shown on the owner's screen, nothing else expected
 
 
 class ApprovalServer(unittest.TestCase):

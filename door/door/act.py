@@ -152,6 +152,7 @@ class ActRunner:
         self.branch = "door/" + rid.lower()[-10:]
         self._pending, self._lock, self._proc = {}, threading.Lock(), None
         self.cancelled, self.log = False, []
+        self.opened = []                          # things the agent was allowed to open on the owner's screen
         self.on_event = lambda *a: None
 
     def env(self):
@@ -177,11 +178,13 @@ class ActRunner:
         verdict, why = judge(tool, inp, self.worktree, self.cfg.get("allow_commands", []), self.cfg.get("bash", "ask"), self.cfg.get("open_on_mac", "ask"))
         self.on_event("act_permission", {"tool": tool, "verdict": verdict, "why": why})
         if verdict == "allow":
+            self._note_open(tool, inp)
             return {"behavior": "allow"}
         if verdict == "deny":
             return {"behavior": "deny", "message": why}
         if self.owner_auto:                       # the owner asked for this themselves: asking them again would be asking for what they just asked
             self.on_event("act_decision", {"decision": "allow", "by": "owner_request"})
+            self._note_open(tool, inp)
             return {"behavior": "allow"}
         a = {"id": "a_" + ulid().lower()[-8:], "tool": tool, "summary": why, "at": time.time(), "decision": None, "event": threading.Event()}
         with self._lock:
@@ -193,7 +196,15 @@ class ActRunner:
             a["decision"] = decision
         if self.cancelled:
             return {"behavior": "deny", "message": "The task was canceled."}
-        return {"behavior": "allow"} if decision == "allow" else {"behavior": "deny", "message": "The owner did not allow this action."}
+        if decision == "allow":
+            self._note_open(tool, inp)
+            return {"behavior": "allow"}
+        return {"behavior": "deny", "message": "The owner did not allow this action."}
+
+    def _note_open(self, tool, inp):
+        m = OPEN_CMD.match(str((inp or {}).get("command", ""))) if tool == "Bash" else None
+        if m:
+            self.opened.append(m["target"][:200])
 
     def cancel(self):
         self.cancelled = True
@@ -225,7 +236,7 @@ class ActRunner:
 
     def run(self, prompt, title):
         out = {"summary": "", "changed_files": [], "diffstat": "", "diff": "", "branch": None, "commands_run": [], "proof": [],
-               "timed_out": False, "cancelled": False, "error": None, "turns": 0}
+               "timed_out": False, "cancelled": False, "error": None, "turns": 0, "opened": []}
         sockdir = Path(tempfile.mkdtemp(prefix="door-"))
         os.chmod(sockdir, 0o700)
         sock = str(sockdir / "a.sock")
@@ -290,6 +301,7 @@ class ActRunner:
             except Exception:
                 pass
             shutil.rmtree(self.worktree, ignore_errors=True)
+        out["opened"] = list(self.opened)
         return out
 
     def proof(self):
@@ -309,12 +321,12 @@ class ActRunner:
 
 
 def verdict(run: dict, verifier) -> str:
-    """verified | checks_passed | failed_checks | no_changes | unverified | incomplete.
+    """verified | checks_passed | opened | failed_checks | no_changes | unverified | incomplete.
     A task is only "done" when something really changed, the owner's checks passed, and (when it ran) the independent check agrees."""
     if run["timed_out"] or run["cancelled"] or run["error"]:
         return "incomplete"
     if not run["changed_files"]:
-        return "no_changes"
+        return "opened" if run.get("opened") else "no_changes"      # asked to show something and it was opened: that is the work
     ran = bool(run["proof"])
     if ran and any(p["rc"] != 0 for p in run["proof"]):
         return "failed_checks"
@@ -325,4 +337,4 @@ def verdict(run: dict, verifier) -> str:
     return "checks_passed" if ran else "unverified"
 
 
-DONE_VERDICTS = {"verified", "checks_passed"}
+DONE_VERDICTS = {"verified", "checks_passed", "opened"}

@@ -97,7 +97,7 @@ enum ChatPage {
       waitingOwner:'esperando aprovação', thinking:'respondendo…', closed:'link encerrado', sendFail:'Não consegui enviar',
       todo:'A fazer', doing:'Em andamento', review:'Precisa de revisão', done:'Feito', urgent:'Urgente', important:'Importante', add:'Adicionar',
       bt:'O que precisa ser feito?', empty:'Nada aqui ainda. Adicione o que você precisa acima.', run:'Pedir para o agente fazer', remove:'Remover', proof:'O que foi conferido',
-      verd:{verified:'Conferido', checks_passed:'Verificações ok', failed_checks:'Verificações falharam', unverified:'Não confirmado', no_changes:'Nada mudou', incomplete:'Incompleto'},
+      verd:{opened:'Aberto na tela', verified:'Conferido', checks_passed:'Verificações ok', failed_checks:'Verificações falharam', unverified:'Não confirmado', no_changes:'Nada mudou', incomplete:'Incompleto'},
       cannot:'Não foi possível fazer isso'
     } : {
       chat:'Chat', board:'Board', h1:'Ask anything', h2:'I answer from the project itself, not from the internet.',
@@ -107,7 +107,7 @@ enum ChatPage {
       waitingOwner:'waiting for approval', thinking:'answering…', closed:'link closed', sendFail:'Could not send',
       todo:'To do', doing:'Being done', review:'Needs a look', done:'Done', urgent:'Urgent', important:'Important', add:'Add',
       bt:'What needs to be done?', empty:'Nothing here yet. Add what you need above.', run:'Ask the agent to do this', remove:'Remove', proof:'What was checked',
-      verd:{verified:'Verified', checks_passed:'Checks passed', failed_checks:'Checks failed', unverified:'Not verified', no_changes:'No changes', incomplete:'Incomplete'},
+      verd:{opened:'Opened on screen', verified:'Verified', checks_passed:'Checks passed', failed_checks:'Checks failed', unverified:'Not verified', no_changes:'No changes', incomplete:'Incomplete'},
       cannot:'Could not do that'
     };
     document.documentElement.lang = PT ? 'pt' : 'en';
@@ -162,7 +162,7 @@ enum ChatPage {
     info(); setInterval(info, 30000);
     // ---- board ----
     const GROUPS = [['todo',L.todo],['doing',L.doing],['review',L.review],['done',L.done]];
-    const VCLS = {verified:'ok', checks_passed:'ok'};
+    const VCLS = {verified:'ok', checks_passed:'ok', opened:'ok'};
     let tab = 'chat';
     async function card(body){
       const r = await fetch('/chat/'+token+'/card', {method:'POST', headers:{'Content-Type':'application/json','X-Door-Chat':'1'}, body: JSON.stringify(body)});

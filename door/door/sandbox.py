@@ -99,7 +99,7 @@ def build_prompt(instructions: str, question: str, backend: str = "claude", scop
 def build_task_prompt(instructions: str, task: str, history=None, for_owner: bool = False, can_open: bool = False) -> str:
     who = "the owner of this computer, who is asking you directly" if for_owner else "a trusted guest of the owner"
     show = (" If the request is to show something on the owner's screen, you can run `open <file in this folder>` or `open <https link>` "
-            "(it opens on the owner's own screen); do that instead of saying you cannot." if can_open else
+            "(it opens on the owner's own screen); do that instead of saying you cannot, then just say what you opened. You do not need to see the screen." if can_open else
             " You cannot open windows or apps on the owner's computer.")
     return ("%s\n\nYou are doing a task for %s. You work in a throwaway copy of the project (a git branch): "
             "your edits do not touch the owner's real folder and nothing you do is published. Keep the change small and focused, do not "

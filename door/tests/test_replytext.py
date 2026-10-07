@@ -63,3 +63,16 @@ class StepMessages(unittest.TestCase):
         self.assertTrue(_describe_command("npm install\nnpm test").startswith("Run: npm install … (1 more lines)"))
         self.assertEqual(_describe_command("git status"), "Run: git status")
         self.assertLessEqual(len(_describe_command("echo " + "x" * 500)), 210)
+
+
+class OpeningThingsOnScreen(unittest.TestCase):
+    def test_showing_something_counts_as_done_and_says_so(self):
+        from door.act import DONE_VERDICTS, verdict
+        run = {"summary": "Abri o README.md do projeto na sua tela.", "changed_files": [], "proof": [], "branch": None, "error": None,
+               "timed_out": False, "cancelled": False, "opened": ["README.md"]}
+        self.assertEqual(verdict(run, None), "opened"); self.assertIn("opened", DONE_VERDICTS)
+        t = task_reply("Abre alguma coisa no meu computador, na minha tela", run, "opened", "", 1500, to_owner=True)
+        self.assertTrue(t.startswith("Abri o README.md")); self.assertTrue(t.endswith("(Door: abriu na sua tela: README.md. Nada no projeto foi alterado.)"))
+        self.assertNotIn("(Door: nada no projeto foi alterado.)", t)                        # not the "nothing happened" line
+        self.assertEqual(verdict(dict(run, opened=[]), None), "no_changes")           # nothing opened and nothing changed is still "no changes"
+        self.assertEqual(verdict(dict(run, error="x"), None), "incomplete")
