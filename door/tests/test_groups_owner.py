@@ -13,8 +13,13 @@ class OwnerInGroups(Base):
         self.c.s["summary"] = dict(self.c.s["summary"], act_agent="dev", alias="door")
         self.c.s["settings"]["approval"] = "auto"
 
-    def test_allow_introduces_door_in_the_owners_language(self):
-        self.send(OWNER, "oi gente, vou ligar o assistente aqui", "g", True, G)
+    def test_a_new_group_is_english_even_if_the_owner_writes_portuguese_in_it(self):
+        self.send(OWNER, "oi gente, vou ligar o assistente aqui", "g0", True, G)
+        self.send(OWNER, "Door Allow", "g0", True, G)
+        self.assertIn("Hi! I'm Door", self.sms("g0")[-1])
+
+    def test_allow_introduces_door_in_portuguese_when_the_others_write_portuguese(self):
+        self.send(ANA, "oi gente, vou ligar o assistente aqui", "g", True, G)
         self.send(OWNER, "Door Allow", "g", True, G)
         intro = self.sms("g")[-1]
         self.assertIn("Eu sou o Door", intro); self.assertIn("projeto door", intro); self.assertIn("passos arriscados", intro); self.assertNotIn("de a dona", intro)
@@ -126,7 +131,7 @@ class QuietUnlessAddressed(Base):
 
     def test_the_intro_tells_people_how_to_talk_to_door_in_both_languages(self):
         self.assertIn('Start a message with "Door,"', self.sms("g")[-1])
-        self.send(OWNER, "oi gente, vou ligar o assistente aqui", "g2", True, G); self.send(OWNER, "Door Allow", "g2", True, G)     # the group writes Portuguese
+        self.send(ANA, "oi gente, vou ligar o assistente aqui", "g2", True, G); self.send(OWNER, "Door Allow", "g2", True, G)     # the group writes Portuguese
         self.assertIn('Comecem a mensagem com "Door,"', self.sms("g2")[-1])
 
 

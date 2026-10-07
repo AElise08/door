@@ -428,7 +428,8 @@ class Cloud:
     def _receive_group(self, phone, thread, text, members):
         """Group chats: the agent answers only when EVERY other participant is the owner or an active guest,
         so nobody outside the list can read an answer. Owner commands never work in a group."""
-        self._note_group_lang(thread, text)
+        if phone != self.s["owner_phone"]:
+            self._note_group_lang(thread, text)      # the group's language is the other people's; the owner writing Portuguese does not switch it
         if phone == self.s["owner_phone"]:
             # Only the owner's own message can open or close a group: adding the number to a group authorizes nobody.
             self._note_owner_lang(text)
