@@ -21,6 +21,7 @@ import threading
 import time
 from pathlib import Path
 
+from . import screen
 from .common import ulid
 
 APPROVAL_MCP = Path(__file__).with_name("approval_mcp.py")
@@ -153,6 +154,8 @@ class ActRunner:
         self._pending, self._lock, self._proc = {}, threading.Lock(), None
         self.cancelled, self.log = False, []
         self.opened = []                          # things the agent was allowed to open on the owner's screen
+        self.opened_apps, self._watchers = [], []  # apps whose window really appeared (see door/screen.py)
+        self.screen = screen
         self.on_event = lambda *a: None
 
     def env(self):
@@ -205,6 +208,9 @@ class ActRunner:
         m = OPEN_CMD.match(str((inp or {}).get("command", ""))) if tool == "Bash" else None
         if m:
             self.opened.append(m["target"][:200])
+            before = self.screen.windows()                       # taken before the open runs, so a new window is the proof
+            t = threading.Thread(target=lambda: self.opened_apps.extend(a for a in self.screen.watch(before) if a not in self.opened_apps), daemon=True)
+            t.start(); self._watchers.append(t)
 
     def cancel(self):
         self.cancelled = True
@@ -236,7 +242,7 @@ class ActRunner:
 
     def run(self, prompt, title):
         out = {"summary": "", "changed_files": [], "diffstat": "", "diff": "", "branch": None, "commands_run": [], "proof": [],
-               "timed_out": False, "cancelled": False, "error": None, "turns": 0, "opened": []}
+               "timed_out": False, "cancelled": False, "error": None, "turns": 0, "opened": [], "opened_apps": []}
         sockdir = Path(tempfile.mkdtemp(prefix="door-"))
         os.chmod(sockdir, 0o700)
         sock = str(sockdir / "a.sock")
@@ -301,7 +307,9 @@ class ActRunner:
             except Exception:
                 pass
             shutil.rmtree(self.worktree, ignore_errors=True)
-        out["opened"] = list(self.opened)
+        for t in self._watchers:
+            t.join(10)
+        out["opened"] = list(self.opened); out["opened_apps"] = list(self.opened_apps)
         return out
 
     def proof(self):
@@ -321,12 +329,14 @@ class ActRunner:
 
 
 def verdict(run: dict, verifier) -> str:
-    """verified | checks_passed | opened | failed_checks | no_changes | unverified | incomplete.
+    """verified | checks_passed | opened | open_unconfirmed | failed_checks | no_changes | unverified | incomplete.
     A task is only "done" when something really changed, the owner's checks passed, and (when it ran) the independent check agrees."""
     if run["timed_out"] or run["cancelled"] or run["error"]:
         return "incomplete"
     if not run["changed_files"]:
-        return "opened" if run.get("opened") else "no_changes"      # asked to show something and it was opened: that is the work
+        if run.get("opened"):                                          # asked to show something: it counts only if a window really appeared
+            return "opened" if run.get("opened_apps") else "open_unconfirmed"
+        return "no_changes"
     ran = bool(run["proof"])
     if ran and any(p["rc"] != 0 for p in run["proof"]):
         return "failed_checks"

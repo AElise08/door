@@ -42,7 +42,8 @@ STATUS = {
            "failed_checks": "Door's checks did NOT pass ({checks}). The owner will look at branch {branch}.",
            "unverified": "Door could not confirm this does what you asked{reason}. The owner will look at branch {branch}.",
            "no_changes": "(Door: nothing in the project was changed.)",
-           "opened": "(Door: opened on your screen: {opened}. Nothing in the project was changed.)",
+           "opened": "(Door confirmed it: a window of {apps} appeared on your screen. Nothing in the project was changed.)",
+           "open_unconfirmed": "(Door asked your Mac to open {opened}, but could not confirm that a window appeared. Nothing in the project was changed.)",
            "error": "Door: the task did not finish{reason}.",
            "checks_ok": "checks passed: {checks}", "independent": "an independent check agreed"},
     "pt": {"verified": "Door conferiu: mudou {files}; {checks}. Está na branch {branch} esperando o dono.",
@@ -50,7 +51,8 @@ STATUS = {
            "failed_checks": "As verificações do Door NÃO passaram ({checks}). O dono vai olhar a branch {branch}.",
            "unverified": "O Door não conseguiu confirmar que isso faz o que você pediu{reason}. O dono vai olhar a branch {branch}.",
            "no_changes": "(Door: nada no projeto foi alterado.)",
-           "opened": "(Door: abriu na sua tela: {opened}. Nada no projeto foi alterado.)",
+           "opened": "(O Door confirmou: apareceu uma janela de {apps} na sua tela. Nada no projeto foi alterado.)",
+           "open_unconfirmed": "(O Door pediu ao Mac para abrir {opened}, mas não conseguiu confirmar que uma janela apareceu. Nada no projeto foi alterado.)",
            "error": "Door: a tarefa não terminou{reason}.",
            "checks_ok": "verificações passaram: {checks}", "independent": "uma checagem independente confirmou"},
 }
@@ -75,7 +77,7 @@ def task_reply(request_text, run, verdict, reason, limit, to_owner=False):
     files = ", ".join(run["changed_files"][:6]) + (" …" if len(run["changed_files"]) > 6 else "")
     checks = "; ".join("%s %s" % (p["cmd"], "ok" if p["rc"] == 0 else "FAILED") for p in run["proof"])
     reason = (reason or "").strip().rstrip(".")
-    fill = {"opened": ", ".join(run.get("opened") or []) or "-", "files": files or "-", "branch": run.get("branch") or "-", "reason": (": " + reason) if reason else "",
+    fill = {"apps": ", ".join(run.get("opened_apps") or []) or "-", "opened": ", ".join(run.get("opened") or []) or "-", "files": files or "-", "branch": run.get("branch") or "-", "reason": (": " + reason) if reason else "",
             "checks": L["checks_ok"].format(checks=checks) if checks else L["independent"]}
     if verdict in ("failed_checks", "checks_passed"):
         fill["checks"] = checks or "-"

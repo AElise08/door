@@ -66,13 +66,20 @@ class StepMessages(unittest.TestCase):
 
 
 class OpeningThingsOnScreen(unittest.TestCase):
-    def test_showing_something_counts_as_done_and_says_so(self):
+    RUN = {"summary": "Abri o README.md do projeto na sua tela.", "changed_files": [], "proof": [], "branch": None, "error": None,
+           "timed_out": False, "cancelled": False, "opened": ["README.md"], "opened_apps": []}
+
+    def test_it_is_done_only_when_a_window_really_appeared(self):
         from door.act import DONE_VERDICTS, verdict
-        run = {"summary": "Abri o README.md do projeto na sua tela.", "changed_files": [], "proof": [], "branch": None, "error": None,
-               "timed_out": False, "cancelled": False, "opened": ["README.md"]}
-        self.assertEqual(verdict(run, None), "opened"); self.assertIn("opened", DONE_VERDICTS)
-        t = task_reply("Abre alguma coisa no meu computador, na minha tela", run, "opened", "", 1500, to_owner=True)
-        self.assertTrue(t.startswith("Abri o README.md")); self.assertTrue(t.endswith("(Door: abriu na sua tela: README.md. Nada no projeto foi alterado.)"))
-        self.assertNotIn("(Door: nada no projeto foi alterado.)", t)                        # not the "nothing happened" line
-        self.assertEqual(verdict(dict(run, opened=[]), None), "no_changes")           # nothing opened and nothing changed is still "no changes"
-        self.assertEqual(verdict(dict(run, error="x"), None), "incomplete")
+        self.assertEqual(verdict(dict(self.RUN, opened_apps=["TextEdit"]), None), "opened"); self.assertIn("opened", DONE_VERDICTS)
+        self.assertEqual(verdict(self.RUN, None), "open_unconfirmed"); self.assertNotIn("open_unconfirmed", DONE_VERDICTS)
+        self.assertEqual(verdict(dict(self.RUN, opened=[]), None), "no_changes")
+        self.assertEqual(verdict(dict(self.RUN, opened_apps=["TextEdit"], error="x"), None), "incomplete")
+
+    def test_the_messages_say_what_was_confirmed_and_what_was_not(self):
+        ok = task_reply("Abre algo na minha tela", dict(self.RUN, opened_apps=["TextEdit"]), "opened", "", 1500, to_owner=True)
+        self.assertTrue(ok.endswith("(O Door confirmou: apareceu uma janela de TextEdit na sua tela. Nada no projeto foi alterado.)"))
+        no = task_reply("Abre algo na minha tela", self.RUN, "open_unconfirmed", "", 1500, to_owner=True)
+        self.assertIn("não conseguiu confirmar que uma janela apareceu", no); self.assertNotIn("confirmou:", no)
+        en = task_reply("open the README on my screen please", dict(self.RUN, summary="I opened README.md.", opened_apps=["Cursor"]), "opened", "", 1500)
+        self.assertIn("Door confirmed it: a window of Cursor appeared", en)

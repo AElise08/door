@@ -97,7 +97,7 @@ enum ChatPage {
       waitingOwner:'esperando aprovação', thinking:'respondendo…', closed:'link encerrado', sendFail:'Não consegui enviar',
       todo:'A fazer', doing:'Em andamento', review:'Precisa de revisão', done:'Feito', urgent:'Urgente', important:'Importante', add:'Adicionar',
       bt:'O que precisa ser feito?', empty:'Nada aqui ainda. Adicione o que você precisa acima.', run:'Pedir para o agente fazer', remove:'Remover', proof:'O que foi conferido',
-      verd:{opened:'Aberto na tela', verified:'Conferido', checks_passed:'Verificações ok', failed_checks:'Verificações falharam', unverified:'Não confirmado', no_changes:'Nada mudou', incomplete:'Incompleto'},
+      verd:{opened:'Aberto na tela', open_unconfirmed:'Aberto, sem confirmação', verified:'Conferido', checks_passed:'Verificações ok', failed_checks:'Verificações falharam', unverified:'Não confirmado', no_changes:'Nada mudou', incomplete:'Incompleto'},
       cannot:'Não foi possível fazer isso'
     } : {
       chat:'Chat', board:'Board', h1:'Ask anything', h2:'I answer from the project itself, not from the internet.',
@@ -107,7 +107,7 @@ enum ChatPage {
       waitingOwner:'waiting for approval', thinking:'answering…', closed:'link closed', sendFail:'Could not send',
       todo:'To do', doing:'Being done', review:'Needs a look', done:'Done', urgent:'Urgent', important:'Important', add:'Add',
       bt:'What needs to be done?', empty:'Nothing here yet. Add what you need above.', run:'Ask the agent to do this', remove:'Remove', proof:'What was checked',
-      verd:{opened:'Opened on screen', verified:'Verified', checks_passed:'Checks passed', failed_checks:'Checks failed', unverified:'Not verified', no_changes:'No changes', incomplete:'Incomplete'},
+      verd:{opened:'Opened on screen', open_unconfirmed:'Opened, not confirmed', verified:'Verified', checks_passed:'Checks passed', failed_checks:'Checks failed', unverified:'Not verified', no_changes:'No changes', incomplete:'Incomplete'},
       cannot:'Could not do that'
     };
     document.documentElement.lang = PT ? 'pt' : 'en';

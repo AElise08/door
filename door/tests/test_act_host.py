@@ -225,10 +225,36 @@ class OwnerSteps(unittest.TestCase):
             self.assertEqual(len(r.pending_actions()), 1); t.join(3)
             self.assertEqual(out[0]["behavior"], "deny")                          # nobody answered: no means no
 
-    def test_what_was_opened_is_remembered_for_the_result(self):
-        r = self.runner(True)
+    def test_what_was_opened_is_remembered_and_confirmed_by_a_new_window(self):
+        from collections import Counter
+        from door import screen
+        class Fake:                                                   # a screen where a window of "TextEdit" appears after the open
+            shown = Counter({"Safari": 1}); n = 0
+            def windows(self): return Counter(Fake.shown)
+            def watch(self, before, **kw):
+                Fake.shown["TextEdit"] += 1
+                return screen.watch(before, seconds=1, interval=0, listing=lambda: Counter(Fake.shown), sleep=lambda s: None)
+        r = self.runner(True); r.screen = Fake()
         r.permission({"tool_name": "Bash", "input": {"command": "open README.md"}}); r.permission({"tool_name": "Bash", "input": {"command": "ls"}})
-        self.assertEqual(r.opened, ["README.md"])
+        for t in r._watchers: t.join(3)
+        self.assertEqual((r.opened, r.opened_apps), (["README.md"], ["TextEdit"]))
+
+    def test_nothing_new_on_screen_means_not_confirmed(self):
+        from collections import Counter
+        from door import screen
+        self.assertEqual(screen.watch(Counter({"Safari": 1}), seconds=1, interval=0, listing=lambda: Counter({"Safari": 1}), sleep=lambda s: None), [])
+        self.assertEqual(screen.watch(None, seconds=1), [])                                   # a computer that cannot list windows never "confirms"
+        self.assertEqual(screen.watch(Counter(), seconds=1, interval=0, listing=lambda: None, sleep=lambda s: None), [])
+
+    def test_the_real_screen_sees_a_real_window(self):
+        import sys, subprocess
+        if sys.platform != "darwin" or subprocess.run(["pgrep", "-x", "Finder"], capture_output=True).returncode != 0: self.skipTest("needs a Mac desktop session")
+        from door import screen
+        before = screen.windows()
+        if before is None: self.skipTest("this session cannot list windows")
+        subprocess.run(["open", "-a", "Calculator"])
+        try: self.assertTrue(any("alcul" in a for a in screen.watch(before, seconds=8)))
+        finally: subprocess.run(["osascript", "-e", 'tell application "Calculator" to quit'], capture_output=True)
 
     def test_the_prompt_lets_the_agent_open_things_only_when_allowed(self):
         from door.sandbox import build_task_prompt
