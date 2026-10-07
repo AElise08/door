@@ -131,10 +131,10 @@ class OnPlow(unittest.TestCase):
         self.onboard(); self.cloud.set_plan("active", now() + 86400 * 30)
         gid = self.cloud.add_guest(ANA, "Ana")
         self.plow.chat("cht_group", OWNER_PHONE, ANA)
-        self.plow.say("cht_group", ANA, "How do I deploy?")
+        self.plow.say("cht_group", ANA, "Door, how do I deploy?")
         self.until(lambda: "Run scripts/deploy.sh." in self.plow.texts_to("cht_group"), "the answer in the group")
         self.plow.chat("cht_mixed", OWNER_PHONE, ANA, "+15557770007")
-        self.plow.say("cht_mixed", ANA, "How do I deploy?"); self.tick(4)
+        self.plow.say("cht_mixed", ANA, "Door, how do I deploy?"); self.tick(4)
         self.assertEqual(self.plow.texts_to("cht_mixed"), [])                                          # a stranger is in that group: silence
 
     def test_without_a_mac_connected_the_owner_is_told_clearly(self):

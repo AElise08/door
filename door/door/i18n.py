@@ -70,11 +70,10 @@ M = {
     "host_sandbox_owner": ("Door: your Mac could not start the isolated container. Is Docker running? `door-host doctor` shows what is wrong.",
                            "Door: seu Mac não conseguiu iniciar o container isolado. O Docker está aberto? `door-host doctor` mostra o que falta."),
     # ---- groups (the group hears the owner's language) ----
-    "group_intro": ("Hi! I'm Door, the assistant for the {project} project. Ask me anything about it here and I'll answer from the project itself. "
-                    "Only people {owner} trusts can ask me to change things, and risky steps always need approval. Say \"new chat\" to start over.",
-                    "Oi! Eu sou o Door, o assistente do projeto {project}. Podem me perguntar qualquer coisa sobre ele aqui; eu respondo a partir do "
-                    "próprio projeto. Só quem {owner} autorizar pode me pedir para mudar coisas, e passos arriscados sempre precisam de aprovação. "
-                    "Digam \"new chat\" para recomeçar a conversa."),
+    "group_intro": ("Hi! I'm Door, the assistant for the {project} project. Start a message with \"Door,\" to ask me anything about it, and I'll answer from the project itself. "
+                    "I stay quiet while you talk to each other. Only people {owner} trusts can ask me to change things, and risky steps always need approval.",
+                    "Oi! Eu sou o Door, o assistente do projeto {project}. Comecem a mensagem com \"Door,\" para me perguntar qualquer coisa sobre ele; eu respondo a partir do "
+                    "próprio projeto. Fico quieto enquanto vocês conversam entre si. Só quem {owner} autorizar pode me pedir para mudar coisas, e passos arriscados sempre precisam de aprovação."),
     "owner_word": ("the owner", "a dona"),
     "trusted": ("{who} can now ask me to do things on {project}. I work on a copy, and risky steps still need approval.",
                 "{who} agora pode me pedir para fazer coisas no {project}. Eu trabalho numa cópia, e passos arriscados ainda precisam de aprovação."),

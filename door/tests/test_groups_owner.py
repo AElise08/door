@@ -21,13 +21,13 @@ class OwnerInGroups(Base):
 
     def test_the_owner_can_ask_and_give_tasks_inside_an_open_group(self):
         self.send(OWNER, "Door Allow", "g", True, G)
-        self.send(OWNER, "como funciona o deploy?", "g", True, G)
-        self.send(OWNER, "cria um arquivo NOTAS.md", "g", True, G)
+        self.send(OWNER, "Door, como funciona o deploy?", "g", True, G)
+        self.send(OWNER, "Door, cria um arquivo NOTAS.md", "g", True, G)
         caps = [(r["capability"], r["thread_id"]) for r in self.c.s["requests"].values()]
         self.assertEqual(caps, [("ask", "g"), ("act", "g")])           # answered in the group, not in private
 
     def test_the_owner_talking_in_a_group_that_is_not_open_does_nothing(self):
-        self.send(OWNER, "cria um arquivo", "g", True, G)
+        self.send(OWNER, "Door, cria um arquivo", "g", True, G)
         self.assertEqual(self.c.s["requests"], {})
 
     def test_trust_needs_the_private_yes_and_then_the_person_can_have_things_done(self):
@@ -42,8 +42,8 @@ class OwnerInGroups(Base):
         self.send(OWNER, "YES " + code, "owner-thread")
         self.assertEqual((self.guest(ANA)["level"], self.guest(BOB)["level"]), ("act", "act"))
         self.assertIn("can now ask me to do things", self.sms("g")[-1])
-        self.send(ANA, "add a footer to index.html", "g", True, G)               # plain words from a guest are still a question...
-        self.send(ANA, "Do: add a footer to index.html", "g", True, G)          # ...and "Do:" makes it a task, now allowed
+        self.send(ANA, "Door, add a footer to index.html", "g", True, G)               # plain words from a guest are still a question...
+        self.send(ANA, "Door, do: add a footer to index.html", "g", True, G)          # ...and "Do:" makes it a task, now allowed
         self.assertEqual([r["capability"] for r in self.c.s["requests"].values() if r["guest_id"] == self.guest(ANA)["guest_id"]], ["ask", "act"])
 
     def test_trust_one_person_by_number_and_refuse_strangers(self):
@@ -80,7 +80,7 @@ class AppleIdMembers(Base):
         ME = "Pablo.Friend@iCloud.com"; G2 = [OWNER, ME]
         self.send(OWNER, "Door Allow", "g", True, G2)
         self.assertEqual([g["phone"] for g in self.c.s["guests"].values()], ["pablo.friend@icloud.com"])
-        rid = self.send(ME, "what does this project do?", "g", True, G2)
+        rid = self.send(ME, "Door, what does this project do?", "g", True, G2)
         self.assertIsNotNone(rid)
         self.send(OWNER, "Door Trust pablo.friend@icloud.com", "g", True, G2)
         code = self.sms("owner-thread")[-1].split("YES ")[1][:4]
@@ -91,3 +91,40 @@ class AppleIdMembers(Base):
         for who in ("not-an-address", "a@b", "@x.com", "x@@y.com"):
             self.assertIsNone(self.send(who, "hello"))
         self.assertEqual(self.c.s["guests"], {})
+
+
+class QuietUnlessAddressed(Base):
+    """In a group people talk to each other; Door answers only when it is spoken to."""
+    def setUp(self):
+        super().setUp(); self.c.s["settings"]["approval"] = "auto"; self.c.s["summary"] = dict(self.c.s["summary"], act_agent="dev", alias="door")
+        self.send(OWNER, "Door Allow", "g", True, G)
+
+    def n(self): return len(self.c.s["requests"])
+
+    def test_chatting_among_people_gets_no_answer_and_no_cost(self):
+        for who, text in ((ANA, "did you see the game?"), (BOB, "yes! how do I deploy this btw"), (OWNER, "I'll send the file tonight"),
+                          (ANA, "I think the door is open"), (BOB, "doors are nice"), (ANA, "Door")):
+            self.assertIsNone(self.send(who, text, "g", True, G))
+        self.assertEqual(self.n(), 0)
+        self.assertEqual([t for t in self.sms("g") if "Working" in t or "Got it" in t], [])
+
+    def test_addressing_door_works_in_both_languages_and_with_at(self):
+        for who, text in ((ANA, "Door, how do I deploy?"), (BOB, "@door where is the config?"), (ANA, "hey door: what is this project"),
+                          (BOB, "oi Door, como instalo?"), (OWNER, "Door, summarize the README")):
+            self.send(who, text, "g", True, G)
+        self.assertEqual(self.n(), 5)
+
+    def test_the_prefix_is_not_part_of_the_question(self):
+        self.send(ANA, "Door, how do I deploy?", "g", True, G)
+        self.assertEqual(next(iter(self.c.s["requests"].values()))["text"], "how do I deploy?")
+
+    def test_owner_only_commands_from_a_guest_are_ignored_not_answered(self):
+        for text in ("Door Allow", "Door Stop", "Door Trust"):
+            self.assertIsNone(self.send(ANA, text, "g", True, G))
+        self.assertEqual((self.n(), self.c.s.get("trust_pending", {})), (0, {}))
+        self.assertIn("g", self.c.s["open_groups"])
+
+    def test_the_intro_tells_people_how_to_talk_to_door_in_both_languages(self):
+        self.assertIn('Start a message with "Door,"', self.sms("g")[-1])
+        self.c.s["owner_lang"] = "pt"; self.send(OWNER, "Door Allow", "g2", True, G)
+        self.assertIn('Comecem a mensagem com "Door,"', self.sms("g2")[-1])

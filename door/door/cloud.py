@@ -41,13 +41,14 @@ LEVELS = ("ask", "act")
 MAX_JOBS = 200
 GROUP_ALLOW_RE = re.compile(r"Door Allow\s*", re.I)
 GROUP_STOP_RE = re.compile(r"Door Stop\s*", re.I)
+# In a group, people talk to each other. Door answers only when it is addressed: "Door, ...", "@door ...", "hey door ..." (also "oi/ei/e aí door").
+ADDRESSED_RE = re.compile(r"(?is)^\s*(?:(?:hey|hi|hello|oi|olá|ola|ei|e aí|e ai|fala)[\s,]+)?@?door\b[\s,:;!\-–—]*(?P<rest>.*)$")
 GROUP_TRUST_RE = re.compile(r"Door Trust(?:\s+(.+))?\s*", re.I)
 GROUP_INTRO = {
-    "en": "Hi! I'm Door, the assistant for the {project} project. Ask me anything about it here and I'll answer from the project itself. "
-          "Only people {owner} trusts can ask me to change things, and risky steps always need approval. Say \"new chat\" to start over.",
-    "pt": "Oi! Eu sou o Door, o assistente do projeto {project}. Podem me perguntar qualquer coisa sobre ele aqui; eu respondo a partir do "
-          "próprio projeto. Só quem {owner} autorizar pode me pedir para mudar coisas, e passos arriscados sempre precisam de aprovação. "
-          "Digam \"new chat\" para recomeçar a conversa.",
+    "en": "Hi! I'm Door, the assistant for the {project} project. Start a message with \"Door,\" to ask me anything about it, and I'll answer from the project itself. "
+          "I stay quiet while you talk to each other. Only people {owner} trusts can ask me to change things, and risky steps always need approval.",
+    "pt": "Oi! Eu sou o Door, o assistente do projeto {project}. Comecem a mensagem com \"Door,\" para me perguntar qualquer coisa sobre ele; eu respondo a partir do "
+          "próprio projeto. Fico quieto enquanto vocês conversam entre si. Só quem {owner} autorizar pode me pedir para mudar coisas, e passos arriscados sempre precisam de aprovação.",
 }
 TRUSTED_TEXT = {
     "en": "{who} can now ask me to do things on {project}. I work on a copy, and risky steps still need approval.",
@@ -425,9 +426,10 @@ class Cloud:
             trust = GROUP_TRUST_RE.fullmatch(text.strip())
             if trust:
                 return self._trust_request(thread, members, trust[1])
-            # Anything else the owner writes in an open group is the owner talking to their agent, answered in the group.
-            if thread in self.s["open_groups"] and self._everyone_allowed(members):
-                return self._owner_request(thread, text)
+            # In an open group the owner talks to their agent only by addressing it ("Door, ..."); everything else is the owner talking to people.
+            addressed = self._addressed(text)
+            if addressed and thread in self.s["open_groups"] and self._everyone_allowed(members):
+                return self._owner_request(thread, addressed)
             return
         join = JOIN_RE.fullmatch(text.strip())
         if join:
@@ -437,6 +439,9 @@ class Cloud:
         guest = next((g for g in self.s["guests"].values() if g["phone"] == phone), None)
         if not guest:
             return                                              # strangers in a group get nothing, not even a reply
+        addressed = self._addressed(text)
+        if not addressed or GROUP_ALLOW_RE.fullmatch(text.strip()) or GROUP_STOP_RE.fullmatch(text.strip()) or GROUP_TRUST_RE.fullmatch(text.strip()):
+            return                                              # people chatting among themselves, or owner-only commands: Door stays quiet
         t = self.clock()
         if not self._everyone_allowed(members):
             d = day_key(t)
@@ -444,7 +449,13 @@ class Cloud:
                 self.s["alerts"]["group"] = d
                 self._sms(self.s["owner_thread"], "Door: a group chat includes someone who is not an authorized guest, so I did not answer there.")
             return
-        return self._guest_message(guest, thread, text)
+        return self._guest_message(guest, thread, addressed)
+
+    @staticmethod
+    def _addressed(text):
+        """The text without the "Door," prefix when the message is for Door, else None."""
+        m = ADDRESSED_RE.match(text or "")
+        return (m["rest"].strip() or None) if m else None
 
     # ---------- web chat links (the panel hosts the page; messages come in through door_link) ----------
     def receive_web(self, link_id, msg_id, text, name="", days=30, kind="chat", card_id=None):

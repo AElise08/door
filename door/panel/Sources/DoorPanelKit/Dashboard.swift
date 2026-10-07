@@ -70,7 +70,7 @@ enum Dashboard {
     .bhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 18px}
     .seg{display:inline-flex;background:var(--side);border-radius:7px;padding:2px}.seg button{all:unset;cursor:pointer;padding:4px 12px;border-radius:5px;font-size:13px;color:var(--mut)}
     .seg button.on{background:var(--bg);color:var(--fg);box-shadow:0 1px 2px #0000001a}
-    .cols4{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:14px;align-items:start}
+    .cols4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start}
     .col,.quad{background:var(--side);border-radius:10px;padding:10px 8px 6px}
     .col h3,.quad h3{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;margin:2px 6px 10px;color:var(--fg)}
     .col h3 .cnt,.quad h3 .cnt{color:var(--mut);font-weight:400}.col h3 i{width:8px;height:8px;border-radius:50%;flex-shrink:0}

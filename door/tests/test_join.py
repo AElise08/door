@@ -125,7 +125,7 @@ class Groups(Base):
         self.c.add_guest(ANA, "Ana"); self.c.add_guest(BOB, "Bob")
 
     def test_answers_in_a_group_of_owner_and_guests_only(self):
-        rid = self.send(ANA, "How do I deploy?", "group-1", True, [OWNER, ANA, BOB])
+        rid = self.send(ANA, "Door, how do I deploy?", "group-1", True, [OWNER, ANA, BOB])
         r = self.c.s["requests"][rid]
         self.assertEqual((r["thread_id"], r["state"]), ("group-1", "waitingApproval"))
         self.assertTrue(any("Received" in s for s in self.sms("group-1")))
@@ -133,27 +133,27 @@ class Groups(Base):
 
     def test_group_with_an_outsider_is_silent_and_tells_the_owner_once_a_day(self):
         for _ in range(3):
-            self.assertIsNone(self.send(ANA, "secret question", "group-2", True, [OWNER, ANA, EVE]))
+            self.assertIsNone(self.send(ANA, "Door, secret question", "group-2", True, [OWNER, ANA, EVE]))
         self.assertEqual(self.sms("group-2"), [])
         self.assertEqual(len([s for s in self.sms("owner-thread") if "not an authorized guest" in s]), 1)
         self.assertFalse(self.c.s["requests"])
 
     def test_unknown_or_incomplete_roster_is_treated_as_unsafe(self):
-        self.assertIsNone(self.send(ANA, "hi", "g3", True, None))
-        self.assertIsNone(self.send(ANA, "hi", "g3", True, []))
+        self.assertIsNone(self.send(ANA, "Door, hi", "g3", True, None))
+        self.assertIsNone(self.send(ANA, "Door, hi", "g3", True, []))
         self.assertFalse(self.c.s["requests"])
 
     def test_suspended_or_expired_member_makes_the_group_unsafe(self):
         self.c.set_guest_status(self.guest(BOB)["guest_id"], "suspended")
-        self.assertIsNone(self.send(ANA, "hi", "g4", True, [OWNER, ANA, BOB]))
+        self.assertIsNone(self.send(ANA, "Door, hi", "g4", True, [OWNER, ANA, BOB]))
 
     def test_strangers_and_the_owner_cannot_trigger_anything_in_a_group(self):
-        self.assertIsNone(self.send(EVE, "hello agent", "g5", True, [OWNER, EVE]))
-        self.assertIsNone(self.send(OWNER, "hello", "g5", True, [OWNER, ANA]))
+        self.assertIsNone(self.send(EVE, "Door, hello agent", "g5", True, [OWNER, EVE]))
+        self.assertIsNone(self.send(OWNER, "Door, hello", "g5", True, [OWNER, ANA]))
         self.assertEqual(self.sms("g5"), [])
 
     def test_approvals_never_work_from_a_group(self):
-        rid = self.send(ANA, "do it", "g6", True, [OWNER, ANA])
+        rid = self.send(ANA, "Door, do it", "g6", True, [OWNER, ANA])
         code = self.c.s["requests"][rid]["approval_code"]
         self.send(OWNER, "YES " + code, "g6", True, [OWNER, ANA])
         self.assertEqual(self.c.s["requests"][rid]["state"], "waitingApproval")
@@ -165,26 +165,26 @@ class Groups(Base):
         CY = "+15553330003"
         self.send(CY, "Door Join: " + code, "g7", True, [OWNER, ANA, CY])
         self.assertIsNotNone(self.guest(CY))
-        self.assertIsNotNone(self.send(CY, "hello?", "g7", True, [OWNER, ANA, CY]))
+        self.assertIsNotNone(self.send(CY, "Door, hello?", "g7", True, [OWNER, ANA, CY]))
 
 
 class OpenGroups(Base):
     def test_owner_says_allow_and_everyone_in_the_group_is_in(self):
         self.send(OWNER, "Door Allow", "g1", True, [OWNER, ANA, BOB])
         self.assertEqual({g["phone"] for g in self.c.s["guests"].values()}, {ANA, BOB})
-        self.assertTrue(any("I'm Door" in s and "Ask me anything" in s for s in self.sms("g1")))
-        rid = self.send(ANA, "How do I deploy?", "g1", True, [OWNER, ANA, BOB])        # works right away
+        self.assertTrue(any("I'm Door" in s and 'Start a message with "Door,"' in s for s in self.sms("g1")))
+        rid = self.send(ANA, "Door, how do I deploy?", "g1", True, [OWNER, ANA, BOB])        # works right away
         self.assertEqual(self.c.s["requests"][rid]["state"], "waitingApproval")        # still approved by the owner per question
 
     def test_adding_the_number_to_a_group_or_a_stranger_saying_allow_authorizes_nobody(self):
         self.send(EVE, "Door Allow", "g2", True, [OWNER, EVE, ANA])
         self.send(ANA, "Door Allow", "g2", True, [OWNER, EVE, ANA])
-        self.send(ANA, "hello agent", "g2", True, [OWNER, EVE, ANA])
+        self.send(ANA, "Door, hello agent", "g2", True, [OWNER, EVE, ANA])
         self.assertEqual(self.c.s["guests"], {}); self.assertEqual(self.c.s["requests"], {})
 
     def test_later_joiners_are_added_while_the_group_is_open_and_the_owner_is_told(self):
         self.send(OWNER, "Door Allow", "g3", True, [OWNER, ANA])
-        rid = self.send(ANA, "hi?", "g3", True, [OWNER, ANA, BOB])                      # Bob was added to the group after
+        rid = self.send(ANA, "Door, hi?", "g3", True, [OWNER, ANA, BOB])                      # Bob was added to the group after
         self.assertIsNotNone(rid)
         self.assertIsNotNone(self.guest(BOB))
         self.assertTrue(any(BOB in s and "joined an open group" in s for s in self.sms("owner-thread")))
@@ -192,11 +192,11 @@ class OpenGroups(Base):
     def test_stop_closes_it_and_revoked_people_stay_revoked(self):
         self.send(OWNER, "Door Allow", "g4", True, [OWNER, ANA, BOB])
         self.c.set_guest_status(self.guest(BOB)["guest_id"], "revoked")
-        self.send(ANA, "hello", "g4", True, [OWNER, ANA, BOB])                          # re-listing must not revive Bob
+        self.send(ANA, "Door, hello", "g4", True, [OWNER, ANA, BOB])                          # re-listing must not revive Bob
         self.assertEqual(self.guest(BOB)["status"], "revoked")
         self.send(OWNER, "Door Stop", "g4", True, [OWNER, ANA, BOB])
         self.assertNotIn("g4", self.c.s["open_groups"])
-        self.send(ANA, "hello", "g4", True, [OWNER, ANA, BOB, EVE])
+        self.send(ANA, "Door, hello", "g4", True, [OWNER, ANA, BOB, EVE])
         self.assertIsNone(self.guest(EVE))
 
     def test_cannot_see_members_or_too_many(self):

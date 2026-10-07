@@ -45,6 +45,40 @@ stays in this repository.
 What stays in this repository for MyPeople itself: the runtime (`mypeople/`), the desktop app (`desktop/`), the cloud image (`cloud/`),
 `install.sh`, the Docker files and `docs/HOW-IT-WORKS.md`. The original MyPlow README is [`MYPLOW.md`](MYPLOW.md). Door's own code is in `door/`.
 
+### How it works, in pictures
+Example data, not a real project.
+
+**A person opens a link and asks.** No app, no account. Answers come from the project and say which files they were checked in.
+
+<p><img src="door/docs/img/chat-start.png" width="260" alt="The chat page a guest sees"> &nbsp; <img src="door/docs/img/chat-answers.png" width="260" alt="Questions answered with the files they were checked in"></p>
+
+**You see the board.** Each request becomes a card. A card moves to Done only with proof; "No changes" and failed checks go to Review.
+
+<img src="door/docs/img/panel-board.png" width="760" alt="The board: To do, Doing, Review, Done">
+
+**You control who is in, and see every request.**
+
+<img src="door/docs/img/panel-guests.png" width="760" alt="Guests: chat links, people with access, allow tasks or ask my OK">
+
+<img src="door/docs/img/panel-hist.png" width="760" alt="History of requests and results">
+
+**On your own Mac**, a page that only opens there shows what ran and what it cost, and lets you choose the projects, what tasks may do, the model and the budget.
+
+<img src="door/docs/img/local-activity.png" width="760" alt="Door on this computer: activity and usage">
+
+<img src="door/docs/img/local-settings.png" width="760" alt="Door on this computer: settings">
+
+**In a group chat**, people talk to each other and Door stays quiet until it is addressed:
+
+```
+ Pablo   did you see the game?                       (Door says nothing)
+ Ana     Door, how do I get started?
+ Door    Install the dependencies with npm install, copy .env.example to .env and run npm run dev.
+         Checked in: README.md, package.json
+ Ana     Door, do: add a license note to the README  ("do:" asks for a task; only if the owner trusted Ana)
+ Door    Got it. I'll do this and check the result.  ...
+```
+
 ### What people can do
 - **Ask** anything about the project. Answers say which files they come from, and Door checks those files exist. They are answered right
   away, within daily limits and your monthly budget (or you approve each one, if you prefer).
@@ -54,7 +88,7 @@ What stays in this repository for MyPeople itself: the runtime (`mypeople/`), th
 
 ### How people get in
 `Door Link Ana` (a chat link that opens on one device and expires) · `Door Invite Ana` (a code to text) · in a group, `Door Allow`
-(Door introduces itself) and `Door Trust` (lets them have things done, after you confirm in your private chat).
+(Door introduces itself) and `Door Trust` (lets them have things done, after you confirm in your private chat). **In a group Door answers only when it is addressed**, by starting a message with "Door," (or "@door"); while people chat among themselves it stays quiet.
 
 ### What you control
 - **The panel**: a board with a priority view, guests and links, history, cost.
@@ -145,6 +179,40 @@ baseia fica neste repositório.
 O que fica neste repositório por causa do próprio MyPeople: o motor (`mypeople/`), o app de desktop (`desktop/`), a imagem da nuvem (`cloud/`),
 o `install.sh`, os arquivos Docker e o `docs/HOW-IT-WORKS.md`. O README original do MyPlow é o [`MYPLOW.md`](MYPLOW.md). O código do Door fica em `door/`.
 
+### Como funciona, em imagens
+Dados de exemplo, não um projeto real.
+
+**Uma pessoa abre o link e pergunta.** Sem app, sem conta. As respostas vêm do projeto e dizem em quais arquivos foram conferidas. (A página aparece em português para quem tem o celular em português.)
+
+<p><img src="door/docs/img/chat-start.png" width="260" alt="A página de chat que o convidado vê"> &nbsp; <img src="door/docs/img/chat-answers.png" width="260" alt="Perguntas respondidas com os arquivos conferidos"></p>
+
+**Você vê o quadro.** Cada pedido vira um cartão. O cartão só vai para Done com prova; "No changes" e verificações que falharam vão para Review.
+
+<img src="door/docs/img/panel-board.png" width="760" alt="O quadro: To do, Doing, Review, Done">
+
+**Você controla quem entra e vê cada pedido.**
+
+<img src="door/docs/img/panel-guests.png" width="760" alt="Guests: links de chat, pessoas com acesso, liberar tarefas ou pedir meu OK">
+
+<img src="door/docs/img/panel-hist.png" width="760" alt="Histórico de pedidos e resultados">
+
+**No seu próprio Mac**, uma página que só abre ali mostra o que rodou e quanto custou, e deixa você escolher os projetos, o que as tarefas podem fazer, o modelo e o orçamento.
+
+<img src="door/docs/img/local-activity.png" width="760" alt="Door on this computer: atividade e uso">
+
+<img src="door/docs/img/local-settings.png" width="760" alt="Door on this computer: configurações">
+
+**Num grupo**, as pessoas conversam entre si e o Door fica quieto até ser chamado:
+
+```
+ Pablo   viu o jogo ontem?                           (o Door não diz nada)
+ Ana     Door, como eu começo a usar?
+ Door    Instale as dependências com npm install, copie .env.example para .env e rode npm run dev.
+         Conferido em: README.md, package.json
+ Ana     Door, do: coloca uma nota de licença no README  ("do:" pede uma tarefa; só se a dona confia na Ana)
+ Door    Entendi. Vou fazer isso e conferir o resultado.  ...
+```
+
 ### O que as pessoas podem fazer
 - **Perguntar** qualquer coisa sobre o projeto. A resposta diz de quais arquivos veio, e o Door confere que eles existem. Respostas na hora,
   dentro dos limites diários e do orçamento do mês (ou você aprova cada uma, se preferir).
@@ -154,7 +222,7 @@ o `install.sh`, os arquivos Docker e o `docs/HOW-IT-WORKS.md`. O README original
 
 ### Como as pessoas entram
 `Door Link Ana` (link de chat, abre em um aparelho e vence) · `Door Invite Ana` (código para mandar por SMS) · num grupo, `Door Allow`
-(o Door se apresenta) e `Door Trust` (libera tarefas, depois que você confirma no seu privado).
+(o Door se apresenta) e `Door Trust` (libera tarefas, depois que você confirma no seu privado). **Num grupo o Door só responde quando é chamado**, com uma mensagem que começa com "Door," (ou "@door"); enquanto as pessoas conversam entre si, ele fica quieto.
 
 ### O que você controla
 - **O painel**: quadro com visão de prioridade, convidados e links, histórico, custo.
