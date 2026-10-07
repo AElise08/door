@@ -73,7 +73,7 @@ class ActHost(unittest.TestCase):
         a = res["reply"]["act"]
         self.assertEqual((a["verdict"], a["files"], [p["rc"] for p in a["proof"]], a["verifier"]["verdict"]), ("verified", ["NOTES.md"], [0], "VERIFIED"))
         self.assertTrue(a["branch"].startswith("door/"))
-        self.assertIn("Door checked it", res["reply"]["text"]); self.assertIn(a["branch"], res["reply"]["text"])
+        self.assertIn("Door checked it", res["reply"]["text"]); self.assertIn("door/work", res["reply"]["text"])      # the task's work joined door/work
         self.assertFalse((self.repo / "NOTES.md").exists())                                      # the owner's folder is untouched
         self.assertEqual((self.repo / "wip.txt").read_text(), "the owner's unsaved work")
         self.assertIn(a["branch"], subprocess.run(["git", "-C", str(self.repo), "branch"], capture_output=True, text=True).stdout)
@@ -96,6 +96,8 @@ class ActHost(unittest.TestCase):
         r, _ = self.ask(); a = self.host.wait(r["request_id"], 60)["reply"]
         self.assertEqual(a["act"]["verdict"], "checks_passed"); self.assertIsNone(a["act"]["verifier"]["verdict"])
         self.rt.verifier = "maybe? hard to say"                                                  # an answer in the wrong form counts as no answer
+        proj = next(a for a in self.host.holder.policy["agents"] if a.get("act"))["act"]["project"]                           # the same task again would find its file on door/work
+        subprocess.run(["git", "-C", proj, "branch", "-D", "door/work"], capture_output=True)
         r, _ = self.ask(); self.assertEqual(self.host.wait(r["request_id"], 60)["reply"]["act"]["verdict"], "checks_passed")
 
     def test_nothing_changed_is_not_done(self):

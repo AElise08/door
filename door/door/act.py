@@ -250,7 +250,10 @@ class ActRunner:
         try:
             git(self.repo, "rev-parse", "--verify", "HEAD")
             self.worktree.parent.mkdir(parents=True, exist_ok=True)
-            git(self.repo, "worktree", "add", "-q", "-b", self.branch, str(self.worktree), "HEAD")
+            # Each task starts where Door's previous work ended (the branch door/work), so a file one task created is there for the next one.
+            start = WORK_BRANCH if git(self.repo, "rev-parse", "--verify", "--quiet", "refs/heads/" + WORK_BRANCH, check=False).returncode == 0 else "HEAD"
+            out["based_on"] = start
+            git(self.repo, "worktree", "add", "-q", "-b", self.branch, str(self.worktree), start)
             base = git(self.worktree, "rev-parse", "HEAD").stdout.strip()
             server = _Server(sock, _Handler)
             server.runner = self
@@ -345,6 +348,20 @@ def verdict(run: dict, verifier) -> str:
     if verifier == "VERIFIED":
         return "verified"
     return "checks_passed" if ran else "unverified"
+
+
+WORK_BRANCH = "door/work"
+KEEP_VERDICTS = {"verified", "checks_passed", "unverified", "opened"}       # what joins door/work; work whose own checks failed does not
+
+
+def advance_work_branch(repo, branch):
+    """Move door/work forward to a finished task's branch. Only ever a fast-forward: Door never rewrites or merges anything in your project.
+    Returns True when door/work now includes that task."""
+    repo = Path(os.path.expanduser(str(repo)))
+    exists = git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/" + WORK_BRANCH, check=False).returncode == 0
+    if exists and git(repo, "merge-base", "--is-ancestor", WORK_BRANCH, branch, check=False).returncode != 0:
+        return False                                   # door/work moved on (or was changed by hand): leave it alone
+    return git(repo, "branch", "-f", WORK_BRANCH, branch, check=False).returncode == 0
 
 
 DONE_VERDICTS = {"verified", "checks_passed", "opened"}

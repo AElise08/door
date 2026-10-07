@@ -8,7 +8,7 @@ and, for the people you trust, it does the work and proves it was done.
 ### What you get
 - **Answers from your own project.** Anyone you let in can ask how something works. Door replies from the project's files and says which
   ones it checked.
-- **Work done, with proof.** People you trust can ask for changes. They happen on a throwaway copy, risky steps wait for your OK, and a card
+- **Work done, with proof.** People you trust can ask for changes. They happen on Door's own branch (`door/work`, each task builds on the last), never in your folder; risky steps wait for your OK, and a card
   reaches *Done* only when something really changed, your own checks passed and an independent check agrees.
 - **Your computer stays closed.** Nothing connects in. Nobody gets a shell, your files or your keys.
 - **You stay in charge.** Limits per person, a monthly budget, a pause button, and a log of everything that ran, kept on your Mac.
@@ -30,6 +30,7 @@ In a group, people talk to each other and Door stays quiet until it is addressed
  Door    Install the dependencies with npm install, copy .env.example to .env and run npm run dev.
          Checked in: README.md, package.json
  Ana     Door, add a license note to the README       (Ana was trusted with tasks, so it is done as a task)
+ Ana     Door, help. Door, what changed?              (two requests in one message are answered one by one)
  Door    Got it. I'll do this and check the result.
 ```
 
@@ -152,7 +153,7 @@ responde a partir do seu projeto e, para quem você confia, faz o trabalho e pro
 ### O que você ganha
 - **Respostas do seu próprio projeto.** Quem você deixar entrar pode perguntar como algo funciona. O Door responde a partir dos arquivos do
   projeto e diz quais conferiu.
-- **Trabalho feito, com prova.** Quem você confia pode pedir mudanças. Elas acontecem numa cópia descartável, passos arriscados esperam o seu
+- **Trabalho feito, com prova.** Quem você confia pode pedir mudanças. Elas acontecem na branch do próprio Door (`door/work`, cada tarefa continua da anterior), nunca na sua pasta; passos arriscados esperam o seu
   OK, e um cartão só chega em *Done* quando algo mudou de verdade, as suas verificações passaram e uma checagem independente concorda.
 - **Seu computador continua fechado.** Nada se conecta nele. Ninguém recebe terminal, seus arquivos ou suas chaves.
 - **Você continua no comando.** Limites por pessoa, orçamento do mês, botão de pausar e um registro de tudo que rodou, guardado no seu Mac.
@@ -174,6 +175,7 @@ Num grupo, as pessoas conversam entre si e o Door fica quieto até ser chamado:
  Door    Instale as dependências com npm install, copie .env.example para .env e rode npm run dev.
          Conferido em: README.md, package.json
  Ana     Door, coloca uma nota de licença no README   (a Ana foi liberada para tarefas, então vira tarefa)
+ Ana     Door, help. Door, o que mudou?               (dois pedidos na mesma mensagem são respondidos um por um)
  Door    Entendi. Vou fazer isso e conferir o resultado.
 ```
 

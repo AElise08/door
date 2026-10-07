@@ -61,7 +61,7 @@ def view(policy_path, state_dir, redact=False):
         "model": {"access": access, "model": a.get("model", ""), "choices": [{"id": k, "label": v["label"], "model": v["model"]} for k, v in ACCESS.items()],
                   "keychain_item": KEYCHAIN.get(access)},
         "budget": (raw.get("limits") or {}).get("monthly_budget", 50.0),
-        "changes_go_to": "a new branch named door/<id> inside the task project; your working folder is never changed",
+        "changes_go_to": "Door's own branch door/work inside the task project (each task builds on the previous ones); your working folder is never changed",
     }
     return out
 

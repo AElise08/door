@@ -92,7 +92,7 @@ def task_reply(request_text, run, verdict, reason, limit, to_owner=False):
     files = ", ".join(run["changed_files"][:6]) + (" …" if len(run["changed_files"]) > 6 else "")
     checks = "; ".join("%s %s" % (p["cmd"], "ok" if p["rc"] == 0 else "FAILED") for p in run["proof"])
     reason = (reason or "").strip().rstrip(".")
-    fill = {"apps": ", ".join(run.get("opened_apps") or []) or "-", "opened": ", ".join(run.get("opened") or []) or "-", "files": files or "-", "branch": run.get("branch") or "-", "reason": (": " + reason) if reason else "",
+    fill = {"apps": ", ".join(run.get("opened_apps") or []) or "-", "opened": ", ".join(run.get("opened") or []) or "-", "files": files or "-", "branch": run.get("work_branch") or run.get("branch") or "-", "reason": (": " + reason) if reason else "",
             "checks": L["checks_ok"].format(checks=checks) if checks else L["independent"]}
     if verdict in ("failed_checks", "checks_passed"):
         fill["checks"] = checks or "-"

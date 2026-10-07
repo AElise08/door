@@ -300,6 +300,8 @@ class Host:
                 if run["changed_files"] and not run["error"]:
                     verifier, reason, usage = self._verify_delivery(req, pol, run)
                 v = act.verdict(run, verifier)
+                if run.get("branch") and v in act.KEEP_VERDICTS and act.advance_work_branch(cfg["project"], run["branch"]):
+                    run["work_branch"] = act.WORK_BRANCH
                 text = replytext.task_reply(req["text"], run, v, reason, pol["outbound"]["max_reply_chars"], to_owner=bool(req.get("to_owner")))
                 f = outfilter.filter_reply(text, pol["outbound"]["max_reply_chars"], [socket.gethostname()])
                 held = f["redactions"] >= pol["outbound"]["hold_threshold"]

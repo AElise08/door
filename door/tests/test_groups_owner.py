@@ -241,3 +241,25 @@ class FriendExperience(Base):
         self.assertIn("Esperando a aprovação de um passo.", self.sms("g"))
         step = [t for t in self.sms("owner-thread") if "wants to" in t or "quer:" in t][-1]
         self.assertIn(ANA, step)                                                              # the owner sees who is asking
+
+
+class SeveralRequestsInOneMessage(Base):
+    def setUp(self):
+        super().setUp(); self.c.s["summary"] = dict(self.c.s["summary"], act_agent="dev", alias="plow-agents"); self.c.s["settings"]["approval"] = "auto"
+        self.send(OWNER, "Door Allow", "g", True, G)
+        for g in self.c.s["guests"].values(): g["limits"]["max_open_requests"] = 10
+        self.guest(ANA)["level"] = "act"
+
+    def test_the_real_message_becomes_a_task_and_a_help_answer(self):
+        self.send(ANA, "Door, create a file notes.md… e dps um Door, help", "g", True, G)
+        (r,) = self.c.s["requests"].values()
+        self.assertEqual((r["capability"], r["text"]), ("act", "create a file notes.md"))
+        self.assertTrue(any("You can also ask me for changes" in t for t in self.sms("g")))
+
+    def test_door_mentioned_inside_a_sentence_is_one_request(self):
+        self.send(ANA, "Door, explain what Door does", "g", True, G)
+        self.assertEqual([r["text"] for r in self.c.s["requests"].values()], ["explain what Door does"])
+
+    def test_the_owner_can_send_two_at_once_too(self):
+        self.send(OWNER, "Door, create a.md and then Door: what is in the README?", "g", True, G)
+        self.assertEqual(sorted(r["capability"] for r in self.c.s["requests"].values()), ["act", "ask"])

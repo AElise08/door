@@ -443,9 +443,10 @@ class Cloud:
             if trust:
                 return self._trust_request(thread, members, trust[1])
             # In an open group the owner talks to their agent only by addressing it ("Door, ..."); everything else is the owner talking to people.
-            addressed = self._addressed(text)
-            if addressed and thread in self.s["open_groups"] and self._everyone_allowed(members):
-                return self._owner_request(thread, addressed)
+            parts = self._requests_in(text)
+            if parts and thread in self.s["open_groups"] and self._everyone_allowed(members):
+                for p in parts:
+                    self._owner_request(thread, p)
             return
         join = JOIN_RE.fullmatch(text.strip())
         if join:
@@ -455,8 +456,8 @@ class Cloud:
         guest = next((g for g in self.s["guests"].values() if g["phone"] == phone), None)
         if not guest:
             return                                              # strangers in a group get nothing, not even a reply
-        addressed = self._addressed(text)
-        if not addressed or GROUP_ALLOW_RE.fullmatch(text.strip()) or GROUP_STOP_RE.fullmatch(text.strip()) or GROUP_TRUST_RE.fullmatch(text.strip()):
+        parts = self._requests_in(text)
+        if not parts or GROUP_ALLOW_RE.fullmatch(text.strip()) or GROUP_STOP_RE.fullmatch(text.strip()) or GROUP_TRUST_RE.fullmatch(text.strip()):
             return                                              # people chatting among themselves, or owner-only commands: Door stays quiet
         t = self.clock()
         if not self._everyone_allowed(members):
@@ -465,7 +466,25 @@ class Cloud:
                 self.s["alerts"]["group"] = d
                 self._sms(self.s["owner_thread"], "Door: a group chat includes someone who is not an authorized guest, so I did not answer there.")
             return
-        return self._guest_message(guest, thread, addressed)
+        rids = [self._guest_message(guest, thread, p) for p in parts]
+        return next((r for r in rids if r), None)
+
+    SECOND_ADDRESS_RE = re.compile(r"(?i)(?:^|(?<=[\s.,;!?…]))(?:(?:hey|hi|oi|ei)\s+)?@?door\s*[,:]\s*")
+    TRAILING_JOIN_RE = re.compile(r"(?i)[\s.,;…]*(?:\b(?:and then|and|then|e depois|e dps|depois|dps|e)\b(?:\s+(?:um|uma|a|an))?)?[\s.,;…]*$")
+
+    def _requests_in(self, text):
+        """ "Door, create notes.md… e dps um Door, help" is two requests. A second "Door," (with a comma or colon) starts a new one;
+        "Door, explain what Door does" stays one. At most three per message."""
+        rest = self._addressed(text)
+        if not rest:
+            return []
+        parts = [p for p in self.SECOND_ADDRESS_RE.split(rest)]
+        out = []
+        for p in parts:
+            p = self.TRAILING_JOIN_RE.sub("", p).strip()
+            if p:
+                out.append(p)
+        return out[:3] or [rest]
 
     @staticmethod
     def _addressed(text):
