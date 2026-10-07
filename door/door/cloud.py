@@ -12,7 +12,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from . import replytext
+from . import i18n, replytext
 from .common import ULID_RE, day_key, month_key, now, norm_text, sha256_text, ulid, is_e164, is_handle, norm_handle, iso
 from .envelope import generate, encode
 
@@ -37,9 +37,14 @@ NEW_CHAT = {"NEW", "RESET", "NEW CHAT", "START OVER", "CLEAR"}
 OWNER_NAME_CMD = re.compile(r"(?is)door\s+(invite|link|revoke)(?:\s+(.{1,60}))?")
 QUESTION_START = re.compile(r"(?is)^(what|how|why|where|who|when|which|can|could|does|do you|is|are|will|should|qual|quais|como|por ?que|onde|quem|quando|o que|pode|existe|tem)\b")
 # The first word of a plain request that a person trusted with tasks means as a task ("create ...", "fix ...", "cria ...").
-TASK_VERB_RE = re.compile(r"(?is)^\s*(?:(?:please|por favor|pf)\s+)?(?:create|add|fix|change|update|remove|delete|write|make|build|rename|refactor|implement|open|run|"
-                          r"cria|crie|criar|adiciona|adicione|corrige|corrija|conserta|conserte|muda|mude|atualiza|atualize|remove|apaga|apague|escreve|escreva|"
-                          r"faz|faça|faca|abre|abra|renomeia|renomeie|implementa|implemente|coloca|coloque)\b")
+TASK_VERBS = (r"(?:create|add|fix|change|update|remove|delete|write|make|build|rename|refactor|implement|open|run|"
+              r"cria|crie|criar|adiciona|adicione|adicionar|corrige|corrija|corrigir|conserta|conserte|consertar|muda|mude|mudar|atualiza|atualize|atualizar|"
+              r"remove|apaga|apague|apagar|escreve|escreva|escrever|faz|faça|faca|fazer|abre|abra|abrir|renomeia|renomeie|renomear|implementa|implemente|"
+              r"implementar|coloca|coloque|colocar)\b")
+TASK_VERB_RE = re.compile(r"(?is)^\s*(?:(?:please|por favor|pf)\s+)?" + TASK_VERBS)
+# "can you create ...?" / "pode criar ...?" from someone trusted with tasks is a request, even with the question mark
+POLITE_TASK_RE = re.compile(r"(?is)^\s*(?:(?:can|could|would|will)\s+you|(?:voc[eê]|vc|tu)?\s*(?:pode|poderia|consegue|podia))\s+(?:(?:please|por favor)\s+)?" + TASK_VERBS)
+HELP_RE = re.compile(r"(?is)^\s*(?:help|ajuda|socorro|commands|comandos|what can you do\??|o que (?:voc[eê] |vc |tu )?(?:pode|faz|sabe) fazer\??)\s*[.!?]*\s*$")
 TASK_RE = re.compile(r"(?is)^\s*(?:do|task)\s*:\s*(.+)$")
 LEVELS = ("ask", "act")
 MAX_JOBS = 200
@@ -215,13 +220,13 @@ class Cloud:
             code = secrets.choice(free); used.add(code)
             seen[a["id"]] = {"id": a["id"], "tool": a["tool"], "summary": str(a["summary"])[:300], "code": code, "at": self.clock(), "decided": None}
             pt = self.s.get("owner_lang") == "pt"
-            whose = ("Sua tarefa" if pt else "Your task") if guest.get("owner") else (("A tarefa de %s" if pt else "%s's task") % (guest.get("display_name") or ("alguém" if pt else "A guest")))
+            whose = ("Sua tarefa" if pt else "Your task") if guest.get("owner") else (("A tarefa de %s" if pt else "%s's task") % (guest.get("display_name") or guest.get("phone") or ("alguém" if pt else "A guest")))
             link = "" if "127.0.0.1" in self.panel_url or "localhost" in self.panel_url else " " + self.panel_url      # a link to your own Mac is useless on a phone
             text = (("Door: %s quer: %s. Responda YES %s para permitir ou NO %s para recusar.%s") if pt else
                     ("Door: %s wants to: %s. Reply YES %s to allow or NO %s to refuse.%s")) % (whose, str(a["summary"])[:200], code, code, link)
             self._sms(self.s["owner_thread"], text, "action:%s:%s" % (r["request_id"], a["id"]))
             if not guest.get("owner"):                                  # the owner does not need to be told they are being waited for
-                self._sms(r["thread_id"], "Waiting for the owner to approve a step.", r["request_id"] + ":waiting")
+                self._sms(r["thread_id"], i18n.t("waiting_step", r.get("lang", "en")), r["request_id"] + ":waiting")
 
     def _approval_mode(self, guest):
         return guest.get("approval") or self.s["settings"]["approval"]
@@ -595,6 +600,26 @@ class Cloud:
             self.s["summary"] = dict(self.s["summary"], settings=out["settings"])
         self._save()
 
+    def _reply_lang(self, thread, text=None):
+        """In a group: the group's language. One to one: the language of what the person just wrote."""
+        if thread in self.s.get("open_groups", {}) or thread in self.s.get("group_lang", {}):
+            return self._group_lang(thread)
+        return replytext.lang(text) if text else "en"
+
+    def _guest_help(self, guest, lang):
+        p, tasks = self._project_label(), guest.get("level") == "act" and bool(self.s["summary"].get("act_agent"))
+        if lang == "pt":
+            t = ('Eu respondo perguntas sobre o projeto %s a partir dos arquivos dele. Num grupo, comece com "Door,". Exemplo: "Door, como funciona o login?".' % p)
+            t += (' Você também pode me pedir mudanças: "Door, cria um arquivo notas.md" ou "Door, corrige o erro de digitação no README". Eu trabalho numa cópia, '
+                  'passos arriscados esperam o OK da dona, e no fim digo o que mudou e como foi conferido. Diga "cancel" para parar um pedido.' if tasks else
+                  ' Para pedir mudanças, a dona precisa liberar você primeiro.')
+            return t
+        t = ('I answer questions about the %s project from its files. In a group, start with "Door,". Example: "Door, how does the login work?".' % p)
+        t += (' You can also ask me for changes: "Door, create a file notes.md" or "Door, fix the typo in the README". I work on a copy, risky steps wait for '
+              'the owner\'s OK, and at the end I tell you what changed and how it was checked. Say "cancel" to stop a request.' if tasks else
+              ' To ask for changes, the owner has to trust you first.')
+        return t
+
     def _everyone_allowed(self, members):
         t = self.clock()
         allowed = {self.s["owner_phone"]} | {g["phone"] for g in self.s["guests"].values() if g["status"] == "active" and g["expires_at"] > t}
@@ -669,10 +694,13 @@ class Cloud:
         if task:
             text, kind = task.group(1).strip(), "task"
         elif (kind == "chat" and guest.get("level") == "act" and self.s["summary"].get("act_agent")
-              and not text.rstrip().endswith("?") and TASK_VERB_RE.match(text)):
+              and ((not text.rstrip().endswith("?") and TASK_VERB_RE.match(text)) or POLITE_TASK_RE.match(text))):
             kind = "task"                          # someone trusted with tasks who writes "create a file ..." means a task: no "Do:" needed
         if re.fullmatch(r"(YES|NO) \d{4}", norm_text(text)):              # an approval code typed by a guest is not a question for the agent
             self._sms(thread, "Só a dona pode responder isso." if self.s.get("owner_lang") == "pt" else "Only the owner can answer that.")
+            return
+        if HELP_RE.match(text):
+            self._sms(thread, self._guest_help(guest, self._reply_lang(thread, text)))
             return
         if norm_text(text) == "CANCEL":
             for r in list(self.s["requests"].values()):
@@ -723,7 +751,8 @@ class Cloud:
                                  "note": text[:1000], "column": "doing", "request_id": rid})
         count = self._counts(guest["guest_id"])[0]
         if self._approval_mode(guest) == "auto":
-            self._sms(thread, "Got it. I'll do this and check the result." if kind == "task" else "Got it. Working on it.", rid + ":received")
+            lg = r["lang"] = self._reply_lang(thread, text)
+            self._sms(thread, i18n.t("got_task" if kind == "task" else "got_ask", lg), rid + ":received")
             self._decide(r, "approve", "auto:policy", r["text_hash"])   # limits, budget and the sandbox are the guardrails
             return rid
         more = " [Request longer than 300 characters: read the full text before approving.]" if len(text) > 300 else ""
@@ -1061,13 +1090,18 @@ class Cloud:
             if not out["reply"].get("held") and not out["reply"].get("refused"):
                 self._remember(r["guest_id"], "agent", out["reply"]["text"])
             self._transition(r, state)
-            self._sms(r["thread_id"], r["reply"]["text"], r["request_id"] + ":final")
+            text = r["reply"]["text"]
+            g = self.s["guests"].get(r["guest_id"], {})
+            if out["reply"].get("refused") and r.get("capability") != "act" and g.get("level") == "act" and not g.get("owner"):
+                text += ("\n\nSe você queria uma mudança, peça assim: \"Door, cria um arquivo notas.md\"." if r.get("lang") == "pt" else
+                         "\n\nIf you meant a change, ask for it like this: \"Door, create a file notes.md\".")
+            self._sms(r["thread_id"], text, r["request_id"] + ":final")
         elif state in {"failed", "canceled"}:
             reason = out.get("reason", "sandbox_error")
             if reason not in {"budget", "timeout", "sandbox_error", "guest_canceled", "owner_canceled"}:
                 reason = "sandbox_error"
             self._transition(r, state, reason)
-            self._sms(r["thread_id"], "This request could not be answered. The owner was informed.", r["request_id"] + ":final")
+            self._sms(r["thread_id"], i18n.t("failed", r.get("lang", "en")), r["request_id"] + ":final")
 
     def poll(self, relay):
         with self.lock:

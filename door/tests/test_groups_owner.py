@@ -195,3 +195,44 @@ class GroupLanguage(Base):
         self.send(ANA, "pessoal, alguém viu o relatório de ontem?", "g", True, G); self.send(OWNER, "Door Allow", "g", True, G)
         self.send(ANA, "did anyone see yesterday's report yet?", "g9", True, G); self.send(OWNER, "Door Allow", "g9", True, G)
         self.assertIn("Oi! Eu sou o Door", self.sms("g")[-1]); self.assertIn("Hi! I'm Door", self.sms("g9")[-1])
+
+
+class FriendExperience(Base):
+    """The trusted friend in the real group: knowing what to say, asking politely, being told how to ask for a change."""
+    def setUp(self):
+        super().setUp(); self.c.s["summary"] = dict(self.c.s["summary"], act_agent="dev", alias="plow-agents"); self.c.s["settings"]["approval"] = "auto"
+        self.send(OWNER, "Door Allow", "g", True, G)
+        for g in self.c.s["guests"].values(): g["limits"]["max_open_requests"] = 10
+        self.guest(ANA)["level"] = "act"
+
+    def kinds(self, who): return [r["capability"] for r in self.c.s["requests"].values() if r["guest_id"] == self.guest(who)["guest_id"]]
+
+    def test_help_says_what_each_person_can_do_and_costs_nothing(self):
+        self.send(ANA, "Door, help", "g", True, G); self.assertIn("You can also ask me for changes", self.sms("g")[-1])
+        self.send(BOB, "Door, what can you do?", "g", True, G); self.assertIn("the owner has to trust you first", self.sms("g")[-1])
+        self.send(ANA, "pessoal, alguém viu o relatório de ontem?", "g", True, G)       # the group turns Portuguese
+        self.send(BOB, "Door, ajuda", "g", True, G); self.assertIn("a dona precisa liberar você", self.sms("g")[-1])
+        self.assertEqual(self.c.s["requests"], {})                                          # no request, no model call
+
+    def test_asking_politely_is_still_a_task(self):
+        for t in ("Door, can you create a file test.md?", "Door, could you please fix the README?", "Door, pode criar um arquivo notas.md?"):
+            self.send(ANA, t, "g", True, G)
+        self.send(ANA, "Door, can you explain the login?", "g", True, G)
+        self.assertEqual(self.kinds(ANA), ["act", "act", "act", "ask"])
+        self.send(BOB, "Door, can you create a file test.md?", "g", True, G); self.assertEqual(self.kinds(BOB), ["ask"])   # not trusted: a question
+
+    def test_a_refused_question_tells_a_trusted_person_how_to_ask_for_a_change(self):
+        rid = self.send(ANA, "Door, the test file please", "g", True, G)
+        r = self.c.s["requests"][rid]; self.c._transition(r, "running")
+        self.c._result(r, {"state": "completed", "reply": {"text": "I can only help with questions about this project.", "refused": True, "held": False}})
+        self.assertIn('If you meant a change, ask for it like this: "Door, create a file notes.md".', self.sms("g")[-1])
+
+    def test_messages_to_the_group_follow_the_group_language(self):
+        self.send(ANA, "pessoal, alguém viu o relatório de ontem?", "g", True, G)
+        self.send(ANA, "Door, cria um arquivo notas.md", "g", True, G)
+        self.assertIn("Entendi. Vou fazer isso e conferir o resultado.", self.sms("g"))
+        (r,) = [x for x in self.c.s["requests"].values()]
+        self.c._note_actions(r, [{"id": "a1", "tool": "Bash", "summary": "Run: npm install", "at": 0}])
+        self.assertIn("Esperando a aprovação de um passo.", self.sms("g"))
+        step = [t for t in self.sms("owner-thread") if "wants to" in t or "quer:" in t][-1]
+        self.assertIn(ANA, step)                                                              # the owner sees who is asking
