@@ -126,7 +126,7 @@ class QuietUnlessAddressed(Base):
 
     def test_the_intro_tells_people_how_to_talk_to_door_in_both_languages(self):
         self.assertIn('Start a message with "Door,"', self.sms("g")[-1])
-        self.c.s["owner_lang"] = "pt"; self.send(OWNER, "Door Allow", "g2", True, G)
+        self.send(OWNER, "oi gente, vou ligar o assistente aqui", "g2", True, G); self.send(OWNER, "Door Allow", "g2", True, G)     # the group writes Portuguese
         self.assertIn('Comecem a mensagem com "Door,"', self.sms("g2")[-1])
 
 
@@ -163,3 +163,35 @@ class TrustedPeopleJustAsk(Base):
         first = [t for t in self.sms("g") if "Door" in t]
         self.send(OWNER, "Door Stop", "g", True, G); self.send(OWNER, "Door Allow", "g", True, G)
         self.assertTrue([t for t in self.sms("g") if "I'm Door" in t])
+
+
+class GroupLanguage(Base):
+    """What happened in the real group: the owner had written Portuguese in her private chat, so a group of English speakers got a Portuguese
+    introduction after "Door Allow" and "Door Trust"."""
+    def setUp(self):
+        super().setUp(); self.c.s["summary"] = dict(self.c.s["summary"], act_agent="dev", alias="door")
+
+    def test_a_group_is_english_until_people_write_something_else_in_it(self):
+        self.c.s["owner_lang"] = "pt"                                              # the owner's private chat is Portuguese
+        self.send(OWNER, "Door Allow", "g", True, G)
+        self.assertIn("Hi! I'm Door", self.sms("g")[-1])
+        self.send(OWNER, "Door Trust", "g", True, G); code = self.sms("owner-thread")[-1].split("YES ")[1][:4]
+        self.send(OWNER, "YES " + code, "owner-thread")
+        self.assertIn("can now ask me to do things", self.sms("g")[-1])           # the announcement in the group is English too
+
+    def test_the_group_follows_what_is_written_in_it_not_what_the_owner_wrote_elsewhere(self):
+        self.send(ANA, "DOOR: create a file test.md", "g", True, G)               # English, from a friend
+        self.c.s["owner_lang"] = "pt"
+        self.send(OWNER, "Door Allow", "g", True, G); self.assertIn("Hi! I'm Door", self.sms("g")[-1])
+        self.send(BOB, "pessoal, alguém viu o relatório de ontem?", "g", True, G)  # now Portuguese
+        self.send(OWNER, "Door Stop", "g", True, G); self.send(OWNER, "Door Allow", "g", True, G)
+        self.assertIn("Oi! Eu sou o Door", self.sms("g")[-1])
+
+    def test_commands_and_short_messages_do_not_change_the_language(self):
+        self.send(OWNER, "Door Allow", "g", True, G); self.send(ANA, "ok!", "g", True, G); self.send(OWNER, "Door Trust", "g", True, G)
+        self.assertEqual(self.c.s.get("group_lang", {}), {})
+
+    def test_two_groups_keep_their_own_language(self):
+        self.send(ANA, "pessoal, alguém viu o relatório de ontem?", "g", True, G); self.send(OWNER, "Door Allow", "g", True, G)
+        self.send(ANA, "did anyone see yesterday's report yet?", "g9", True, G); self.send(OWNER, "Door Allow", "g9", True, G)
+        self.assertIn("Oi! Eu sou o Door", self.sms("g")[-1]); self.assertIn("Hi! I'm Door", self.sms("g9")[-1])

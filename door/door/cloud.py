@@ -423,6 +423,7 @@ class Cloud:
     def _receive_group(self, phone, thread, text, members):
         """Group chats: the agent answers only when EVERY other participant is the owner or an active guest,
         so nobody outside the list can read an answer. Owner commands never work in a group."""
+        self._note_group_lang(thread, text)
         if phone == self.s["owner_phone"]:
             # Only the owner's own message can open or close a group: adding the number to a group authorizes nobody.
             self._note_owner_lang(text)
@@ -524,7 +525,7 @@ class Cloud:
             return
         added = self._authorize_members(thread, members)
         self.s["open_groups"][thread] = {"at": self.clock()}
-        self._sms(thread, self._intro(), "group-on:%s:%d" % (thread, int(self.clock())))      # each time it is turned on, it introduces itself again
+        self._sms(thread, self._intro(thread), "group-on:%s:%s" % (thread, ulid()))      # each time it is turned on, it introduces itself again
         if added:
             self._sms(self.s["owner_thread"], "Door: you opened a group; %d people were added as guests." % len(added))
 
@@ -603,21 +604,32 @@ class Cloud:
         if len(text or "") >= 12 and not text.strip().upper().startswith(("DOOR ", "YES ", "NO ")):
             self.s["owner_lang"] = replytext.lang(text)
 
-    def _owner_label(self):
-        return self.s.get("owner_name") or ("a dona" if self.s.get("owner_lang") == "pt" else "the owner")
+    def _owner_label(self, lang=None):
+        return self.s.get("owner_name") or ("a dona" if (lang or self.s.get("owner_lang")) == "pt" else "the owner")
+
+    def _note_group_lang(self, thread, text):
+        """A group speaks the language people write in it. Short messages and Door's own commands say nothing about it."""
+        t = (text or "").strip()
+        if len(t) < 12 or t.lower().startswith(("door allow", "door stop", "door trust")):
+            return
+        self.s.setdefault("group_lang", {})[thread] = replytext.lang(t)
+
+    def _group_lang(self, thread):
+        return self.s.get("group_lang", {}).get(thread, "en")        # nothing written yet: English, which everyone reading a public product can follow
 
     def _project_label(self):
         return self.s["summary"].get("alias") or "this"
 
-    def _intro(self):
-        return GROUP_INTRO[self.s.get("owner_lang", "en")].format(owner=self._owner_label(), project=self._project_label())
+    def _intro(self, thread=None):
+        lang = self._group_lang(thread) if thread else self.s.get("owner_lang", "en")
+        return GROUP_INTRO[lang].format(owner=self._owner_label(lang), project=self._project_label())
 
     def _trust_request(self, thread, members, target):
         """`Door Trust` in a group (everyone in it) or `Door Trust +5511...` (one person). Never immediate: the owner confirms with a code in
         their own private thread, so a misread message or someone else's phone in the group cannot hand out the right to change things."""
         pt = self.s.get("owner_lang") == "pt"
         if not self.s["summary"].get("act_agent"):
-            self._sms(thread, "Tarefas ainda não estão ligadas no Mac da dona." if pt else "Tasks are not set up on the owner's Mac yet.")
+            self._sms(thread, "Tarefas ainda não estão ligadas no Mac da dona." if self._group_lang(thread) == "pt" else "Tasks are not set up on the owner's Mac yet.")
             return
         others = [m for m in (members or []) if m != self.s["owner_phone"]]
         if target:
@@ -648,8 +660,8 @@ class Cloud:
         for g in self.s["guests"].values():
             if g["phone"] in p["phones"] and g["status"] == "active":
                 g["level"] = "act"
-        lang = self.s.get("owner_lang", "en")
-        self._sms(p["thread"], TRUSTED_TEXT[lang].format(who=", ".join(p["phones"]), project=self._project_label(), owner=self._owner_label()))
+        lang = self._group_lang(p["thread"])
+        self._sms(p["thread"], TRUSTED_TEXT[lang].format(who=", ".join(p["phones"]), project=self._project_label(), owner=self._owner_label(lang)))
         return True
 
     def _guest_message(self, guest, thread, text, kind="chat", card_id=None):
