@@ -100,6 +100,16 @@ enum Dashboard {
     .sbox{background:var(--side);border-radius:10px;padding:14px 16px;margin:0 0 14px}.sbox h3{margin:0 0 2px;font-size:15px}.sbox p{margin:0 0 12px;color:var(--mut)}
     .sbox select,.sbox textarea{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font:inherit}.sbox textarea{width:100%;min-height:58px;font:13px ui-monospace,Menlo,monospace}
     .prow{display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}.prow:last-of-type{border:0}.prow b{font-weight:500;flex:1}
+    .sover{padding-bottom:12px}.sover .row{margin-bottom:10px}
+    .chip2{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;line-height:20px;background:var(--gray);color:var(--grayfg)}.chip2.ok{background:var(--green);color:var(--greenfg)}.chip2.warn{background:var(--yellow);color:var(--yellowfg)}.chip2.bad{background:var(--red);color:var(--redfg)}
+    .sbar{height:6px;border-radius:99px;background:var(--gray);overflow:hidden;margin:2px 0 6px}.sbar i{display:block;height:100%;background:#4dab9a}.sbar i.hot{background:#eb5757}
+    .shead{display:flex;align-items:center;gap:10px;margin-bottom:2px}.shead h3{flex:1}
+    .sgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;margin:12px 0}.sfield{display:flex;flex-direction:column;gap:4px}.sfield label{font-size:12.5px;font-weight:600}.sfield small{font-size:12px}.sfield select,.sfield input{width:100%}
+    .sadv{margin-top:2px}.sadv summary{cursor:pointer;margin-bottom:8px}.sadv .sfield{margin-top:10px}
+    .saver{display:flex;gap:8px;align-items:center;margin-top:12px}
+    .switch{display:flex;align-items:center;gap:10px;cursor:pointer}.switch input{position:absolute;opacity:0}.slider{width:36px;height:20px;border-radius:99px;background:var(--gray);position:relative;transition:.15s;flex-shrink:0}
+    .slider:after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 2px #0003}.switch input:checked+.slider{background:#2383e2}.switch input:checked+.slider:after{left:18px}
+    @media(max-width:760px){.sgrid{grid-template-columns:1fr}}
     .sres{padding:9px 12px;border-radius:7px;margin:0 0 14px;font-size:13px;background:var(--blue);color:var(--bluefg)}.sres.ok{background:var(--green);color:var(--greenfg)}.sres.bad{background:var(--red);color:var(--redfg)}.sres.warn{background:var(--yellow);color:var(--yellowfg)}
     .mx{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}@media(max-width:760px){.mx{grid-template-columns:1fr}.cols4{grid-template-columns:1fr}}
     .stale{display:none;background:var(--yellow);color:var(--yellowfg);border-radius:5px;padding:6px 10px;margin-bottom:14px;font-size:13px}
@@ -444,53 +454,81 @@ enum Dashboard {
     let setSig = '';
     function lines(x){ return x.value.split('\n').map(v => v.trim()).filter(Boolean); }
     function change(ch){ send({type:'settings', change: ch}); }
+    function chip(text, cls){ return el('span','chip2 ' + (cls || ''), text); }
+    // a Save button that is only alive when something changed, with a plain "unsaved" note and a way back
+    function saver(label, read, onSave){
+      const wrap = el('div','saver'), b = el('button','b go', label), note = el('span','mut',''), undo = el('button','b','Undo');
+      const first = JSON.stringify(read()); b.disabled = true; undo.style.display = 'none';
+      const check = () => { const dirty = JSON.stringify(read()) !== first; b.disabled = !dirty; undo.style.display = dirty ? '' : 'none'; note.textContent = dirty ? 'Unsaved changes' : '';
+        $('set-body').dataset.dirty = document.querySelector('.saver .b.go:not([disabled])') ? '1' : ''; };
+      wrap.appendChild(b); wrap.appendChild(undo); wrap.appendChild(note);
+      wrap.check = check; b.onclick = () => { b.disabled = true; $('set-body').dataset.dirty = ''; setSig = ''; onSave(); }; undo.onclick = () => { setSig = ''; $('set-body').dataset.dirty = ''; load(); };
+      return wrap;
+    }
+    function field(label, hint, control){ const f = el('div','sfield'); f.appendChild(el('label','',label)); f.appendChild(control); if(hint) f.appendChild(el('small','mut',hint)); return f; }
+    function select(opts, cur){ const x = el('select'); opts.forEach(([val, txt]) => { const o = el('option','',txt); o.value = val; x.appendChild(o); }); x.value = cur; return x; }
     function renderSettings(st){
-      const s = st.snapshot || {}, v = s.settings_view, res = s.settings_result, pend = s.settings_pending, mac = s.mac || {};
+      const s = st.snapshot || {}, v = s.settings_view, res = s.settings_result, pend = s.settings_pending, mac = s.mac || {}, cost = s.cost || {};
       const R = $('set-res'); clear(R);
-      if(pend){ R.appendChild(el('div','sres warn','Waiting for your OK by text: ' + pend.text + '. Reply YES with the code from your Door number.')); }
+      const age = res ? Date.now()/1000 - (res.at || 0) : 1e9;
+      if(pend){ R.appendChild(el('div','sres warn','⏳  Waiting for your OK by text: ' + pend.text + '. Reply YES with the code from your Door number.')); }
       else if(res){
-        const T = {sending:['Sending to your Mac: ' + res.text + '…','info'], applied:['Saved: ' + res.text + (res.restarting ? '. Door is restarting to use it.' : '.'),'ok'],
-                   refused:['Your Mac did not apply it: ' + (res.error || 'refused') ,'bad'], expired:['That change expired before you confirmed it.','warn'], canceled:['Canceled.','warn'], waiting:['Waiting for your OK by text.','warn']};
-        const t = T[res.state]; if(t) R.appendChild(el('div','sres ' + t[1], t[0]));
+        const T = {sending:['⏳  Sending to your Mac: ' + res.text + '…','info'], applied:['✓  Saved: ' + res.text + (res.restarting ? '. Door is restarting to use it.' : '.'),'ok'],
+                   refused:['✕  Your Mac did not apply it: ' + (res.error || 'refused'),'bad'], expired:['That change expired before you confirmed it.','warn'], canceled:['Canceled.','warn'], waiting:['⏳  Waiting for your OK by text.','warn']};
+        const t = T[res.state]; if(t && (age < 15 || !['applied','canceled','expired'].includes(res.state))) R.appendChild(el('div','sres ' + t[1], t[0]));
       }
       if(mac.online === false) R.appendChild(el('div','sres warn','Your Mac is offline. Changes wait until it is back.'));
       const B = $('set-body');
       if(!v){ clear(B); B.appendChild(el('div','empty','Your Mac has not sent its settings yet. Update Door on the Mac (or wait a minute), then reload.')); setSig = ''; return; }
-      const sig = JSON.stringify(v);
+      const sig = JSON.stringify(v) + JSON.stringify(cost);
       const busy = document.activeElement && B.contains(document.activeElement) && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);
-      if(sig === setSig || busy) return;
+      if(sig === setSig || busy || B.dataset.dirty === '1') return;
       setSig = sig; clear(B);
-      const box = (title, sub) => { const d = el('div','sbox'); d.appendChild(el('h3','',title)); d.appendChild(el('p','',sub)); B.appendChild(d); return d; };
-      // projects
-      const P = box('Projects people can ask about', 'Door shares a clean copy of the committed files (no .env, keys or secrets). Adding or removing one needs your OK by text.');
-      v.projects.forEach(p => { const r = el('div','prow'); r.appendChild(el('b','',p.name));
+      // ---- the overview ----
+      const t = v.tasks, m = v.model, spent = Number(cost.month_spent || 0), cap = Number(v.budget || 0), pct = cap ? Math.min(100, Math.round(spent / cap * 100)) : 0;
+      const top = el('div','sbox sover');
+      const chips = el('div','row'); chips.appendChild(chip(mac.online === false ? 'Mac offline' : 'Mac online', mac.online === false ? 'bad' : 'ok'));
+      chips.appendChild(chip(v.projects.length + ' project' + (v.projects.length === 1 ? '' : 's'))); chips.appendChild(chip(t.enabled ? 'Tasks on' : 'Tasks off', t.enabled ? 'ok' : ''));
+      chips.appendChild(chip((m.choices.find(c => c.id === m.access) || {label: m.access}).label.replace(/ \(.*\)/, '') + ' · ' + m.model)); top.appendChild(chips);
+      const bar = el('div','sbar'); bar.appendChild(el('i')); bar.firstChild.style.width = pct + '%'; if(pct >= 90) bar.firstChild.className = 'hot'; top.appendChild(bar);
+      top.appendChild(el('div','mut','US$ ' + spent.toFixed(2) + ' of US$ ' + cap.toFixed(0) + ' used this month (' + pct + '%)')); B.appendChild(top);
+      const box = (title, sub, tag) => { const d = el('div','sbox'); const h = el('div','shead'); h.appendChild(el('h3','',title)); h.appendChild(tag); d.appendChild(h); d.appendChild(el('p','',sub)); B.appendChild(d); return d; };
+      // ---- projects ----
+      const P = box('Projects', 'People can ask about these. Door shares a clean copy of the committed files, never .env, keys or secrets.', chip('Needs your OK by text','warn'));
+      v.projects.forEach(p => { const r = el('div','prow'); r.appendChild(el('b','',p.name)); if(t.enabled && t.project_name === p.name) r.appendChild(chip('tasks work here','ok'));
         r.appendChild(btn('Remove','no',{type:'settings',change:{op:'project.remove',name:p.name}},'Stop sharing ' + p.name + '? You will be asked to confirm by text.')); P.appendChild(r); });
       const af = el('form','row'); af.style.marginTop = '10px'; const ai = el('input'); ai.placeholder = 'Folder on your Mac, e.g. /Users/you/code/my-app'; ai.style.flex = '1 1 320px'; ai.required = true;
-      const ab = el('button','b go','Add project'); af.appendChild(ai); af.appendChild(ab); af.onsubmit = e => { e.preventDefault(); change({op:'project.add', path: ai.value.trim()}); ai.value = ''; }; P.appendChild(af);
-      // tasks
-      const t = v.tasks; const T = box('Tasks: having things done', 'People you trust can ask for changes; they happen on a throwaway copy and Door checks the result. Changes here need your OK by text.');
-      const en = el('input'); en.type = 'checkbox'; en.checked = t.enabled; const el1 = el('label','row'); el1.appendChild(en); el1.appendChild(document.createTextNode(' Let people I trust have things done')); T.appendChild(el1);
-      const more = el('div'); more.style.marginTop = '10px'; more.style.display = t.enabled ? 'block' : 'none'; T.appendChild(more); en.onchange = () => { more.style.display = en.checked ? 'block' : 'none'; };
-      const sel = (label, opts, cur) => { const r = el('div','row'); r.style.margin = '6px 0'; const l = el('span','mut',label); l.style.minWidth = '190px'; r.appendChild(l);
-        const x = el('select'); opts.forEach(([val, txt]) => { const o = el('option','',txt); o.value = val; x.appendChild(o); }); x.value = cur; r.appendChild(x); more.appendChild(r); return x; };
-      const proj = sel('Work on', v.projects.map(p => [p.name, p.name]), t.project_name || (v.projects[0] || {}).name);
-      const bash = sel('Running commands', [['ask','Ask me each time (unless listed below)'],['off','Never']], t.bash);
-      const open = sel('Opening things on my screen', [['off','Never'],['ask','Ask me each time'],['allow','Allow project files and https links']], t.open_on_mac);
-      const own = sel('When I ask for something myself', [['auto','Do it without asking me again'],['ask','Ask me for each risky step']], t.owner_steps);
-      more.appendChild(el('div','mut','Commands that run without asking (one per line)')); const cm = el('textarea'); cm.value = (t.allow_commands || []).join('\n'); more.appendChild(cm);
-      more.appendChild(el('div','mut','Checks Door runs to prove a task worked (one per line)')); const ck = el('textarea'); ck.value = (t.checks || []).join('\n'); more.appendChild(ck);
-      const ts = el('button','b go','Save tasks'); ts.style.marginTop = '10px';
-      ts.onclick = () => change(en.checked ? {op:'tasks.set', enabled:true, project_name: proj.value, bash: bash.value, open_on_mac: open.value, owner_steps: own.value, allow_commands: lines(cm), checks: lines(ck)} : {op:'tasks.set', enabled:false});
+      af.appendChild(ai); af.appendChild(el('button','b go','Add project')); af.onsubmit = e => { e.preventDefault(); change({op:'project.add', path: ai.value.trim()}); ai.value = ''; }; P.appendChild(af);
+      P.appendChild(el('small','mut','It must be a git project with at least one commit, inside your home folder. Pick it from a list in Door on this computer.'));
+      // ---- tasks ----
+      const T = box('Tasks', 'People you trust can ask for changes. They happen on a throwaway copy, risky steps ask you, and nothing is Done without proof.', chip('Needs your OK by text','warn'));
+      const sw = el('label','switch'); const en = el('input'); en.type = 'checkbox'; en.checked = t.enabled; sw.appendChild(en); sw.appendChild(el('span','slider')); sw.appendChild(el('b','', ' Let people I trust have things done')); T.appendChild(sw);
+      const more = el('div','sgrid'); more.style.display = t.enabled ? 'grid' : 'none'; T.appendChild(more);
+      const proj = select(v.projects.map(p => [p.name, p.name]), t.project_name || (v.projects[0] || {}).name);
+      const bash = select([['ask','Ask me each time (unless listed below)'],['off','Never']], t.bash);
+      const open = select([['off','Never'],['ask','Ask me each time'],['allow','Allow project files and https links']], t.open_on_mac);
+      const own = select([['auto','Do it without asking me again'],['ask','Ask me for each risky step']], t.owner_steps);
+      more.appendChild(field('Work on','The project the changes are made in.',proj)); more.appendChild(field('Running commands','Anything dangerous is always refused.',bash));
+      more.appendChild(field('Opening things on my screen','Door checks that a window really appeared.',open)); more.appendChild(field('When I ask for something myself','Risky steps still ask guests.',own));
+      const adv = el('details','sadv'); adv.appendChild(el('summary','mut','Advanced: commands and checks')); const cm = el('textarea'); cm.value = (t.allow_commands || []).join('\n'); const ck = el('textarea'); ck.value = (t.checks || []).join('\n');
+      adv.appendChild(field('Commands that run without asking','One per line, e.g. npm test.',cm)); adv.appendChild(field('Checks Door runs to prove a task worked','One per line. The agent cannot skip them.',ck)); more.appendChild(adv); adv.style.gridColumn = '1 / -1';
+      const read = () => [en.checked, proj.value, bash.value, open.value, own.value, cm.value, ck.value];
+      const ts = saver('Save tasks', read, () => change(en.checked ? {op:'tasks.set', enabled:true, project_name: proj.value, bash: bash.value, open_on_mac: open.value, owner_steps: own.value, allow_commands: lines(cm), checks: lines(ck)} : {op:'tasks.set', enabled:false}));
+      [en, proj, bash, open, own, cm, ck].forEach(x => { x.addEventListener('input', ts.check); x.addEventListener('change', ts.check); }); en.addEventListener('change', () => { more.style.display = en.checked ? 'grid' : 'none'; });
       T.appendChild(ts);
-      // model
-      const m = v.model; const M = box('Model', 'Who pays for the AI and which model answers. Keys stay in your Mac\'s Keychain; sign-in is done once on the Mac, from Door on this computer.');
-      const mr = el('div','row'); const ma = el('select'); m.choices.forEach(c => { const o = el('option','',c.label); o.value = c.id; o.dataset.model = c.model; ma.appendChild(o); }); ma.value = m.access;
-      const mi = el('input'); mi.value = m.model; mi.style.width = '240px'; ma.onchange = () => { mi.value = ma.selectedOptions[0].dataset.model; };
-      const mb = el('button','b go','Save model'); mb.onclick = () => change({op:'model.set', access: ma.value, model: mi.value.trim()}); mr.appendChild(ma); mr.appendChild(mi); mr.appendChild(mb); M.appendChild(mr);
-      // budget
-      const U = box('Monthly budget', 'New requests stop when this month\'s model cost reaches it.');
-      const ur = el('div','row'); ur.appendChild(document.createTextNode('US$ ')); const ui = el('input'); ui.type = 'number'; ui.min = 1; ui.max = 10000; ui.value = v.budget; ui.style.width = '110px';
-      const ub = el('button','b go','Save budget'); ub.onclick = () => change({op:'budget.set', monthly: Number(ui.value)}); ur.appendChild(ui); ur.appendChild(ub); U.appendChild(ur);
+      // ---- model ----
+      const M = box('Model', 'Who pays for the AI and which model answers.', chip('Applies now','ok'));
+      const ma = select(m.choices.map(c => [c.id, c.label]), m.access); const mi = el('input'); mi.value = m.model;
+      const hint = el('small','mut',''); const hints = {opencode:'Uses the key OpenCode already keeps on your Mac.', 'claude-login':'Sign in once on your Mac (Door on this computer › Settings).', anthropic:'Needs a key stored in your Mac\'s Keychain (Door on this computer › Settings).', openai:'Needs a key stored in your Mac\'s Keychain.', openrouter:'Needs a key stored in your Mac\'s Keychain.', deepseek:'Needs a key stored in your Mac\'s Keychain.'};
+      const showHint = () => { hint.textContent = hints[ma.value] || ''; }; showHint();
+      ma.onchange = () => { const c = m.choices.find(x => x.id === ma.value); if(c) mi.value = c.model; showHint(); };
+      const mg = el('div','sgrid'); mg.appendChild(field('Provider',null,ma)); mg.appendChild(field('Model name',null,mi)); M.appendChild(mg); M.appendChild(hint);
+      const ms = saver('Save model', () => [ma.value, mi.value], () => change({op:'model.set', access: ma.value, model: mi.value.trim()}));
+      [ma, mi].forEach(x => { x.addEventListener('input', ms.check); x.addEventListener('change', ms.check); }); M.appendChild(ms);
+      // ---- budget ----
+      const U = box('Monthly budget', 'New requests stop when this month\'s model cost reaches it.', chip('Applies now','ok'));
+      const ur = el('div','row'); ur.appendChild(document.createTextNode('US$ ')); const ui = el('input'); ui.type = 'number'; ui.min = 1; ui.max = 10000; ui.value = v.budget; ui.style.width = '120px'; ur.appendChild(ui); U.appendChild(ur);
+      const us = saver('Save budget', () => [ui.value], () => change({op:'budget.set', monthly: Number(ui.value)})); ui.addEventListener('input', us.check); U.appendChild(us);
     }
     const _render = render; render = st => { _render(st); renderBoard(st); renderSettings(st); };
     let first = true;
