@@ -94,10 +94,17 @@ it is addressed**: start a message with "Door," or "@door".
   text, and your Mac checks every change again. The cloud only ever sees project names, never folder paths.
 
 ### Set it up
-1. On your Mac: `curl -fsSL <where you host it>/install.sh | bash`. It installs Plow Latch if missing, Door and its isolated runner, and asks
-   three questions (project, model, tasks). `door-host doctor` tells you anything still missing.
+1. On your Mac, in Terminal:
+
+   ```
+   curl -fsSL https://raw.githubusercontent.com/AElise08/myplow-mel-s-version-/main/door/scripts/install.sh | bash
+   ```
+
+   Nothing to install first: if the Mac has no recent Python it gets a private copy for Door, it opens Docker Desktop and Plow Latch
+   if they are closed, lets you pick the project folder in a normal macOS window, and can install Claude Code if you want tasks.
+   At the end it pairs the Mac and copies the exact `Door Pair: <code>` text for you. `door doctor` tells you anything still missing.
 2. In the cloud: run the Door image on one of your Plow lines (`plow-agents deploy --local --line ln_xxx`, or publish it on Plow).
-3. Text the line `Door Activate: <code>`, then `Door Pair: <code>`. Done.
+3. Text the line `Door Activate: <code>`; the installer then gives you the `Door Pair` text. Done.
 
 ### Built on MyPeople and Plow
 Door joins two things. **MyPeople** (the runtime of [MyPlow](../MYPLOW.md)) runs agent teams on your own machine: a Boss that routes work, a
@@ -240,10 +247,17 @@ chamado**: comece a mensagem com "Door," ou "@door".
   o seu YES por mensagem, e o seu Mac confere cada mudança de novo. A nuvem só vê os nomes dos projetos, nunca os caminhos das pastas.
 
 ### Como instalar
-1. No Mac: `curl -fsSL <onde estiver hospedado>/install.sh | bash`. Instala o Plow Latch se faltar, o Door e o ambiente isolado, e faz três
-   perguntas (projeto, modelo, tarefas). `door-host doctor` diz o que ainda falta.
+1. No Mac, no Terminal:
+
+   ```
+   curl -fsSL https://raw.githubusercontent.com/AElise08/myplow-mel-s-version-/main/door/scripts/install.sh | bash
+   ```
+
+   Não precisa instalar nada antes: se o Mac não tem um Python recente, ele baixa uma cópia só para o Door; abre o Docker Desktop e o
+   Plow Latch se estiverem fechados; você escolhe a pasta do projeto numa janela normal do macOS; e ele instala o Claude Code se você
+   quiser tarefas. No fim ele pareia o Mac e já copia o texto `Door Pair: <código>`. `door doctor` diz o que ainda falta.
 2. Na nuvem: rode a imagem do Door numa linha do Plow (`plow-agents deploy --local --line ln_xxx`, ou publicando no Plow).
-3. Mande para a linha `Door Activate: <código>` e depois `Door Pair: <código>`. Pronto.
+3. Mande para a linha `Door Activate: <código>`; o instalador então te dá o texto do `Door Pair`. Pronto.
 
 ### Feito sobre o MyPeople e o Plow
 O Door junta duas coisas. O **MyPeople** (o motor do [MyPlow](../MYPLOW.md)) roda times de agentes na sua máquina: um Boss que distribui o
