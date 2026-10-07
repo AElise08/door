@@ -60,6 +60,8 @@ def panel_command(cloud, command):
         cloud.set_guest_level(command["guest_id"], command["level"])
     elif op == "action.decide":
         cloud.decide_action(command["request_id"], command["action_id"], command["decision"], "panel:" + command["owner_session"])
+    elif op == "merge.request":
+        cloud.request_merge()
     elif op == "settings.change":
         cloud.request_settings(command["change"])
     elif op == "settings.approval":
@@ -105,6 +107,8 @@ def cycle(cloud, sms, relay, hub, line_uid):
             argv += ["--request", cmd["request"], "--action", cmd["action"], "--decision", cmd["decision"]]
         elif cmd["op"] == "settings":
             argv += ["--payload", base64.b64encode(json.dumps(cmd["change"]).encode()).decode()]
+        elif cmd["op"] == "merge":
+            argv += ["--head", cmd["head"], "--target", cmd["target"]]
         try:
             out = relay.command(argv)
         except (OSError, TimeoutError, PermissionError):
@@ -113,8 +117,16 @@ def cycle(cloud, sms, relay, hub, line_uid):
             cmd["done"] = True                          # an old Mac that does not know this operation, or a damaged request: say so, do not retry forever
             cloud.note_settings_result({"applied": False, "error": "This Mac could not take that change. Update Door on the Mac and try again."})
             continue
+        if cmd["op"] in ("work", "merge") and not out.get("ok") and out.get("reason") in ("bad_payload", "unknown_op"):
+            cmd["done"] = True
+            (cloud.merge_preview if cmd["op"] == "work" else cloud.merge_done)({"reason": "This Mac does not know how to merge yet. Update Door on the Mac."})
+            continue
         if out.get("ok"):
             cmd["done"] = True
+            if cmd["op"] == "work":
+                cloud.merge_preview(out.get("work"))
+            if cmd["op"] == "merge":
+                cloud.merge_done(out)
             if cmd["op"] == "settings":
                 cloud.note_settings_result(out)
             if cmd["op"] == "pair-confirm" and out.get("ok"):

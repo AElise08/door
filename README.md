@@ -89,6 +89,7 @@ it is addressed**: start a message with "Door," or "@door".
 - **The panel**: board with a priority view, guests and links, history, cost, and **Settings**.
 - **Door on this computer** (a page that only opens on your Mac): what ran and what it cost, steps waiting for your OK, and the same
   settings, plus a folder picker and guided sign-in.
+- **Bringing Door's work into your project.** Text `Door Merge` (or press *Merge into main* on the board): Door lists the changes and files, asks for your YES by text, and merges only if your folder has no uncommitted changes and nothing conflicts. Until then everything stays on `door/work`.
 - **Settings, from anywhere.** Budget and model apply at once. Adding or removing a project, and what tasks may do, wait for your YES by
   text, and your Mac checks every change again. The cloud only ever sees project names, never folder paths.
 
@@ -237,6 +238,7 @@ chamado**: comece a mensagem com "Door," ou "@door".
 - **O painel**: quadro com visão de prioridade, convidados e links, histórico, custo e **Settings**.
 - **Door on this computer** (uma página que só abre no seu Mac): o que rodou e quanto custou, passos esperando o seu OK e as mesmas
   configurações, com seletor de pastas e login guiado.
+- **Juntar o trabalho do Door no seu projeto.** Mande `Door Merge` (ou aperte *Merge into main* no quadro): o Door lista as mudanças e os arquivos, pede o seu YES por mensagem e só junta se a sua pasta não tiver alterações pendentes e não houver conflito. Até lá, tudo fica na `door/work`.
 - **Settings, de qualquer lugar.** Orçamento e modelo valem na hora. Adicionar ou remover um projeto, e o que as tarefas podem fazer, esperam
   o seu YES por mensagem, e o seu Mac confere cada mudança de novo. A nuvem só vê os nomes dos projetos, nunca os caminhos das pastas.
 

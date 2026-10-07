@@ -8,11 +8,11 @@ M = {
     "activated": ("Door is activated. Open the panel to add people and pair your Mac. / Door ativado. Abra o painel para adicionar pessoas e parear seu Mac.",) * 2,
     "help": ("Just write to me. A question gets an answer about the project; something to do is done on a copy of it and checked. "
              "Commands: YES/NO <code>; DOOR LINK <name>; DOOR INVITE <name>; DOOR GUESTS; DOOR REVOKE <name>; DOOR PANEL (sign-in link); "
-             "DOOR PAUSE/RESUME; DOOR QUEUE; DOOR TODAY. In a group: DOOR ALLOW, DOOR TRUST, DOOR STOP. Letting someone run tasks is only done in the panel "
+             "DOOR PAUSE/RESUME; DOOR QUEUE; DOOR TODAY; DOOR MERGE (bring Door's work into your project). In a group: DOOR ALLOW, DOOR TRUST, DOOR STOP. Letting someone run tasks is only done in the panel "
              "or with DOOR TRUST in a group (you confirm it here).",
              "É só me escrever. Uma pergunta recebe resposta sobre o projeto; um pedido é feito numa cópia dele e conferido. "
              "Comandos: YES/NO <código>; DOOR LINK <nome>; DOOR INVITE <nome>; DOOR GUESTS; DOOR REVOKE <nome>; DOOR PANEL (link de acesso); "
-             "DOOR PAUSE/RESUME; DOOR QUEUE; DOOR TODAY. Num grupo: DOOR ALLOW, DOOR TRUST, DOOR STOP. Liberar tarefas para alguém só pelo painel "
+             "DOOR PAUSE/RESUME; DOOR QUEUE; DOOR TODAY; DOOR MERGE (juntar o trabalho do Door no seu projeto). Num grupo: DOOR ALLOW, DOOR TRUST, DOOR STOP. Liberar tarefas para alguém só pelo painel "
              "ou com DOOR TRUST num grupo (você confirma aqui)."),
     "tasks_off_owner": ("I can answer questions about the project. To have me do things (edit files, run checks), turn tasks on for this agent "
                         "in your Door settings, then ask again. Meanwhile, ask it as a question and I will answer from the code.",

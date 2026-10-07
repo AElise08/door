@@ -57,6 +57,9 @@ def client_main(argv=None):
     sub.add_parser("summary")
     sub.add_parser("pause")
     sub.add_parser("resume")
+    sub.add_parser("work")
+    mg = sub.add_parser("merge")
+    mg.add_argument("--head", required=True); mg.add_argument("--target", required=True)
     sg = sub.add_parser("settings")
     sg.add_argument("--payload", required=True, help="the change, as JSON in base64")
     ns = ap.parse_args(argv)
@@ -71,6 +74,8 @@ def client_main(argv=None):
             msg["reason"] = ns.reason
     elif ns.cmd == "pair-confirm":
         msg.update(code=ns.code, public_key=ns.public_key)
+    elif ns.cmd == "merge":
+        msg.update(head=ns.head, target=ns.target)
     elif ns.cmd == "settings":
         try:
             msg["change"] = json.loads(base64.b64decode(ns.payload, validate=True))
@@ -83,7 +88,7 @@ def client_main(argv=None):
 
 def host_main(argv=None):
     forwarded = list(argv if argv is not None else sys.argv[1:])
-    if forwarded and forwarded[0] in ("ask", "status", "cancel", "pair-confirm", "summary", "settings"):
+    if forwarded and forwarded[0] in ("ask", "status", "cancel", "pair-confirm", "summary", "settings", "work", "merge"):
         return client_main(forwarded)
     ap = argparse.ArgumentParser(prog="door-host")
     ap.add_argument("--policy", default=str(default_path()))

@@ -300,6 +300,8 @@ public final class Panel: @unchecked Sendable {
     public static func validate(_ c: [String: Any]) -> [String: Any]? {
         guard let t = c["type"] as? String else { return nil }
         switch t {
+        case "merge":
+            return ["type": t]                                   // the Mac shows the owner what would be merged and waits for their YES by text
         case "settings":
             // A change to what the agent may reach, sent to the owner's Mac. Shape only: the Mac checks the meaning (is it a git project, ...)
             // and the owner confirms the risky ones by text. Nothing outside this fixed shape gets through.

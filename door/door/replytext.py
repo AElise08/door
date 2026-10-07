@@ -79,11 +79,11 @@ def friendly_error(error, lg):
     return "The usage limit of your Claude account was reached" + (", it resets at %s" % when if when else "") + ". Tasks will work again after that."
 
 
-def task_reply(request_text, run, verdict, reason, limit, to_owner=False):
+def task_reply(request_text, run, verdict, reason, limit, to_owner=False, reply_lang=None):
     """The agent's own words first, then one short line of what Door itself established. The status line follows the language of what the
     agent wrote (that is what the person is reading), else of the request; the owner is spoken to directly."""
     summary_lang = lang(run.get("summary") or "") if len((run.get("summary") or "").split()) >= 6 else None
-    lg = summary_lang or lang(request_text)
+    lg = reply_lang if reply_lang in STATUS else (summary_lang or lang(request_text))      # the cloud's choice (the group's language) wins
     L = dict(STATUS[lg])
     if to_owner:
         L = dict(L, unverified=OWNER_UNVERIFIED[lg], failed_checks=OWNER_FAILED[lg])
@@ -97,7 +97,8 @@ def task_reply(request_text, run, verdict, reason, limit, to_owner=False):
     if verdict in ("failed_checks", "checks_passed"):
         fill["checks"] = checks or "-"
     key = verdict if verdict in L else "error"
-    nice = friendly_error(run.get("error") or run.get("summary"), lang(request_text)) if key == "error" else None      # the error text itself is English: use the person's language
+    nice = (friendly_error(run.get("error") or run.get("summary"), reply_lang if reply_lang in STATUS else lang(request_text))
+            if key == "error" else None)                                   # the error text itself is English: use the person's language      # the error text itself is English: use the person's language
     if nice:
         return nice                                                    # the whole message: no repeated copy of the same error
     if key == "error":

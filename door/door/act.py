@@ -364,4 +364,51 @@ def advance_work_branch(repo, branch):
     return git(repo, "branch", "-f", WORK_BRANCH, branch, check=False).returncode == 0
 
 
+def work_status(repo):
+    """What Door's branch has that the project's own branch does not, and whether it can be merged safely right now.
+    Only names and short subjects: this is what the owner is shown before saying YES."""
+    repo = Path(os.path.expanduser(str(repo)))
+    if git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/" + WORK_BRANCH, check=False).returncode != 0:
+        return {"exists": False, "commits": [], "files": [], "can_merge": False, "reason": "Door has not done any work on this project yet."}
+    target = git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", check=False).stdout.strip() or None
+    base = target or "HEAD"
+    head = git(repo, "rev-parse", WORK_BRANCH).stdout.strip()
+    subjects = [s[len("door: "):] if s.startswith("door: ") else s for s in git(repo, "log", "--format=%s", "%s..%s" % (base, WORK_BRANCH)).stdout.splitlines() if s]
+    files = [f for f in git(repo, "diff", "--name-only", "%s...%s" % (base, WORK_BRANCH)).stdout.splitlines() if f]
+    out = {"exists": True, "target": target, "head": head, "commits": subjects[:20], "count": len(subjects), "files": files[:30], "can_merge": False, "reason": ""}
+    if not subjects:
+        out["reason"] = "Everything Door did is already in %s." % (target or "the project"); return out
+    if not target:
+        out["reason"] = "The project is not on a branch right now (detached HEAD), so Door will not merge into it."; return out
+    if git(repo, "status", "--porcelain", "--untracked-files=no").stdout.strip():
+        out["reason"] = "Your project folder has changes that are not committed. Commit or put them aside first, so nothing of yours is mixed in."; return out
+    untracked = set(git(repo, "ls-files", "--others", "--exclude-standard").stdout.splitlines())
+    clash = sorted(untracked & set(files))
+    if clash:
+        out["reason"] = "These files exist in your folder but are not in git, and Door's work adds them too: %s." % ", ".join(clash[:5]); return out
+    if git(repo, "merge-tree", "--write-tree", target, WORK_BRANCH, check=False).returncode != 0:
+        out["reason"] = "Door's work and %s changed the same lines, so merging needs a person. Nothing was changed." % target; return out
+    out["fast_forward"] = git(repo, "merge-base", "--is-ancestor", target, WORK_BRANCH, check=False).returncode == 0
+    out["can_merge"] = True
+    return out
+
+
+def merge_work(repo, expect_head, expect_target):
+    """Merge door/work into the project's branch, only if it is exactly what the owner was shown and approved, and only when it is safe."""
+    st = work_status(repo)
+    if not st.get("can_merge"):
+        return {"ok": True, "merged": False, "reason": st.get("reason") or "Nothing to merge."}
+    if st["head"] != expect_head or st["target"] != expect_target:
+        return {"ok": True, "merged": False, "reason": "Door's work or your branch changed after you were asked. Send Door Merge again to see what would be merged now."}
+    repo = Path(os.path.expanduser(str(repo)))
+    if st["fast_forward"]:
+        r = git(repo, "merge", "--ff-only", WORK_BRANCH, check=False)
+    else:
+        r = git(repo, "-c", "user.name=Door", "-c", "user.email=door@localhost", "merge", "--no-ff", "--no-edit", "-m", "Merge Door's work (door/work)", WORK_BRANCH, check=False)
+    if r.returncode != 0:
+        git(repo, "merge", "--abort", check=False)
+        return {"ok": True, "merged": False, "reason": "git could not merge it, so nothing was changed: " + (r.stderr or r.stdout).strip()[:200]}
+    return {"ok": True, "merged": True, "count": st["count"], "target": st["target"], "files": st["files"]}
+
+
 DONE_VERDICTS = {"verified", "checks_passed", "opened"}

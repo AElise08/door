@@ -38,6 +38,9 @@
       ],
       [
         "pair-confirm"
+      ],
+      [
+        "work"
       ]
     ],
     "write": [
@@ -49,6 +52,9 @@
       ],
       [
         "settings"
+      ],
+      [
+        "merge"
       ]
     ]
   },

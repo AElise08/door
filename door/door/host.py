@@ -26,6 +26,11 @@ HELD_MSG = "The owner is reviewing this reply."
 PAIR_TTL = 600
 
 
+def _lang(req):
+    """The reply language the cloud chose for this request (the group's, or the request's); anything else is ignored."""
+    return req.get("lang") if req.get("lang") in ("en", "pt") else None
+
+
 class Host:
     def __init__(self, policy_path, state_dir, runtime, credential, proxy_scheme=None):
         self.state_dir = Path(state_dir)
@@ -122,10 +127,34 @@ class Host:
         self.holder.refresh()
         s = cloud_summary(self.holder.policy)
         try:
+            w = self.work()["work"]
+            s["work"] = {k: w.get(k) for k in ("exists", "target", "count", "commits", "files", "can_merge", "reason")}
+        except Exception:                                                    # never let a git problem stop the summary
+            pass
+        try:
             s["settings"] = settings.view(self.holder.path, self.state_dir, redact=True)          # names and choices, never folder paths
         except (OSError, ValueError, KeyError):
             pass
         return {"ok": True, "summary": s, "paused": self.paused(), "online": True}
+
+    def _task_project(self):
+        a = next((x for x in (self.holder.policy or {}).get("agents", []) if x.get("act")), None)
+        return a["act"]["project"] if a else None
+
+    def work(self):
+        proj = self._task_project()
+        if not proj:
+            return {"ok": True, "work": {"exists": False, "commits": [], "files": [], "can_merge": False, "reason": "Tasks are not turned on, so there is no Door work to merge."}}
+        return {"ok": True, "work": act.work_status(proj)}
+
+    def merge(self, head, target):
+        """Only called after the owner said YES to exactly this head and target."""
+        proj = self._task_project()
+        if not proj or not head or not target:
+            return {"ok": True, "merged": False, "reason": "Nothing to merge."}
+        out = act.merge_work(proj, head, target)
+        self.audit.write("work_merged", detail={"merged": out["merged"], "target": target, "count": out.get("count", 0), "reason": out.get("reason", "")})
+        return out
 
     def change_settings(self, change):
         """A change asked for from the cloud panel (and confirmed by the owner there when it matters). The same rules as the local page apply."""
@@ -289,7 +318,7 @@ class Host:
                 return
             task = req["text"]
             run = runner.run(sandbox.build_task_prompt(profile["instructions"], task, self._clean_history(req.get("history")), for_owner=bool(req.get("to_owner")),
-                                                       can_open=cfg.get("open_on_mac", "ask") != "off"),
+                                                       can_open=cfg.get("open_on_mac", "ask") != "off", lang=_lang(req)),
                              " ".join(task.split())[:70])
             if info["cancel_reason"] or run["cancelled"]:
                 result = {"state": "canceled", "reason": info["cancel_reason"] or "owner_canceled"}
@@ -302,7 +331,7 @@ class Host:
                 v = act.verdict(run, verifier)
                 if run.get("branch") and v in act.KEEP_VERDICTS and act.advance_work_branch(cfg["project"], run["branch"]):
                     run["work_branch"] = act.WORK_BRANCH
-                text = replytext.task_reply(req["text"], run, v, reason, pol["outbound"]["max_reply_chars"], to_owner=bool(req.get("to_owner")))
+                text = replytext.task_reply(req["text"], run, v, reason, pol["outbound"]["max_reply_chars"], to_owner=bool(req.get("to_owner")), reply_lang=_lang(req))
                 f = outfilter.filter_reply(text, pol["outbound"]["max_reply_chars"], [socket.gethostname()])
                 held = f["redactions"] >= pol["outbound"]["hold_threshold"]
                 result = {"state": "completed", "verdict": v, "reply": {
@@ -412,7 +441,7 @@ class Host:
             info["name"] = name
             spec = {"name": name, "export_dir": str(exp), "outbox_dir": str(outbox), "placeholder_key": token, "backend": profile["backend"], "provider": pol["egress"]["provider"],
                     "login": pol["egress"].get("mode") == "login",
-                    "prompt": sandbox.build_prompt(profile["instructions"], req["text"], profile["backend"], profile.get("scope", ""), self._clean_history(req.get("history"))), "model": profile["model"],
+                    "prompt": sandbox.build_prompt(profile["instructions"], req["text"], profile["backend"], profile.get("scope", ""), self._clean_history(req.get("history")), lang=_lang(req)), "model": profile["model"],
                     "cpus": sb["cpus"], "memory_mb": sb["memory_mb"]}
             if info["cancel_reason"]:
                 result = {"state": "canceled", "reason": info["cancel_reason"]}
@@ -559,6 +588,10 @@ class Host:
             return self.summary()
         if op == "settings":
             return self.change_settings(msg.get("change"))
+        if op == "work":
+            return self.work()
+        if op == "merge":
+            return self.merge(str(msg.get("head", "")), str(msg.get("target", "")))
         if op in ("pause", "resume"):
             return self.set_paused(op == "pause")
         return {"ok": False, "reason": "unknown_op"}

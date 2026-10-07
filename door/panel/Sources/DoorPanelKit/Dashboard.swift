@@ -110,6 +110,8 @@ enum Dashboard {
     .switch{display:flex;align-items:center;gap:10px;cursor:pointer}.switch input{position:absolute;opacity:0}.slider{width:36px;height:20px;border-radius:99px;background:var(--gray);position:relative;transition:.15s;flex-shrink:0}
     .slider:after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 2px #0003}.switch input:checked+.slider{background:#2383e2}.switch input:checked+.slider:after{left:18px}
     @media(max-width:760px){.sgrid{grid-template-columns:1fr}}
+    .workbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:var(--side);border-radius:10px;padding:12px 14px;margin:0 0 16px}
+    .workbar .wtext{flex:1;min-width:240px}.workbar .wtext b{font-weight:600}.workbar small{display:block;color:var(--mut);margin-top:2px}
     .sres{padding:9px 12px;border-radius:7px;margin:0 0 14px;font-size:13px;background:var(--blue);color:var(--bluefg)}.sres.ok{background:var(--green);color:var(--greenfg)}.sres.bad{background:var(--red);color:var(--redfg)}.sres.warn{background:var(--yellow);color:var(--yellowfg)}
     .mx{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}@media(max-width:760px){.mx{grid-template-columns:1fr}.cols4{grid-template-columns:1fr}}
     .stale{display:none;background:var(--yellow);color:var(--yellowfg);border-radius:5px;padding:6px 10px;margin-bottom:14px;font-size:13px}
@@ -130,6 +132,7 @@ enum Dashboard {
           <div class="mut" id="approval-hint"></div></div><button class="b" id="approval-toggle"></button></div>
         <div id="queue"></div></section>
       <section class="view" id="v-board">
+        <div id="workbar"></div>
         <div class="bhead"><div class="seg"><button id="mode-cols" class="on">Columns</button><button id="mode-matrix">Priority</button></div>
           <span class="mut" id="bhint">Drag cards between columns, or use ⋯ on a card.</span></div>
         <div id="board"></div></section>
@@ -530,7 +533,24 @@ enum Dashboard {
       const ur = el('div','row'); ur.appendChild(document.createTextNode('US$ ')); const ui = el('input'); ui.type = 'number'; ui.min = 1; ui.max = 10000; ui.value = v.budget; ui.style.width = '120px'; ur.appendChild(ui); U.appendChild(ur);
       const us = saver('Save budget', () => [ui.value], () => change({op:'budget.set', monthly: Number(ui.value)})); ui.addEventListener('input', us.check); U.appendChild(us);
     }
-    const _render = render; render = st => { _render(st); renderBoard(st); renderSettings(st); };
+    // ---- Door's work that is not in the project yet: one button, the YES comes by text ----
+    function renderWork(st){
+      const s = st.snapshot || {}, w = s.work, res = s.merge_result, W = $('workbar'); clear(W);
+      const box = el('div','workbar'); const t = el('div','wtext');
+      const recent = res && (Date.now()/1000 - (res.at || 0) < 20);
+      if(s.merge_pending){ t.appendChild(el('b','','Waiting for your OK by text to merge Door\'s work.')); t.appendChild(el('small','','Reply YES with the code from your Door number.')); box.appendChild(t); W.appendChild(box); return; }
+      if(res && ['checking','merging'].includes(res.state)){ t.appendChild(el('b','', res.state === 'checking' ? 'Checking Door\'s work on your Mac…' : 'Merging…')); box.appendChild(t); W.appendChild(box); return; }
+      if(recent && res.state === 'merged'){ t.appendChild(el('b','','✓ Merged: ' + res.text + '.')); box.appendChild(t); W.appendChild(box); return; }
+      if(recent && ['refused','nothing'].includes(res.state) && res.text){ t.appendChild(el('b','','Nothing was merged.')); t.appendChild(el('small','',res.text)); box.appendChild(t); W.appendChild(box); return; }
+      if(!w || !w.exists || !w.count) return;
+      t.appendChild(el('b','', 'Door\'s work is not in ' + (w.target || 'your project') + ' yet: ' + w.count + ' change' + (w.count === 1 ? '' : 's') + '.'));
+      t.appendChild(el('small','', (w.commits || []).slice(0,3).join(' · ') + ((w.files || []).length ? '  —  files: ' + w.files.slice(0,5).join(', ') : '')));
+      if(!w.can_merge && w.reason) t.appendChild(el('small','', w.reason));
+      box.appendChild(t);
+      const b = btn('Merge into ' + (w.target || 'main') + '…','go',{type:'merge'}); if(!w.can_merge) b.disabled = true; box.appendChild(b);
+      W.appendChild(box);
+    }
+    const _render = render; render = st => { _render(st); renderBoard(st); renderSettings(st); renderWork(st); };
     let first = true;
     const _render2 = render; render = st => { _render2(st);
       if(first){ first = false; const s = st.snapshot || {}; const want = initialView;

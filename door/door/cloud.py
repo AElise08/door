@@ -558,6 +558,61 @@ class Cloud:
     SETTINGS_OPS = {"project.add", "project.remove", "tasks.set", "model.set", "budget.set"}
     SETTINGS_LOW_RISK = {"budget.set", "model.set"}          # these apply at once; anything that widens what the agent can reach waits for the owner's OK
 
+    # ---------- merging Door's work into the project (Door Merge / the panel button) ----------
+    def request_merge(self):
+        """Ask the Mac what would be merged; the owner is then shown it and asked for YES. Nothing is merged without that."""
+        self.s["commands"][ulid()] = {"op": "work", "done": False}
+        self.s["merge_result"] = {"state": "checking", "at": self.clock()}
+        self._save()
+
+    def merge_preview(self, w):
+        pt = self.s.get("owner_lang") == "pt"
+        w = w or {}
+        if not w.get("can_merge"):
+            self.s["merge_result"] = {"state": "nothing", "text": w.get("reason") or "", "at": self.clock()}
+            self._sms(self.s["owner_thread"], "Door: " + (w.get("reason") or ("Nada para juntar." if pt else "Nothing to merge.")))
+            self._save(); return
+        used = {r["approval_code"] for r in self.s["requests"].values() if r["state"] == "waitingApproval"} | set(self.s.get("trust_pending", {}))
+        code = secrets.choice([f"{i:04d}" for i in range(10000) if f"{i:04d}" not in used])
+        what = "; ".join(w["commits"][:5]) + (" …" if w.get("count", 0) > 5 else "")
+        files = ", ".join(w["files"][:8]) + (" …" if len(w["files"]) > 8 else "")
+        self.s["merge_pending"] = {"code": code, "head": w.get("head"), "target": w["target"], "until": self.clock() + 600,
+                                   "text": "%d change(s) into %s" % (w.get("count", 0), w["target"])}
+        self.s["merge_result"] = {"state": "waiting", "text": self.s["merge_pending"]["text"], "at": self.clock()}
+        self._sms(self.s["owner_thread"], (("Door: juntar o trabalho do Door em %s? %d mudança(s): %s. Arquivos: %s. Responda YES %s para juntar ou NO %s para cancelar (vale 10 min).")
+                                           if pt else ("Door: merge Door's work into %s? %d change(s): %s. Files: %s. Reply YES %s to merge or NO %s to cancel (valid 10 min)."))
+                  % (w["target"], w.get("count", 0), what, files, code, code))
+        self._save()
+
+    def _confirm_merge(self, code, yes):
+        p = self.s.get("merge_pending")
+        if not p or p["code"] != code:
+            return False
+        self.s["merge_pending"] = None
+        if p["until"] < self.clock():
+            self.s["merge_result"] = {"state": "expired", "at": self.clock()}
+            self._sms(self.s["owner_thread"], "Door: that merge expired. Send Door Merge again.")
+            return True
+        if yes:
+            self.s["commands"][ulid()] = {"op": "merge", "head": p["head"], "target": p["target"], "done": False}
+            self.s["merge_result"] = {"state": "merging", "text": p["text"], "at": self.clock()}
+        else:
+            self.s["merge_result"] = {"state": "canceled", "at": self.clock()}
+            self._sms(self.s["owner_thread"], "Door: OK, nothing was merged.")
+        return True
+
+    def merge_done(self, out):
+        pt = self.s.get("owner_lang") == "pt"
+        if out.get("merged"):
+            self.s["merge_result"] = {"state": "merged", "text": "%d change(s) into %s" % (out.get("count", 0), out.get("target")), "at": self.clock()}
+            self._sms(self.s["owner_thread"], ("Door: pronto, juntei %d mudança(s) em %s. Arquivos: %s." if pt else "Door: done, merged %d change(s) into %s. Files: %s.")
+                      % (out.get("count", 0), out.get("target"), ", ".join((out.get("files") or [])[:8])))
+        else:
+            self.s["merge_result"] = {"state": "refused", "text": out.get("reason", ""), "at": self.clock()}
+            self._sms(self.s["owner_thread"], ("Door: não juntei nada. " if pt else "Door: nothing was merged. ") + (out.get("reason") or ""))
+        self.s["summary_at"] = 0                                     # refresh what the panel shows about Door's work
+        self._save()
+
     def _describe_change(self, ch):
         pt = self.s.get("owner_lang") == "pt"
         op = ch.get("op")
@@ -795,6 +850,8 @@ class Cloud:
                 return
             if r is None and self._confirm_settings(match[2], match[1] == "YES"):
                 return
+            if r is None and self._confirm_merge(match[2], match[1] == "YES"):
+                return
             if r is None:
                 for q in self.s["requests"].values():                 # not a question waiting: maybe a step of a running task
                     for a in (q.get("actions") or {}).values():
@@ -816,6 +873,8 @@ class Cloud:
             self._sms(thread, f"Today: {n} requests. Spend this month: USD {self._spend():.4f}. {self.panel_url}")
         elif command.startswith("DOOR PAIR:"):
             self.s["commands"][ulid()] = {"op": "pair-confirm", "code": text.split(":", 1)[1].strip(), "done": False}
+        elif command in ("DOOR MERGE", "DOOR MERGE WORK"):
+            self.request_merge()
         elif command == "DOOR PANEL":
             self._panel_job({"op": "signin", "thread": thread})
         elif command == "DOOR GUESTS":
@@ -826,7 +885,7 @@ class Cloud:
         elif command in {"HELP", "COMMANDS", "?", "DOOR HELP"} or command.startswith("DOOR "):
             self._sms(thread, "Just write to me. A question gets an answer about the project; something to do (\"Do: add a footer\") is done on a copy of it "
                               "and checked. Commands: YES/NO <code>; DOOR LINK <name>; DOOR INVITE <name>; DOOR GUESTS; DOOR REVOKE <name>; "
-                              "DOOR PANEL (sign-in link); DOOR PAUSE/RESUME; DOOR QUEUE; DOOR TODAY. "
+                              "DOOR PANEL (sign-in link); DOOR PAUSE/RESUME; DOOR QUEUE; DOOR TODAY; DOOR MERGE (bring Door's work into your project). "
                               "Letting someone run tasks is only done in the panel.")
         else:
             self._owner_request(thread, text)
@@ -1045,6 +1104,7 @@ class Cloud:
             req["guest_level"] = guest.get("level", "ask")
             if guest.get("owner"):
                 req["to_owner"] = True                  # the Mac words the result as talking to the owner, not about "the owner"
+            req["lang"] = r.get("lang") or replytext.lang(r["text"])       # the language the reply must be in: the group's, or the request's
             req["history"] = self._history_for(r["guest_id"], r)
             payload, sig = encode(self.s["private"], req)
             rid = r["request_id"]
@@ -1176,6 +1236,8 @@ class Cloud:
                                   "plan": self.s["plan"], "paused": self.s["paused"], "guest_usage": guest_usage,
                                   "settings": self.s["settings"],
                                   "settings_result": self.s.get("settings_result"),
+                                  "merge_result": self.s.get("merge_result"),
+                                  "merge_pending": bool(self.s.get("merge_pending")) and self.s["merge_pending"]["until"] > self.clock(),
                                   "settings_pending": ({"text": self.s["settings_pending"]["text"], "until": self.s["settings_pending"]["until"]}
                                                        if self.s.get("settings_pending") and self.s["settings_pending"]["until"] > self.clock() else None),
                                   "setup": {"activated": bool(self.s["owner_phone"]), "paired": bool(self.s.get("host_id")),
