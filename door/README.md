@@ -8,7 +8,7 @@ work was really done before it calls it finished. Your computer never opens a po
 
 ### What Door is made of
 Door joins two things:
-- **MyPeople** (the runtime of [MyPlow](../README.md)): agent teams on your own machine with a Boss that routes work, a priorities board,
+- **MyPeople** (the runtime of [MyPlow](../MYPLOW.md)): agent teams on your own machine with a Boss that routes work, a priorities board,
   and "proof" that work was really done. Door brings these ideas to people *outside* your machine: the board where requests become cards,
   the Boss that picks which agent answers, and delivery checked by evidence instead of by trust.
 - **[Plow](https://plow.co)**: a phone line for the agent (SMS and iMessage, including group chats), a place to run the cloud part as a
@@ -27,6 +27,22 @@ Door joins two things:
         ▼
  The answer (or the result and its proof) goes back the same way
 ```
+
+### Door and MyPeople: what is shared and what is not
+Door is its own program: **it does not import or run any MyPeople code, and it does not need MyPeople installed.** It is built from MyPeople's
+ideas and follows the way MyPeople talks to Plow. This repository keeps the MyPeople parts Door builds on.
+
+| In MyPeople (the rest of this repository) | What Door takes from it |
+|---|---|
+| `../mypeople/runtime/plugins/plow-chat` (the Plow Chat bridge) | How an agent talks to Plow: the cloud-agent contract (`/v1/agents/cloud/me`), chats and groups, answering in the thread that asked. Door's `door/plow.py` and `door/plow_agent.py` follow the same pattern. |
+| `../cloud/` (MyPeople's cloud image) | How an agent image boots on a Plow line with no secrets inside (for example, clearing the entrypoint because Plow boots the image's own command). Door's `cloud/Dockerfile` takes the same approach. |
+| The Boss and the engineers (`../mypeople/runtime/mp-boss-doctrine.md`) | One agent that decides who works on what. Door's "Boss" picks which agent answers a question; tasks go to a separate task agent. |
+| The priorities board | Door's board: each request becomes a card that moves from To do to Done, with a priority view. |
+| `../mypeople/runtime/verify/` and the idea of "proof" | Door's rule that work is Done only with evidence: real changes, the owner's own checks, and an independent check. |
+| Plow Latch | MyPeople already uses Latch to reach a Mac; Door reaches the owner's Mac through the same Latch. |
+
+What stays in the rest of this repository for MyPeople itself: the runtime (`../mypeople/`), the desktop app (`../desktop/`), the cloud image
+(`../cloud/`), `../install.sh`, the Docker files and `../docs/HOW-IT-WORKS.md`. The original MyPlow README is [`MYPLOW.md`](../MYPLOW.md). Door's own code is in `door/`.
 
 ### What people can do
 - **Ask** anything about the project. Answers say which files they come from, and Door checks those files exist. They are answered right
@@ -99,11 +115,27 @@ terminal, aos seus arquivos ou às suas chaves.
 
 ### Do que o Door é feito
 O Door junta duas coisas:
-- **MyPeople** (o motor do [MyPlow](../README.md)): times de agentes na sua máquina, com um Boss que distribui o trabalho, um quadro de
+- **MyPeople** (o motor do [MyPlow](../MYPLOW.md)): times de agentes na sua máquina, com um Boss que distribui o trabalho, um quadro de
   prioridades e a "prova" de que o trabalho foi feito. O Door leva essas ideias para pessoas *de fora* da sua máquina: o quadro onde os
   pedidos viram cartões, o Boss que escolhe qual agente responde, e a entrega conferida por evidência, não por confiança.
 - **[Plow](https://plow.co)**: uma linha de telefone para o agente (SMS e iMessage, inclusive grupos), um lugar para rodar a parte na nuvem
   como agente do Plow, e o **Plow Latch**, o app no seu Mac que o liga ao Plow só por conexão de saída.
+
+### Door e MyPeople: o que é compartilhado e o que não é
+O Door é um programa próprio: **ele não importa nem executa código do MyPeople, e não precisa do MyPeople instalado.** Ele nasce das ideias do
+MyPeople e segue o jeito como o MyPeople conversa com o Plow. Este repositório guarda as partes do MyPeople em que o Door se baseia.
+
+| No MyPeople (o resto deste repositório) | O que o Door aproveita |
+|---|---|
+| `../mypeople/runtime/plugins/plow-chat` (a ponte do Plow Chat) | Como um agente fala com o Plow: o contrato de agente na nuvem (`/v1/agents/cloud/me`), chats e grupos, responder na conversa de onde veio a pergunta. O `door/plow.py` e o `door/plow_agent.py` do Door seguem o mesmo padrão. |
+| `../cloud/` (a imagem da nuvem do MyPeople) | Como a imagem de um agente sobe numa linha do Plow sem nenhum segredo dentro (por exemplo, limpar o entrypoint porque o Plow executa o comando da própria imagem). O `cloud/Dockerfile` do Door segue a mesma abordagem. |
+| O Boss e os engenheiros (`../mypeople/runtime/mp-boss-doctrine.md`) | Um agente que decide quem trabalha em quê. O "Boss" do Door escolhe qual agente responde uma pergunta; as tarefas vão para um agente de tarefas separado. |
+| O quadro de prioridades | O quadro do Door: cada pedido vira um cartão que anda de To do até Done, com visão de prioridade. |
+| `../mypeople/runtime/verify/` e a ideia de "prova" | A regra do Door de que o trabalho só está Done com evidência: mudanças reais, as verificações da dona e uma checagem independente. |
+| Plow Latch | O MyPeople já usa o Latch para chegar a um Mac; o Door chega ao Mac da dona pelo mesmo Latch. |
+
+O que fica no resto deste repositório por causa do próprio MyPeople: o motor (`../mypeople/`), o app de desktop (`../desktop/`), a imagem da nuvem
+(`../cloud/`), o `../install.sh`, os arquivos Docker e o `../docs/HOW-IT-WORKS.md`. O README original do MyPlow é o [`MYPLOW.md`](../MYPLOW.md). O código do Door fica em `door/`.
 
 ### O que as pessoas podem fazer
 - **Perguntar** qualquer coisa sobre o projeto. A resposta diz de quais arquivos veio, e o Door confere que eles existem. Respostas na hora,
