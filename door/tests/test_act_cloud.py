@@ -232,3 +232,24 @@ class PanelJobs(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MacUnreachable(Base):
+    """Latch closed or the Mac asleep: the relay raises. The panel, the chat links and the texts must keep working."""
+    def test_a_dead_relay_does_not_stop_the_cycle(self):
+        class Dead:
+            def command(self, argv): raise OSError("mac is not connected")
+            ask = status = command
+        class Hub:
+            published = 0
+            def rpc(self, name, params): Hub.published += 1; return {}
+            def inbox(self): return [{"link_id": "L1", "id": 1, "text": "How does this work?", "name": "Ana"}]
+            def ack_inbox(self, ids): self.acked = ids
+            def chat(self, *a): pass
+        self.c.s["host_id"] = "h_test"; self.c.s["started_at"] = self.t; hub = Hub()
+        cycle(self.c, type("S", (), {"messages": lambda *a: iter(()), "send": lambda *a: None})(), Dead(), hub, None)     # must not raise
+        self.assertEqual(Hub.published, 1)                                       # the panel still got its snapshot
+        self.assertEqual(hub.acked, ["L1:1"])                                    # and the chat message was taken in, waiting for the Mac
+        (r,) = self.c.s["requests"].values(); self.assertIn(r["state"], ("queued", "waitingApproval"))
+        self.t += 130; self.c.tick()
+        self.assertTrue(any("Mac is not available" in t for t in self.texts("web:L1")))

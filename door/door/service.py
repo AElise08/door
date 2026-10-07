@@ -100,7 +100,10 @@ def cycle(cloud, sms, relay, hub, line_uid):
             argv += ["--request", cmd["request"], "--reason", cmd["reason"]]
         elif cmd["op"] == "decide":
             argv += ["--request", cmd["request"], "--action", cmd["action"], "--decision", cmd["decision"]]
-        out = relay.command(argv)
+        try:
+            out = relay.command(argv)
+        except (OSError, TimeoutError, PermissionError):
+            continue                                # the Mac cannot be reached right now (Latch closed, Mac asleep): try again next cycle
         if out.get("ok"):
             cmd["done"] = True
             if cmd["op"] == "pair-confirm" and out.get("ok"):
@@ -109,14 +112,19 @@ def cycle(cloud, sms, relay, hub, line_uid):
                 cloud._sms(cloud.s["owner_thread"], "Mac paired. Set up the local profile and the read rule in Latch.")
             cloud._save()
     if cloud.s["host_id"] and relay is not None:
-        if now() - cloud.s.get("summary_at", 0) >= 60 or cloud.s.get("host_online_at", 0) == 0:   # each call crosses Plow and Latch: once a minute is enough
-            summary = relay.command([_door(relay), "summary"])
-            if summary.get("ok"):
-                cloud.s["summary"] = summary["summary"]
-                cloud.s["host_online_at"] = cloud.s["summary_at"] = now()
-                cloud._save()
-        cloud.poll(relay)
-        cloud.dispatch(relay)
+        # An unreachable Mac must never stop the rest of the cycle: the panel, the chat links and the owner's texts keep working,
+        # and waiting requests are told the Mac is not available yet.
+        try:
+            if now() - cloud.s.get("summary_at", 0) >= 60 or cloud.s.get("host_online_at", 0) == 0:   # each call crosses Plow and Latch: once a minute is enough
+                summary = relay.command([_door(relay), "summary"])
+                if summary.get("ok"):
+                    cloud.s["summary"] = summary["summary"]
+                    cloud.s["host_online_at"] = cloud.s["summary_at"] = now()
+                    cloud._save()
+            cloud.poll(relay)
+            cloud.dispatch(relay)
+        except (OSError, TimeoutError, PermissionError):
+            pass
     cloud.s.setdefault("panel_seen", {})
     try:
         published = hub.rpc("door.publish", {"snapshot": cloud.snapshot(), "ack": list(cloud.s["panel_seen"])})

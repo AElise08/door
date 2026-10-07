@@ -832,7 +832,7 @@ class Cloud:
             for r in self.s["requests"].values():
                 if r["state"] in {"waitingApproval", "queued"} and t > r["deadline_at"]:
                     self._cancel(r, "expired")
-                elif r["state"] == "queued" and t - r["updated_at"] > 600:
+                elif r["state"] == "queued" and t - r["updated_at"] > 120:
                     self._sms(r["thread_id"], "The Mac is not available yet. Your request is still queued.",
                               r["request_id"] + ":offline")
                 if r["state"] in TERMINAL and t - r["updated_at"] > 30 * 86400:
